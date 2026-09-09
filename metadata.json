@@ -1,0 +1,6 @@
+{
+  "name": "CantieriCloud Pro",
+  "description": "Piattaforma professionale cloud per la contabilità cantieri, gestione mezzi, personale, SAL, acconti e rapportini giornalieri per capicantieri e operai.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
