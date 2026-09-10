@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation helpers
+    function isValidCompany(data) {
+      return data.keys().hasAll(['id', 'name', 'code', 'adminName', 'createdAt']) &&
+             data.id is string && data.name is string && data.code is string &&
+             data.adminName is string && data.createdAt is string;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['id', 'companyCode', 'name', 'username', 'password', 'role', 'mustChangePassword', 'active']) &&
+             data.id is string && data.companyCode is string && data.name is string &&
+             data.username is string && data.password is string && data.role in ['admin', 'dirigente', 'operativo'];
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Companies collection
+    match /companies/{companyId} {
+      allow get: if true;
+      allow list: if true; // Allow searching by code
+      allow create: if isValidCompany(incoming());
+      allow update: if isValidCompany(incoming());
+
+      // Subcollections
+      match /users/{userId} {
+        allow read, write: if true; // Since we use custom auth, we allow access for now. 
+        // In a real prod app, we'd use Firebase Auth and check company membership.
+      }
+      
+      match /cantieri/{id} { allow read, write: if true; }
+      match /personale/{id} { allow read, write: if true; }
+      match /mezzi/{id} { allow read, write: if true; }
+      match /materiali/{id} { allow read, write: if true; }
+      match /rapportini/{id} { allow read, write: if true; }
+      match /contabilita/{id} { allow read, write: if true; }
+    }
+  }
+}

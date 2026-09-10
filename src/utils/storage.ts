@@ -1,4 +1,4 @@
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale } from '../types';
 import { INITIAL_CANTIERI, INITIAL_PERSONALE, INITIAL_MEZZI, INITIAL_CONTABILITA, INITIAL_RAPPORTINI, INITIAL_USERS, INITIAL_COMPANY } from '../data/mockData';
 
 const STORAGE_KEYS = {
@@ -10,6 +10,7 @@ const STORAGE_KEYS = {
   RAPPORTINI: 'cantieri_cloud_rapportini',
   USERS: 'cantieri_cloud_users',
   CURRENT_USER: 'cantieri_cloud_current_user',
+  MATERIALI: 'cantieri_cloud_materiali',
 };
 
 export const getStoredData = <T>(key: string, initial: T): T => {
@@ -42,6 +43,7 @@ export const loadAppData = () => {
     localStorage.removeItem(STORAGE_KEYS.RAPPORTINI);
     localStorage.removeItem(STORAGE_KEYS.USERS);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    localStorage.removeItem(STORAGE_KEYS.MATERIALI);
   }
 
   return {
@@ -52,6 +54,7 @@ export const loadAppData = () => {
     contabilita: company ? getStoredData<ContabilitaEntry[]>(STORAGE_KEYS.CONTABILITA, INITIAL_CONTABILITA) : [],
     rapportini: company ? getStoredData<Rapportino[]>(STORAGE_KEYS.RAPPORTINI, INITIAL_RAPPORTINI) : [],
     users: company ? getStoredData<UserAccount[]>(STORAGE_KEYS.USERS, INITIAL_USERS) : [],
+    materiali: company ? getStoredData<Materiale[]>(STORAGE_KEYS.MATERIALI, []) : [],
     currentUser: company ? getStoredData<UserAccount | null>(STORAGE_KEYS.CURRENT_USER, null) : null,
   };
 };
@@ -63,4 +66,5 @@ export const saveMezzi = (data: Mezzo[]) => setStoredData(STORAGE_KEYS.MEZZI, da
 export const saveContabilita = (data: ContabilitaEntry[]) => setStoredData(STORAGE_KEYS.CONTABILITA, data);
 export const saveRapportini = (data: Rapportino[]) => setStoredData(STORAGE_KEYS.RAPPORTINI, data);
 export const saveUsers = (data: UserAccount[]) => setStoredData(STORAGE_KEYS.USERS, data);
+export const saveMateriali = (data: Materiale[]) => setStoredData(STORAGE_KEYS.MATERIALI, data);
 export const saveCurrentUser = (user: UserAccount | null) => setStoredData(STORAGE_KEYS.CURRENT_USER, user);

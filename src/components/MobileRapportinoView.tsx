@@ -1,465 +1,390 @@
 import React, { useState } from 'react';
 import { Cantiere, Personale, Mezzo, Rapportino, UserAccount } from '../types';
-import { Smartphone, Camera, Plus, Trash2, Send, CheckCircle, Calendar, HardHat, Wrench, Package, ArrowLeft, Fuel } from 'lucide-react';
+import { 
+  Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
+  MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface MobileRapportinoViewProps {
   currentUser: UserAccount;
   cantieri: Cantiere[];
-  personaleList: Personale[];
-  mezziList: Mezzo[];
-  onAddRapportino: (rapportino: Rapportino) => void;
-  onBackToAdmin?: () => void;
+  personale: Personale[];
+  mezzi: Mezzo[];
+  rapportini: Rapportino[];
+  onAddRapportino: (r: Rapportino) => void;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   currentUser,
   cantieri,
-  personaleList,
-  mezziList,
+  personale,
+  mezzi,
+  rapportini,
   onAddRapportino,
-  onBackToAdmin,
 }) => {
-  const [selectedCantiereId, setSelectedCantiereId] = useState(currentUser.cantiereId || cantieri[0]?.id || '');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [descrizione, setDescrizione] = useState('');
+  const [step, setStep] = useState<'list' | 'create'>('list');
+  const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   
-  // Personnel hours
-  const [selectedPersonale, setSelectedPersonale] = useState<Array<{ personaleId: string; hours: number }>>([
-    { personaleId: personaleList[0]?.id || '', hours: 8 }
-  ]);
+  // Create form state
+  const [formStep, setFormStep] = useState(1);
+  const [newRapportino, setNewRapportino] = useState<Partial<Rapportino>>({
+    personale: [],
+    materiali: [],
+    mezzi: [],
+    foto: [],
+    note: '',
+  });
 
-  // Materials used
-  const [materiali, setMateriali] = useState<Array<{ name: string; quantity: number; unit: string; costoUnitario: number }>>([
-    { name: '', quantity: 1, unit: 'sacchi', costoUnitario: 0 }
-  ]);
-
-  // Machinery used
-  const [mezzi, setMezzi] = useState<Array<{ mezzoId: string; hours: number; fuelLiters: number; fuelCost: number; maintenanceCost: number }>>([]);
-
-  // Photos
-  const [photos, setPhotos] = useState<string[]>([
-    'https://images.unsplash.com/photo-1541888946425-d0fbb18f2632?auto=format&fit=crop&w=600&q=80'
-  ]);
-
-  const [submittedSuccess, setSubmittedSuccess] = useState(false);
-
-  const handleAddPersonaleRow = () => {
-    setSelectedPersonale([...selectedPersonale, { personaleId: personaleList[0]?.id || '', hours: 8 }]);
-  };
-
-  const handleAddMaterialeRow = () => {
-    setMateriali([...materiali, { name: '', quantity: 1, unit: 'sacchi', costoUnitario: 0 }]);
-  };
-
-  const handleAddMezzoRow = () => {
-    setMezzi([...mezzi, { mezzoId: mezziList[0]?.id || '', hours: 4, fuelLiters: 10, fuelCost: 20, maintenanceCost: 0 }]);
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCantiereId || !descrizione.trim()) {
-      alert('Seleziona un cantiere e inserisci una descrizione dei lavori svolti.');
-      return;
-    }
-
-    const newRapportino: Rapportino = {
-      id: 'rap-' + Date.now(),
-      cantiereId: selectedCantiereId,
+  const handleCreateNew = (cantiere: Cantiere) => {
+    setSelectedCantiere(cantiere);
+    setNewRapportino({
       userId: currentUser.id,
       userName: currentUser.name,
-      date,
-      descrizione,
-      personale: selectedPersonale,
-      materiali: materiali.filter(m => m.name.trim() !== '').map((m, idx) => ({ ...m, id: 'mat-' + idx })),
-      mezzi,
-      photos,
-      createdAt: new Date().toISOString(),
+      cantiereId: cantiere.id,
+      date: new Date().toISOString().split('T')[0],
+      personale: [],
+      materiali: [],
+      mezzi: [],
+      foto: [],
+      note: '',
+    });
+    setStep('create');
+    setFormStep(1);
+  };
+
+  const handleTogglePersonale = (p: Personale) => {
+    const current = newRapportino.personale || [];
+    const exists = current.find(item => item.personaleId === p.id);
+    if (exists) {
+      setNewRapportino({ ...newRapportino, personale: current.filter(item => item.personaleId !== p.id) });
+    } else {
+      setNewRapportino({ ...newRapportino, personale: [...current, { personaleId: p.id, nome: p.name, ore: 8 }] });
+    }
+  };
+
+  const handleUpdateOre = (pId: string, ore: number) => {
+    const current = newRapportino.personale || [];
+    setNewRapportino({
+      ...newRapportino,
+      personale: current.map(item => item.personaleId === pId ? { ...item, ore } : item)
+    });
+  };
+
+  const handleAddMateriale = () => {
+    const nome = prompt('Nome materiale (es. Cemento RCK 30):');
+    if (!nome) return;
+    const quantita = prompt('Quantità (es. 5 mc):');
+    if (!quantita) return;
+    const current = newRapportino.materiali || [];
+    setNewRapportino({ ...newRapportino, materiali: [...current, { nome, quantita }] });
+  };
+
+  const handleAddMezzo = () => {
+    const mId = prompt('ID Mezzo o Targa:');
+    if (!mId) return;
+    const ore = prompt('Ore utilizzo:');
+    if (!ore) return;
+    const current = newRapportino.mezzi || [];
+    setNewRapportino({ ...newRapportino, mezzi: [...current, { mezzoId: mId, nome: mId, ore: Number(ore) }] });
+  };
+
+  const handleSubmit = () => {
+    if (!selectedCantiere) return;
+    const rapportino: Rapportino = {
+      id: 'rap-' + Date.now(),
+      userId: currentUser.id,
+      userName: currentUser.name,
+      cantiereId: selectedCantiere.id,
+      date: newRapportino.date || new Date().toISOString().split('T')[0],
+      personale: newRapportino.personale || [],
+      materiali: newRapportino.materiali || [],
+      mezzi: newRapportino.mezzi || [],
+      foto: newRapportino.foto || [],
+      note: newRapportino.note || '',
     };
-
-    onAddRapportino(newRapportino);
-    setSubmittedSuccess(true);
-    setTimeout(() => {
-      setSubmittedSuccess(false);
-      setDescrizione('');
-    }, 4000);
+    onAddRapportino(rapportino);
+    setStep('list');
+    alert('Rapportino inviato con successo al server cloud!');
   };
 
-  const handleSimulatePhotoAdd = () => {
-    const samplePhotos = [
-      'https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=600&q=80',
-      'https://images.unsplash.com/photo-1590069261209-f8e9b8642343?auto=format&fit=crop&w=600&q=80',
-      'https://images.unsplash.com/photo-1581092335397-9583fe92d232?auto=format&fit=crop&w=600&q=80',
-    ];
-    const randomPhoto = samplePhotos[Math.floor(Math.random() * samplePhotos.length)];
-    setPhotos([...photos, randomPhoto]);
-  };
+  const userRapportini = rapportini.filter(r => r.userId === currentUser.id);
 
   return (
-    <div className="max-w-md mx-auto bg-slate-50 min-h-screen pb-12 shadow-2xl border-x border-slate-200">
-      {/* Mobile Device Frame Header */}
-      <div className="bg-slate-900 text-white px-4 py-4 sticky top-0 z-20 flex items-center justify-between shadow-md">
-        <div className="flex items-center gap-2">
-          {onBackToAdmin && (
-            <button onClick={onBackToAdmin} className="p-1.5 bg-slate-800 rounded-lg text-slate-300 hover:text-white">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
-          <div>
-            <h1 className="font-bold text-sm flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-amber-400" /> Rapportino Giornaliero Cantiere
-            </h1>
-            <p className="text-[11px] text-slate-400">Compilazione Rapida Operatore</p>
+    <div className="min-h-screen bg-slate-50 flex flex-col max-w-[640px] mx-auto shadow-2xl relative">
+      
+      {/* Mobile Top Bar */}
+      <div className="bg-slate-950 text-white p-6 sticky top-0 z-50 rounded-b-[32px] shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
+              <Building2 className="w-6 h-6 text-slate-950" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">CantieriCloud</h1>
+              <p className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest">Mobile Ops • Cloud Sync</p>
+            </div>
           </div>
-        </div>
-        <div className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-1 rounded-full font-mono flex items-center gap-1 border border-emerald-500/30">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Firebase Sync
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/10">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="text-[10px] font-bold text-white uppercase">Online</span>
+          </div>
         </div>
       </div>
 
-      {submittedSuccess ? (
-        <div className="p-8 text-center my-12 bg-white mx-4 rounded-3xl shadow-xl border border-emerald-100">
-          <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-            <CheckCircle className="w-10 h-10" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Rapportino Inviato con Successo!</h2>
-          <p className="text-sm text-slate-600 mb-6">
-            I dati del cantiere, il personale impiegato, i materiali e le foto sono stati catalogati sul server Firebase e notificati all'amministratore.
-          </p>
-          <button
-            onClick={() => setSubmittedSuccess(false)}
-            className="w-full bg-slate-900 text-white py-3 rounded-xl font-semibold text-sm shadow hover:bg-slate-800"
-          >
-            Compila Nuovo Rapportino
-          </button>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          {/* Cantiere & Data */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cantiere di Riferimento *</label>
-              <select
-                value={selectedCantiereId}
-                onChange={(e) => setSelectedCantiereId(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none"
-                required
-              >
-                {cantieri.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+      <div className="flex-1 p-6 space-y-8 overflow-y-auto pb-32">
+        <AnimatePresence mode="wait">
+          {step === 'list' ? (
+            <motion.div 
+              key="list"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-8"
+            >
+              {/* Active Assignments */}
+              <div>
+                <div className="flex items-center justify-between mb-4 px-2">
+                  <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest">I Tuoi Cantieri</h2>
+                  <Smartphone className="w-4 h-4 text-slate-300" />
+                </div>
+                
+                <div className="space-y-4">
+                  {cantieri.length === 0 ? (
+                    <div className="bg-white border-2 border-dashed border-slate-200 rounded-[32px] p-12 text-center">
+                      <MapPin className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                      <p className="text-sm font-bold text-slate-400">Nessun cantiere attivo assegnato.</p>
+                    </div>
+                  ) : (
+                    cantieri.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => handleCreateNew(c)}
+                        className="w-full bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-amber-500/30 text-left group transition-all"
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all">
+                            <Building2 className="w-6 h-6" />
+                          </div>
+                          <div className="flex items-center gap-1 bg-emerald-500/10 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
+                            <CheckCircle2 className="w-3 h-3" /> Attivo
+                          </div>
+                        </div>
+                        <h3 className="text-xl font-bold text-slate-900 mb-1">{c.name}</h3>
+                        <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5" /> {c.address}
+                        </p>
+                        <div className="mt-6 flex items-center justify-between">
+                          <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Nuovo Rapportino</span>
+                          <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
+                            <Plus className="w-4 h-4 stroke-[3]" />
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-amber-600" /> Data Rapportino *
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none"
-                required
-              />
-            </div>
-          </div>
-
-          {/* Descrizione Lavori */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Descrizione Lavori Svolti Oggi *</label>
-            <textarea
-              rows={3}
-              value={descrizione}
-              onChange={(e) => setDescrizione(e.target.value)}
-              placeholder="Es. Solaio primo piano, posa tubazioni idrauliche, getto cls..."
-              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-sm text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none"
-              required
-            ></textarea>
-          </div>
-
-          {/* Personale Impegato */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
-                <HardHat className="w-4 h-4 text-amber-600" /> Personale & Ore Impiegate
-              </label>
-              <button
-                type="button"
-                onClick={handleAddPersonaleRow}
-                className="text-xs bg-amber-50 text-amber-700 font-semibold px-2.5 py-1 rounded-lg border border-amber-200 hover:bg-amber-100 flex items-center gap-1"
-              >
-                <Plus className="w-3 h-3" /> Aggiungi
-              </button>
-            </div>
-
-            {selectedPersonale.map((item, index) => (
-              <div key={index} className="flex items-center gap-2 bg-slate-50 p-2 rounded-xl border border-slate-200">
-                <select
-                  value={item.personaleId}
-                  onChange={(e) => {
-                    const updated = [...selectedPersonale];
-                    updated[index].personaleId = e.target.value;
-                    setSelectedPersonale(updated);
-                  }}
-                  className="flex-1 bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none"
-                >
-                  {personaleList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.role})
-                    </option>
+              {/* History */}
+              <div>
+                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-2">Ultimi Invii</h2>
+                <div className="space-y-3">
+                  {userRapportini.slice(0, 5).map(r => (
+                    <div key={r.id} className="bg-white px-5 py-4 rounded-2xl border border-slate-200 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-slate-400" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-900">Rapportino {r.date}</h4>
+                          <p className="text-[10px] text-slate-500 font-medium">Inviato al server</p>
+                        </div>
+                      </div>
+                      <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    </div>
                   ))}
-                </select>
-                <div className="w-20">
-                  <input
-                    type="number"
-                    min="1"
-                    max="16"
-                    value={item.hours}
-                    onChange={(e) => {
-                      const updated = [...selectedPersonale];
-                      updated[index].hours = Number(e.target.value);
-                      setSelectedPersonale(updated);
-                    }}
-                    className="w-full bg-white border border-slate-300 rounded-lg p-2 text-xs text-center font-bold text-slate-900 outline-none"
-                    placeholder="Ore"
-                  />
-                </div>
-                <span className="text-xs text-slate-500 font-medium">ore</span>
-                {selectedPersonale.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPersonale(selectedPersonale.filter((_, i) => i !== index))}
-                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Materiali Impiegati */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
-                <Package className="w-4 h-4 text-blue-600" /> Materiali Utilizzati
-              </label>
-              <button
-                type="button"
-                onClick={handleAddMaterialeRow}
-                className="text-xs bg-blue-50 text-blue-700 font-semibold px-2.5 py-1 rounded-lg border border-blue-200 hover:bg-blue-100 flex items-center gap-1"
-              >
-                <Plus className="w-3 h-3" /> Aggiungi
-              </button>
-            </div>
-
-            {materiali.map((mat, index) => (
-              <div key={index} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Nome materiale / fornitura..."
-                    value={mat.name}
-                    onChange={(e) => {
-                      const updated = [...materiali];
-                      updated[index].name = e.target.value;
-                      setMateriali(updated);
-                    }}
-                    className="flex-1 bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setMateriali(materiali.filter((_, i) => i !== index))}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <span className="text-[10px] text-slate-500">Qtà</span>
-                    <input
-                      type="number"
-                      min="1"
-                      value={mat.quantity}
-                      onChange={(e) => {
-                        const updated = [...materiali];
-                        updated[index].quantity = Number(e.target.value);
-                        setMateriali(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-center font-bold text-slate-900 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500">Unità</span>
-                    <select
-                      value={mat.unit}
-                      onChange={(e) => {
-                        const updated = [...materiali];
-                        updated[index].unit = e.target.value;
-                        setMateriali(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-slate-900 outline-none"
-                    >
-                      <option value="sacchi">sacchi</option>
-                      <option value="mc">mc</option>
-                      <option value="kg">kg</option>
-                      <option value="metri">metri</option>
-                      <option value="pz">pz</option>
-                      <option value="tonn">tonn</option>
-                    </select>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500">Costo Unit (€)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={mat.costoUnitario}
-                      onChange={(e) => {
-                        const updated = [...materiali];
-                        updated[index].costoUnitario = Number(e.target.value);
-                        setMateriali(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-center font-bold text-slate-900 outline-none"
-                    />
-                  </div>
                 </div>
               </div>
-            ))}
-          </div>
-
-          {/* Mezzi & Carburante Impiegati */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
-                <Wrench className="w-4 h-4 text-purple-600" /> Mezzi & Costo Carburante
-              </label>
-              <button
-                type="button"
-                onClick={handleAddMezzoRow}
-                className="text-xs bg-purple-50 text-purple-700 font-semibold px-2.5 py-1 rounded-lg border border-purple-200 hover:bg-purple-100 flex items-center gap-1"
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="create"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="space-y-8"
+            >
+              {/* Breadcrumb / Back */}
+              <button 
+                onClick={() => setStep('list')}
+                className="flex items-center gap-2 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-slate-900 transition-colors"
               >
-                <Plus className="w-3 h-3" /> Aggiungi
+                <ArrowLeft className="w-4 h-4" /> Annulla Rapportino
               </button>
-            </div>
 
-            {mezzi.map((mItem, index) => (
-              <div key={index} className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                <div className="flex gap-2">
-                  <select
-                    value={mItem.mezzoId}
-                    onChange={(e) => {
-                      const updated = [...mezzi];
-                      updated[index].mezzoId = e.target.value;
-                      setMezzi(updated);
-                    }}
-                    className="flex-1 bg-white border border-slate-300 rounded-lg p-2 text-xs text-slate-900 outline-none"
-                  >
-                    {mezziList.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.plate})
-                      </option>
+              <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl overflow-hidden">
+                <div className="bg-slate-950 p-6 text-white">
+                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1">Nuovo Rapportino Giornaliero</p>
+                  <h3 className="text-xl font-bold">{selectedCantiere?.name}</h3>
+                </div>
+
+                <div className="p-8 space-y-8">
+                  {/* Step Progress */}
+                  <div className="flex items-center justify-between mb-8">
+                    {[1, 2, 3].map(s => (
+                      <div key={s} className="flex items-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                          formStep >= s ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {s}
+                        </div>
+                        {s < 3 && <div className={`w-12 h-1 bg-slate-100 mx-2 rounded-full ${formStep > s ? 'bg-amber-500' : ''}`}></div>}
+                      </div>
                     ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => setMezzi(mezzi.filter((_, i) => i !== index))}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                  </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <span className="text-[10px] text-slate-500">Ore Lavoro</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={mItem.hours}
-                      onChange={(e) => {
-                        const updated = [...mezzi];
-                        updated[index].hours = Number(e.target.value);
-                        setMezzi(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-center font-bold text-slate-900 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500 flex items-center gap-0.5"><Fuel className="w-3 h-3 text-amber-500" /> Litri Gasolio</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={mItem.fuelLiters}
-                      onChange={(e) => {
-                        const updated = [...mezzi];
-                        updated[index].fuelLiters = Number(e.target.value);
-                        updated[index].fuelCost = Number(e.target.value) * 1.8; // stima 1.8€/L
-                        setMezzi(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-center font-bold text-slate-900 outline-none"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-500">Costo Carburante (€)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      value={mItem.fuelCost}
-                      onChange={(e) => {
-                        const updated = [...mezzi];
-                        updated[index].fuelCost = Number(e.target.value);
-                        setMezzi(updated);
-                      }}
-                      className="w-full bg-white border border-slate-300 rounded-lg p-1.5 text-xs text-center font-bold text-slate-900 outline-none"
-                    />
+                  {formStep === 1 && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                      <h4 className="text-lg font-bold text-slate-900">Personale Impiegato</h4>
+                      <p className="text-xs text-slate-500 leading-relaxed">Seleziona i colleghi presenti in cantiere oggi e specifica le ore lavorate.</p>
+                      <div className="space-y-3">
+                        {personale.map(p => {
+                          const selected = newRapportino.personale?.find(item => item.personaleId === p.id);
+                          return (
+                            <div key={p.id} className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                              selected ? 'bg-amber-500/5 border-amber-500' : 'bg-slate-50 border-slate-100'
+                            }`}>
+                              <div className="flex items-center gap-3">
+                                <input 
+                                  type="checkbox" 
+                                  checked={!!selected} 
+                                  onChange={() => handleTogglePersonale(p)}
+                                  className="w-5 h-5 rounded-lg border-slate-300 text-amber-500 focus:ring-amber-500"
+                                />
+                                <span className={`text-sm font-bold ${selected ? 'text-slate-900' : 'text-slate-500'}`}>{p.name}</span>
+                              </div>
+                              {selected && (
+                                <input 
+                                  type="number" 
+                                  value={selected.ore}
+                                  onChange={(e) => handleUpdateOre(p.id, Number(e.target.value))}
+                                  className="w-16 bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold text-center outline-none focus:ring-1 focus:ring-amber-500"
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {formStep === 2 && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                      <h4 className="text-lg font-bold text-slate-900">Materiali & Mezzi</h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        <button onClick={handleAddMateriale} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-amber-500 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-amber-500 transition-colors">
+                              <Building2 className="w-5 h-5" />
+                            </div>
+                            <span className="text-xs font-bold text-slate-700">Aggiungi Materiale</span>
+                          </div>
+                          <Plus className="w-4 h-4 text-slate-400" />
+                        </button>
+                        <button onClick={handleAddMezzo} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-amber-500 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-amber-500 transition-colors">
+                              <Wrench className="w-5 h-5" />
+                            </div>
+                            <span className="text-xs font-bold text-slate-700">Aggiungi Mezzo</span>
+                          </div>
+                          <Plus className="w-4 h-4 text-slate-400" />
+                        </button>
+                      </div>
+
+                      {/* Summary List */}
+                      <div className="space-y-2 mt-4">
+                        {newRapportino.materiali?.map((m, i) => (
+                          <div key={i} className="flex items-center justify-between px-4 py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-bold">
+                            <span className="text-slate-900">{m.nome}</span>
+                            <span className="text-amber-600">{m.quantita}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {formStep === 3 && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                      <h4 className="text-lg font-bold text-slate-900">Note & Foto</h4>
+                      <div className="space-y-4">
+                        <textarea 
+                          placeholder="Note di cantiere, imprevisti, avanzamento..."
+                          value={newRapportino.note}
+                          onChange={e => setNewRapportino({...newRapportino, note: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm min-h-[120px] outline-none focus:ring-1 focus:ring-amber-500"
+                        />
+                        <div className="p-10 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-3 hover:bg-white hover:border-amber-500 transition-all cursor-pointer">
+                          <Camera className="w-8 h-8" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Scatta Foto Cantiere</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Navigation Buttons */}
+                  <div className="flex gap-4 pt-8">
+                    {formStep > 1 && (
+                      <button 
+                        onClick={() => setFormStep(prev => prev - 1)}
+                        className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs hover:bg-slate-200 transition-colors"
+                      >
+                        Indietro
+                      </button>
+                    )}
+                    {formStep < 3 ? (
+                      <button 
+                        onClick={() => setFormStep(prev => prev + 1)}
+                        className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all"
+                      >
+                        Avanti
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={handleSubmit}
+                        className="flex-1 bg-amber-500 text-slate-950 font-bold py-4 rounded-2xl text-xs shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2"
+                      >
+                        Invia Rapportino <Send className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
-          {/* Foto Cantiere */}
-          <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <label className="text-xs font-bold text-slate-700 uppercase flex items-center gap-1.5">
-              <Camera className="w-4 h-4 text-emerald-600" /> Foto Cantiere & Prove Lavori
-            </label>
-
-            <div className="grid grid-cols-3 gap-2">
-              {photos.map((p, idx) => (
-                <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 group">
-                  <img src={p} alt={`Cantiere ${idx}`} className="w-full h-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
-                    className="absolute top-1 right-1 bg-red-600 text-white p-1 rounded-full text-xs shadow hover:bg-red-700"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={handleSimulatePhotoAdd}
-                className="aspect-square border-2 border-dashed border-slate-300 hover:border-amber-500 rounded-xl flex flex-col items-center justify-center text-slate-500 hover:text-amber-600 bg-slate-50 transition-colors"
-              >
-                <Camera className="w-6 h-6 mb-1" />
-                <span className="text-[10px] font-semibold">Scatta / Carica</span>
-              </button>
+      {/* Floating User Context */}
+      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[calc(100%-48px)] max-w-[592px] z-[60]">
+        <div className="bg-slate-950/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 font-black text-xs uppercase">
+              {currentUser.name.charAt(0)}
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">{currentUser.name}</p>
+              <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">{currentUser.role}</p>
             </div>
           </div>
-
-          <button
-            type="submit"
-            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-900 font-bold py-4 rounded-2xl shadow-lg flex items-center justify-center gap-2 text-base transition-transform active:scale-98"
-          >
-            <Send className="w-5 h-5" /> Invia Rapportino al Cloud (Firebase)
-          </button>
-        </form>
-      )}
+          <div className="flex items-center gap-2 text-[9px] font-bold text-slate-500 bg-white/5 px-2 py-1 rounded-lg">
+            <Cloud className="w-3 h-3" />
+            <span>V2.0 PRO</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

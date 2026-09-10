@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { UserAccount, Company } from '../types';
-import { Building2, Shield, User, Smartphone, Cloud, ChevronDown, CheckCircle2, LogOut, Key } from 'lucide-react';
+import { Building2, Shield, User, Smartphone, Cloud, ChevronDown, CheckCircle2, LogOut, Key, Settings, Bell, Search } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface NavbarProps {
   currentUser: UserAccount;
@@ -21,112 +22,135 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   return (
-    <header className="bg-slate-900 text-white shadow-md sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & Company Info */}
-          <div className="flex items-center space-x-3">
-            <div className="bg-amber-500 p-2 rounded-xl text-slate-900 shadow-inner flex items-center justify-center">
-              <Building2 className="w-6 h-6 stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-amber-400 bg-clip-text text-transparent">
-                  CantieriCloud Pro
-                </span>
-                {company && (
-                  <span className="hidden sm:inline-block bg-amber-500/20 text-amber-400 text-xs px-2.5 py-0.5 rounded font-mono border border-amber-500/30">
-                    {company.name} [{company.code}]
-                  </span>
-                )}
+    <nav className="bg-slate-950/80 backdrop-blur-xl border-b border-white/5 sticky top-0 z-[100]">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-8">
+        <div className="flex items-center justify-between h-20">
+          
+          {/* Brand & Context */}
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-3 group cursor-pointer">
+              <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-[0_0_20px_-5px_rgba(245,158,11,0.5)] group-hover:scale-105 transition-transform duration-300">
+                <Building2 className="w-6 h-6 text-slate-950 stroke-[2]" />
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Contabilità Cantieri & Rapportini in Cloud</p>
+              <div className="flex flex-col">
+                <span className="text-lg font-bold tracking-tight text-white leading-tight">
+                  CantieriCloud <span className="text-amber-500">Pro</span>
+                </span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Enterprise OS</span>
+              </div>
+            </div>
+
+            {company && (
+              <div className="hidden lg:flex items-center gap-4 border-l border-white/10 pl-8">
+                <div className="flex flex-col">
+                  <span className="text-xs font-bold text-white leading-none mb-1">{company.name}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Server Cloud Attivo</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Central Search (Visual Only for now to make it look "Pro") */}
+          <div className="hidden xl:flex flex-1 max-w-md mx-8">
+            <div className="w-full relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+              <input 
+                type="text" 
+                placeholder="Cerca cantieri, operai, mezzi..." 
+                className="w-full bg-slate-900/50 border border-white/5 rounded-2xl py-2.5 pl-12 pr-4 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-amber-500/50 focus:bg-slate-900 transition-all"
+              />
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="flex items-center space-x-3">
-            {/* Firebase Cloud status indicator */}
-            <div className="relative hidden md:block">
-              <button
-                onClick={() => setFirebaseStatusOpen(!firebaseStatusOpen)}
-                className="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/30 transition-colors"
-              >
-                <Cloud className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Firebase Cloud</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              </button>
-
-              {firebaseStatusOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-slate-800 rounded-xl shadow-2xl p-4 border border-slate-700 text-xs z-50 text-slate-200">
-                  <div className="flex items-center gap-2 font-bold text-emerald-400 mb-2">
-                    <CheckCircle2 className="w-4 h-4" /> Server Firebase Attivo
-                  </div>
-                  <p className="text-slate-300 leading-relaxed">
-                    Sincronizzazione in tempo reale abilitata. Codice Aziendale: <strong className="text-amber-400">{company?.code}</strong>
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Mobile / Desktop view toggle for non-operatives */}
+          {/* Action Hub */}
+          <div className="flex items-center gap-4">
+            
+            {/* View Toggle (Admin Only) */}
             {currentUser.role === 'admin' && (
               <button
                 onClick={() => setIsMobileView(!isMobileView)}
-                className={`p-2 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
                   isMobileView 
-                    ? 'bg-amber-500 text-slate-900 shadow-lg' 
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    ? 'bg-amber-500 text-slate-950 shadow-lg' 
+                    : 'bg-slate-900/50 text-slate-400 hover:text-white border border-white/5'
                 }`}
-                title="Simula Vista Smartphone (Rapportini)"
               >
                 <Smartphone className="w-4 h-4" />
-                <span className="hidden sm:inline">{isMobileView ? 'Torna Admin' : 'Simula Smartphone'}</span>
+                <span className="hidden md:inline">{isMobileView ? 'Dashboard Admin' : 'Vista Operativa'}</span>
               </button>
             )}
 
-            {/* User Profile & Logout */}
+            {/* Notifications (Mock) */}
+            <button className="relative p-2.5 bg-slate-900/50 rounded-xl border border-white/5 text-slate-400 hover:text-white transition-all">
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-amber-500 rounded-full border-2 border-slate-950"></span>
+            </button>
+
+            {/* Profile Menu */}
             <div className="relative">
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 p-1.5 sm:px-3 sm:py-1.5 rounded-xl border border-slate-700 transition-all text-left"
+                className="flex items-center gap-3 bg-slate-900/50 hover:bg-slate-800/80 p-1.5 pr-4 rounded-2xl border border-white/5 transition-all group"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-900 font-bold flex items-center justify-center text-sm shadow">
-                  {currentUser.name.charAt(0)}
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center overflow-hidden shadow-lg group-hover:border-amber-500/50 transition-colors">
+                  <User className="w-5 h-5 text-slate-400" />
                 </div>
-                <div className="hidden lg:block">
-                  <div className="text-xs font-semibold text-white truncate max-w-[140px]">{currentUser.name}</div>
-                  <div className="text-[10px] text-slate-400 capitalize">{currentUser.role}</div>
+                <div className="hidden sm:flex flex-col text-left">
+                  <span className="text-xs font-bold text-white leading-tight">{currentUser.name}</span>
+                  <span className="text-[10px] font-bold text-amber-500/80 uppercase tracking-tighter">{currentUser.role}</span>
                 </div>
-                <ChevronDown className="w-4 h-4 text-slate-400" />
+                <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform duration-300 ${userMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-slate-800 rounded-2xl shadow-2xl p-3 border border-slate-700 z-50 text-slate-200">
-                  <div className="px-3 py-2 border-b border-slate-700 mb-2">
-                    <p className="text-xs text-slate-400">Utente Connesso:</p>
-                    <p className="font-semibold text-sm text-white">{currentUser.name}</p>
-                    <p className="text-[11px] text-amber-400 capitalize mt-0.5">Ruolo: {currentUser.role}</p>
-                    {company && (
-                      <p className="text-[10px] font-mono text-slate-400 mt-1">Codice Azienda: {company.code}</p>
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      onLogout();
-                      setUserMenuOpen(false);
-                    }}
-                    className="w-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 font-semibold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center gap-2 transition-colors border border-rose-500/30"
+              <AnimatePresence>
+                {userMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    className="absolute right-0 mt-3 w-72 bg-slate-900 rounded-3xl shadow-[0_20px_40px_-12px_rgba(0,0,0,0.5)] border border-white/10 p-2 z-[110] overflow-hidden"
                   >
-                    <LogOut className="w-4 h-4" /> Esci / Disconnetti
-                  </button>
-                </div>
-              )}
+                    <div className="p-4 bg-slate-800/30 rounded-2xl mb-2">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black text-lg">
+                          {currentUser.name.charAt(0)}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-bold text-white">{currentUser.name}</span>
+                          <span className="text-[10px] text-slate-500 font-medium">Codice: {company?.code}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 py-1 px-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                        <Cloud className="w-3 h-3 text-emerald-400" />
+                        <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-tight">Cloud Sync Active</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+                        <Settings className="w-4 h-4" /> Impostazioni Profilo
+                      </button>
+                      <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-slate-400 hover:bg-white/5 hover:text-white transition-all">
+                        <Key className="w-4 h-4" /> Sicurezza & Privacy
+                      </button>
+                      <div className="h-px bg-white/5 my-2 mx-2"></div>
+                      <button
+                        onClick={onLogout}
+                        className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-all"
+                      >
+                        <LogOut className="w-4 h-4" /> Esci dalla Piattaforma
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
       </div>
-    </header>
+    </nav>
   );
 };

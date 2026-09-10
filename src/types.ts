@@ -53,23 +53,26 @@ export interface Mezzo {
 
 export interface PersonaleRapportino {
   personaleId: string;
-  hours: number;
+  nome: string; // Adding name for easier display in lists without full joins
+  ore: number;
 }
 
 export interface MaterialeRapportino {
-  id: string;
-  name: string;
-  quantity: number;
-  unit: string; // es. sacchi, mc, kg, metri
-  costoUnitario: number;
+  nome: string;
+  quantita: string;
 }
 
 export interface MezzoRapportino {
   mezzoId: string;
-  hours: number;
-  fuelLiters: number;
-  fuelCost: number;
-  maintenanceCost: number;
+  nome: string;
+  ore: number;
+}
+
+export interface Materiale {
+  id: string;
+  name: string;
+  unit: string;
+  defaultPrice: number;
 }
 
 export interface Rapportino {
@@ -78,12 +81,11 @@ export interface Rapportino {
   userId: string;
   userName: string;
   date: string;
-  descrizione: string;
+  note: string;
   personale: PersonaleRapportino[];
   materiali: MaterialeRapportino[];
   mezzi: MezzoRapportino[];
-  photos: string[]; // URLs or base64
-  createdAt: string;
+  foto: string[]; // URLs or base64
 }
 
 export type ContabilitaType = 'sal' | 'acconto' | 'spesa_materiale' | 'spesa_mezzo' | 'carburante' | 'manutenzione' | 'altro';

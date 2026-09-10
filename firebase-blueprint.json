@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "Company": {
+      "title": "Company",
+      "description": "Information about the construction company and its unique code.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "adminName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "code", "adminName", "createdAt"]
+    },
+    "UserAccount": {
+      "title": "User Account",
+      "description": "Registered user within a company.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyCode": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "dirigente", "operativo"] },
+        "mustChangePassword": { "type": "boolean" },
+        "cantiereId": { "type": "string" },
+        "phone": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "companyCode", "name", "username", "password", "role", "mustChangePassword", "active"]
+    },
+    "Cantiere": {
+      "title": "Cantiere",
+      "description": "A construction site project.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "client": { "type": "string" },
+        "address": { "type": "string" },
+        "budget": { "type": "number" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["in_corso", "completato", "sospeso"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "client", "address", "budget", "startDate", "status"]
+    },
+    "Personale": {
+      "title": "Personale",
+      "description": "Company employees or contractors.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "hourlyRate": { "type": "number" },
+        "phone": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "hourlyRate"]
+    },
+    "Mezzo": {
+      "title": "Mezzo",
+      "description": "Company equipment or vehicles.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "plate": { "type": "string" },
+        "type": { "type": "string" },
+        "hourlyRate": { "type": "number" },
+        "fuelEfficiency": { "type": "string" }
+      },
+      "required": ["id", "name", "plate", "type", "hourlyRate"]
+    },
+    "Materiale": {
+      "title": "Materiale",
+      "description": "Standard materials list.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "unit": { "type": "string" },
+        "defaultPrice": { "type": "number" }
+      },
+      "required": ["id", "name", "unit", "defaultPrice"]
+    },
+    "Rapportino": {
+      "title": "Rapportino",
+      "description": "Daily site report.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cantiereId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "note": { "type": "string" },
+        "personale": { "type": "array" },
+        "materiali": { "type": "array" },
+        "mezzi": { "type": "array" },
+        "foto": { "type": "array" }
+      },
+      "required": ["id", "cantiereId", "userId", "userName", "date"]
+    },
+    "ContabilitaEntry": {
+      "title": "ContabilitaEntry",
+      "description": "Accounting record for a site.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cantiereId": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "description": { "type": "string" },
+        "supplier": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "mezzoId": { "type": "string" }
+      },
+      "required": ["id", "cantiereId", "type", "amount", "date", "description"]
+    }
+  },
+  "firestore": {
+    "/companies/{companyId}": {
+      "schema": "Company",
+      "description": "Top-level company document."
+    },
+    "/companies/{companyId}/users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Users belonging to the company."
+    },
+    "/companies/{companyId}/cantieri/{cantiereId}": {
+      "schema": "Cantiere",
+      "description": "Projects belonging to the company."
+    },
+    "/companies/{companyId}/personale/{personaleId}": {
+      "schema": "Personale",
+      "description": "Staff belonging to the company."
+    },
+    "/companies/{companyId}/mezzi/{mezzoId}": {
+      "schema": "Mezzo",
+      "description": "Vehicles belonging to the company."
+    },
+    "/companies/{companyId}/materiali/{materialeId}": {
+      "schema": "Materiale",
+      "description": "Materials belonging to the company."
+    },
+    "/companies/{companyId}/rapportini/{rapportinoId}": {
+      "schema": "Rapportino",
+      "description": "Daily reports belonging to the company."
+    },
+    "/companies/{companyId}/contabilita/{entryId}": {
+      "schema": "ContabilitaEntry",
+      "description": "Accounting entries belonging to the company."
+    }
+  }
+}
