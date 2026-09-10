@@ -491,6 +491,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Cantieri Attivi</p>
+                    <p className="text-2xl font-bold text-slate-900">{cantieri.filter(c => c.status === 'in_corso').length}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Budget Totale</p>
+                    <p className="text-2xl font-bold text-slate-900">€{cantieri.reduce((acc, c) => acc + c.budget, 0).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costi Totali</p>
+                    <p className="text-2xl font-bold text-rose-600">€{contabilita.filter(cb => cb.amount < 0).reduce((acc, cb) => acc + Math.abs(cb.amount), 0).toLocaleString()}</p>
+                  </div>
+                </div>
+
                 {cantieri.length === 0 ? (
                   <div className="bg-white rounded-[40px] p-20 text-center border border-slate-200 shadow-sm">
                     <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -556,6 +571,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </motion.div>
             )}
 
+            {/* CONTABILITÀ TAB */}
+            {activeTab === 'contabilita' && (
+              <motion.div 
+                key="contabilita"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-8"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900">Registro Contabile</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Flussi di cassa, SAL e pagamenti fornitori.</p>
+                  </div>
+                  <button onClick={() => setShowAddContabModal(true)} className="bg-emerald-600 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-emerald-700 transition-all">
+                    <Plus className="w-4 h-4" /> Registra Movimento
+                  </button>
+                </div>
+
+                <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-slate-50/50 border-b border-slate-100">
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cantiere</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Descrizione</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Importo</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {contabilita.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-8 py-20 text-center text-slate-400 text-xs font-bold">Nessun movimento registrato.</td>
+                          </tr>
+                        ) : (
+                          contabilita.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
+                            const cantiere = cantieri.find(c => c.id === entry.cantiereId);
+                            return (
+                              <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-8 py-5 text-xs font-medium text-slate-500">{entry.date}</td>
+                                <td className="px-8 py-5 text-sm font-bold text-slate-900">{cantiere?.name || 'Cantiere Eliminato'}</td>
+                                <td className="px-8 py-5 text-sm text-slate-600">{entry.description}</td>
+                                <td className="px-8 py-5">
+                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                                    entry.amount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {entry.type.replace('_', ' ')}
+                                  </span>
+                                </td>
+                                <td className={`px-8 py-5 text-sm font-bold text-right ${entry.amount > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  {entry.amount > 0 ? '+' : ''}{entry.amount.toLocaleString()}€
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
             {/* PERSONALE TAB */}
             {activeTab === 'personale' && (
               <motion.div 
@@ -572,6 +651,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button onClick={() => setShowAddPersonaleModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
                     <Plus className="w-4 h-4" /> Aggiungi Personale
                   </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Forza Lavoro</p>
+                    <p className="text-2xl font-bold text-slate-900">{personale.length} Operativi</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Totali (Mese)</p>
+                    <p className="text-2xl font-bold text-amber-600">
+                      {rapportini.reduce((acc, r) => acc + r.personale.reduce((pAcc, p) => pAcc + p.ore, 0), 0)} h
+                    </p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Medio Orario</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      €{personale.length > 0 ? (personale.reduce((acc, p) => acc + p.hourlyRate, 0) / personale.length).toFixed(2) : '0'}/h
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -626,6 +724,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <button onClick={() => setShowAddMezzoModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
                     <Plus className="w-4 h-4" /> Aggiungi Mezzo
                   </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Parco Mezzi</p>
+                    <p className="text-2xl font-bold text-slate-900">{mezzi.length} Unità</p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Motore Totali</p>
+                    <p className="text-2xl font-bold text-amber-600">
+                      {rapportini.reduce((acc, r) => acc + r.mezzi.reduce((mAcc, m) => mAcc + m.ore, 0), 0)} h
+                    </p>
+                  </div>
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Ammortamento h</p>
+                    <p className="text-2xl font-bold text-slate-900">
+                      €{mezzi.length > 0 ? (mezzi.reduce((acc, m) => acc + m.hourlyRate, 0) / mezzi.length).toFixed(2) : '0'}/h
+                    </p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
