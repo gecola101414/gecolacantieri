@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
-  Rapportino, ContabilitaEntry, Materiale 
+  Rapportino, ContabilitaEntry, Materiale, TransferCode 
 } from '../types';
 
 // Generic error handler as required by skill
@@ -213,6 +213,42 @@ export const firestoreService = {
       await setDoc(doc(db, 'companies', companyId, 'contabilita', entry.id), entry);
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  // Transfer Codes
+  async saveTransferCode(companyId: string, code: TransferCode): Promise<void> {
+    const path = `companies/${companyId}/transferCodes/${code.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'transferCodes', code.id), code);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async getTransferCode(companyId: string, codeStr: string): Promise<TransferCode | null> {
+    const path = `companies/${companyId}/transferCodes`;
+    try {
+      const q = query(
+        collection(db, 'companies', companyId, 'transferCodes'), 
+        where('code', '==', codeStr),
+        where('used', '==', false)
+      );
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) return null;
+      return snapshot.docs[0].data() as TransferCode;
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return null;
+    }
+  },
+
+  async markTransferCodeUsed(companyId: string, codeId: string): Promise<void> {
+    const path = `companies/${companyId}/transferCodes/${codeId}`;
+    try {
+      await updateDoc(doc(db, 'companies', companyId, 'transferCodes', codeId), { used: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
     }
   }
 };

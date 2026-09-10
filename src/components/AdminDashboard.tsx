@@ -3,7 +3,7 @@ import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, 
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, 
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
@@ -229,6 +229,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const user = users.find(u => u.id === userId);
     if (user) {
       onSaveUser({ ...user, password: '1234', mustChangePassword: true });
+    }
+  };
+
+  const handleResetDevice = (userId: string) => {
+    if (!window.confirm('Sei sicuro di voler scollegare il cellulare da questo account? L\'utente potrà legarne uno nuovo al prossimo login.')) return;
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      const updatedUser = { ...user };
+      delete updatedUser.deviceId;
+      onSaveUser(updatedUser);
     }
   };
 
@@ -816,6 +826,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </td>
                             <td className="px-8 py-5 text-right">
                               <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => handleResetDevice(u.id)}
+                                  className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                  title="Reset Dispositivo (Scollega Cellulare)"
+                                >
+                                  <Smartphone className="w-4 h-4 text-slate-400 group-hover:text-sky-500" />
+                                </button>
                                 <button 
                                   onClick={() => handleResetPassword(u.id)}
                                   className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 

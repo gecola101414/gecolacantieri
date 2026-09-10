@@ -14,6 +14,21 @@ interface AuthScreenProps {
   setUsers: (users: UserAccount[]) => void;
 }
 
+const getLocalDeviceId = () => {
+  if (typeof window === 'undefined') return '';
+  let id = localStorage.getItem('cantieri_cloud_device_id');
+  if (!id) {
+    id = 'dev-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
+    localStorage.setItem('cantieri_cloud_device_id', id);
+  }
+  return id;
+};
+
+const isMobileDevice = () => {
+  if (typeof window === 'undefined') return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+};
+
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   company,
   users,
@@ -27,12 +42,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     !company ? 'register_admin' : 'login'
   );
 
-  // Login steps: 'company_code' -> 'user_selection' -> 'password'
-  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password'>('company_code');
+  // Login steps: 'company_code' -> 'user_selection' -> 'password' | 'transfer_code'
+  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code'>('company_code');
   const [inputCompanyCode, setInputCompanyCode] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [filteredUsers, setFilteredUsers] = useState<UserAccount[]>([]);
   const [loginPassword, setLoginPassword] = useState('');
+  const [transferCodeInput, setTransferCodeInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -83,11 +99,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setLoginStep('password');
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     
-    if (!selectedUser) return;
+    if (!selectedUser || !company) return;
 
     if (selectedUser.password !== loginPassword) {
       setLoginError('Password errata.');
@@ -99,10 +115,86 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
+    const localDeviceId = getLocalDeviceId();
+    const isMobile = isMobileDevice();
+
+    // Device Binding Logic
+    if (isMobile) {
+      if (!selectedUser.deviceId) {
+        // Prima volta su mobile: lega il dispositivo
+        const updatedUser = { ...selectedUser, deviceId: localDeviceId };
+        setIsLoading(true);
+        try {
+          await firestoreService.saveUser(company.id, updatedUser);
+          setSelectedUser(updatedUser);
+        } catch (err) {
+          setLoginError('Errore durante il collegamento del dispositivo.');
+          setIsLoading(false);
+          return;
+        }
+        setIsLoading(false);
+      } else if (selectedUser.deviceId !== localDeviceId) {
+        setLoginError('Questo account è già legato ad un altro cellulare. Contatta l\'amministratore per resettare il dispositivo.');
+        return;
+      }
+    } else {
+      // È un computer (o tablet grande)
+      // Se l'utente ha già un dispositivo mobile legato, deve usare il codice di trasferimento
+      if (selectedUser.deviceId && selectedUser.deviceId !== localDeviceId) {
+        setLoginStep('transfer_code');
+        return;
+      }
+    }
+
     if (selectedUser.mustChangePassword || selectedUser.password === '1234') {
       setUserToChangePassword(selectedUser);
     } else {
       onLogin(selectedUser);
+    }
+  };
+
+  const handleTransferCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUser || !company) return;
+    setLoginError('');
+    setIsLoading(true);
+
+    try {
+      const codeData = await firestoreService.getTransferCode(company.id, transferCodeInput.trim().toUpperCase());
+      
+      if (!codeData) {
+        setLoginError('Codice non valido o già utilizzato.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (codeData.userId !== selectedUser.id) {
+        setLoginError('Questo codice non appartiene al tuo account.');
+        setIsLoading(false);
+        return;
+      }
+
+      const expiresAt = new Date(codeData.expiresAt).getTime();
+      if (Date.now() > expiresAt) {
+        setLoginError('Codice scaduto (validità 120 secondi). Generane uno nuovo dal cellulare.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Codice valido: segna come usato e logga
+      await firestoreService.markTransferCodeUsed(company.id, codeData.id);
+      
+      // Opzionale: lega anche questo dispositivo? 
+      // L'utente dice "certificato del cellulare", quindi forse il PC non si lega per sempre o sì?
+      // "LEGA IL LOGIN AL CELLULARE" -> Computer usa il codice per "entrare con un account certificato".
+      // Lo consideriamo un login autorizzato una tantum o permanente? 
+      // Di solito questi codici autorizzano la sessione.
+      
+      onLogin(selectedUser);
+    } catch (err) {
+      setLoginError('Errore durante la verifica del codice di trasferimento.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -424,9 +516,63 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             </button>
                             <button
                               type="submit"
-                              className="flex-[2] bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98]"
+                              disabled={isLoading}
+                              className="flex-[2] bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                             >
-                              Accedi
+                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Accedi'}
+                            </button>
+                          </div>
+                        </motion.form>
+                      )}
+
+                      {/* STEP 4: TRANSFER CODE */}
+                      {loginStep === 'transfer_code' && (
+                        <motion.form 
+                          key="step-transfer"
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          onSubmit={handleTransferCodeSubmit}
+                          className="space-y-5"
+                        >
+                          <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 flex items-center gap-4">
+                            <Smartphone className="w-8 h-8 text-amber-500" />
+                            <div>
+                              <p className="text-[11px] font-bold text-white uppercase tracking-wider">Autorizzazione PC</p>
+                              <p className="text-[10px] text-slate-400">Apri l'app sul cellulare e genera un <span className="text-amber-500 font-bold">Codice di Trasferimento</span>.</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice di 6 cifre</label>
+                            <div className="relative group">
+                              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                              <input
+                                type="text"
+                                value={transferCodeInput}
+                                onChange={(e) => setTransferCodeInput(e.target.value.toUpperCase())}
+                                placeholder="ES: AB12CD"
+                                maxLength={6}
+                                className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 pl-12 text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all placeholder:text-slate-700 tracking-[0.2em] font-mono"
+                                required
+                                autoFocus
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setLoginStep('password')}
+                              className="flex-1 bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all hover:bg-slate-700"
+                            >
+                              Indietro
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isLoading}
+                              className="flex-[2] bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                            >
+                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Autorizza PC'}
                             </button>
                           </div>
                         </motion.form>

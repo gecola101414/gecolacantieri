@@ -19,6 +19,15 @@ export interface UserAccount {
   cantiereId?: string; // Optional assignment for site operatives
   phone: string;
   active: boolean;
+  deviceId?: string; // ID del dispositivo legato al primo login mobile
+}
+
+export interface TransferCode {
+  id: string;
+  code: string;
+  userId: string;
+  expiresAt: string;
+  used: boolean;
 }
 
 export interface Cantiere {

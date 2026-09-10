@@ -240,6 +240,7 @@ export default function App() {
               >
                 <MobileRapportinoView
                   currentUser={currentUser}
+                  company={company}
                   cantieri={cantieri}
                   personale={personale}
                   mezzi={mezzi}

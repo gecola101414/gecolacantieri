@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, UserAccount } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
-  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { firestoreService } from '../lib/firestoreService';
 
 interface MobileRapportinoViewProps {
   currentUser: UserAccount;
+  company: Company | null;
   cantieri: Cantiere[];
   personale: Personale[];
   mezzi: Mezzo[];
@@ -18,6 +20,7 @@ interface MobileRapportinoViewProps {
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   currentUser,
+  company,
   cantieri,
   personale,
   mezzi,
@@ -26,6 +29,46 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 }) => {
   const [step, setStep] = useState<'list' | 'create'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
+  
+  // Transfer Code Logic
+  const [activeTransferCode, setActiveTransferCode] = useState<TransferCode | null>(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (timeLeft > 0) {
+      timer = setInterval(() => {
+        setTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else {
+      setActiveTransferCode(null);
+    }
+    return () => clearInterval(timer);
+  }, [timeLeft]);
+
+  const handleGenerateTransferCode = async () => {
+    if (!company) return;
+    setIsGenerating(true);
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newCode: TransferCode = {
+      id: 'tc-' + Date.now(),
+      code,
+      userId: currentUser.id,
+      expiresAt: new Date(Date.now() + 120 * 1000).toISOString(),
+      used: false
+    };
+    
+    try {
+      await firestoreService.saveTransferCode(company.id, newCode);
+      setActiveTransferCode(newCode);
+      setTimeLeft(120);
+    } catch (err) {
+      alert('Errore nella generazione del codice.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
   
   // Create form state
   const [formStep, setFormStep] = useState(1);
@@ -115,8 +158,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     <div className="min-h-screen bg-slate-50 flex flex-col max-w-[640px] mx-auto shadow-2xl relative">
       
       {/* Mobile Top Bar */}
-      <div className="bg-slate-950 text-white p-6 sticky top-0 z-50 rounded-b-[32px] shadow-xl">
-        <div className="flex items-center justify-between mb-4">
+      <div className="bg-slate-950 text-white p-6 sticky top-0 z-50 rounded-b-[32px] shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
               <Building2 className="w-6 h-6 text-slate-950" />
@@ -126,11 +169,53 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               <p className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest">Mobile Ops • Cloud Sync</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/10">
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span className="text-[10px] font-bold text-white uppercase">Online</span>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleGenerateTransferCode}
+              disabled={isGenerating || timeLeft > 0}
+              className={`p-2.5 rounded-xl border transition-all ${
+                timeLeft > 0 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.5)]' 
+                  : 'bg-white/5 border-white/10 text-white/40 hover:text-white hover:bg-white/10'
+              }`}
+              title="Genera Codice Trasferimento PC"
+            >
+              <KeyRound className={`w-5 h-5 ${isGenerating ? 'animate-pulse' : ''}`} />
+            </button>
+            <div className="w-10 h-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-amber-500 text-xs font-bold">
+              {currentUser.name.charAt(0)}
+            </div>
           </div>
         </div>
+
+        <AnimatePresence>
+          {activeTransferCode && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10 }}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-600 p-[1px] rounded-2xl shadow-lg shadow-emerald-500/20"
+            >
+              <div className="bg-slate-950 rounded-[15px] p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center">
+                    <ShieldCheck className="w-5 h-5 text-slate-950" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest leading-none mb-1">Codice Accesso PC</p>
+                    <p className="text-xl font-mono font-black text-white tracking-[0.2em]">{activeTransferCode.code}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] font-bold text-slate-500 uppercase">Scade tra</p>
+                  <p className="text-lg font-bold text-white tabular-nums flex items-center gap-1.5 justify-end">
+                    <Timer className="w-4 h-4 text-emerald-500" /> {timeLeft}s
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className="flex-1 p-6 space-y-8 overflow-y-auto pb-32">
