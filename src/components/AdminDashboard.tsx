@@ -27,6 +27,8 @@ interface AdminDashboardProps {
   materiali: Materiale[];
   onAddMateriale: (m: Materiale) => void;
   currentUser: UserAccount;
+  activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali';
+  setActiveTab: (tab: any) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -47,9 +49,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   materiali,
   onAddMateriale,
   currentUser,
+  activeTab,
+  setActiveTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali'>('panoramica');
-  
   // Modals
   const [showAddCantiereModal, setShowAddCantiereModal] = useState(false);
   const [showAddContabModal, setShowAddContabModal] = useState(false);
@@ -347,54 +349,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </div>
 
       {/* Main Content Area */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        
-        {/* Navigation Sidebar */}
-        <div className="xl:col-span-3 space-y-2">
-          <div className="p-2 bg-white rounded-[28px] border border-slate-200 shadow-sm space-y-1">
-            {[
-              { id: 'panoramica', label: 'Panoramica', icon: LayoutGrid },
-              { id: 'cantieri', label: 'Progetti & Cantieri', icon: Building2, count: cantieri.length },
-              { id: 'personale', label: 'Team & Personale', icon: HardHat, count: personale.length },
-              { id: 'mezzi', label: 'Flotta Mezzi', icon: Wrench, count: mezzi.length },
-              { id: 'materiali', label: 'Listino Materiali', icon: Box, count: materiali.length },
-              { id: 'rapportini', label: 'Rapportini Cloud', icon: FileText, count: rapportini.length },
-              { id: 'utenti', label: 'Accessi & Sicurezza', icon: Shield },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`w-full flex items-center justify-between p-4 rounded-2xl font-bold text-sm transition-all ${
-                  activeTab === tab.id 
-                    ? 'bg-slate-950 text-white shadow-lg' 
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <tab.icon className={`w-4 h-4 ${activeTab === tab.id ? 'text-amber-500' : ''}`} />
-                  {tab.label}
-                </div>
-                {tab.count !== undefined && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-lg ${activeTab === tab.id ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-[28px] p-6 text-slate-950 shadow-xl shadow-amber-500/20 relative overflow-hidden group">
-            <div className="absolute -right-8 -bottom-8 w-24 h-24 bg-white/20 blur-2xl rounded-full group-hover:scale-150 transition-transform duration-500"></div>
-            <div className="relative z-10 space-y-4">
-              <h5 className="font-bold text-sm leading-tight">Espandi la tua potenza operativa.</h5>
-              <p className="text-[10px] font-bold opacity-80 leading-relaxed uppercase tracking-wider">Aggiungi nuovi moduli, integrazioni WhatsApp e report avanzati.</p>
-              <button className="w-full bg-slate-950 text-white text-[10px] font-black uppercase tracking-widest py-3 rounded-xl hover:bg-slate-900 transition-colors shadow-lg">Upgrade Enterprise</button>
-            </div>
-          </div>
-        </div>
-
+      <div className="w-full">
         {/* Tab Content Display */}
-        <div className="xl:col-span-9">
+        <div className="w-full">
           <AnimatePresence mode="wait">
             
             {/* PANORAMICA */}

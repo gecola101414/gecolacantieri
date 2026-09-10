@@ -5,6 +5,7 @@ import {
   saveCompany as saveLocalCompany
 } from './utils/storage';
 import { Navbar } from './components/Navbar';
+import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
@@ -33,6 +34,8 @@ export default function App() {
   const [materiali, setMateriali] = useState<Materiale[]>(initialLocalData.materiali || []);
 
   const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
+  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali'>('panoramica');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Persistence to localStorage for "Device Binding"
   useEffect(() => { 
@@ -195,70 +198,89 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative flex overflow-hidden">
       {isCloudLoading && (
-        <div className="fixed top-4 right-4 z-50 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 shadow-lg">
+        <div className="fixed top-4 right-4 z-[110] bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 shadow-lg">
           <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
           <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">Sincronizzazione Cloud</span>
         </div>
       )}
 
-      <Navbar
-        currentUser={currentUser}
-        company={company}
-        onLogout={handleLogout}
-        isMobileView={isMobileView}
-        setIsMobileView={setIsMobileView}
-      />
+      {/* Sidebar for Desktop Admin/Tecnico View */}
+      {currentUser.role !== 'operativo' && !isMobileView && (
+        <Sidebar 
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isCollapsed={isSidebarCollapsed}
+          setIsCollapsed={setIsSidebarCollapsed}
+          currentUser={currentUser}
+          company={company}
+          onLogout={handleLogout}
+        />
+      )}
 
-      <main className="pb-16">
-        <AnimatePresence mode="wait">
-          {isMobileView || currentUser.role === 'operativo' ? (
-            <motion.div
-              key="mobile"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <MobileRapportinoView
-                currentUser={currentUser}
-                cantieri={cantieri}
-                personale={personale}
-                mezzi={mezzi}
-                rapportini={rapportini}
-                onAddRapportino={cloudHandlers.saveRapportino}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="desktop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <AdminDashboard
-                company={company}
-                cantieri={cantieri}
-                onAddCantiere={cloudHandlers.saveCantiere}
-                personale={personale}
-                onAddPersonale={cloudHandlers.savePersonale}
-                mezzi={mezzi}
-                onAddMezzo={cloudHandlers.saveMezzo}
-                contabilita={contabilita}
-                onAddContabilita={cloudHandlers.saveContabilita}
-                rapportini={rapportini}
-                onAddRapportino={cloudHandlers.saveRapportino}
-                materiali={materiali}
-                onAddMateriale={cloudHandlers.saveMateriale}
-                users={users}
-                onSaveUser={cloudHandlers.saveUser}
-                onDeleteUser={cloudHandlers.deleteUser}
-                currentUser={currentUser}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </main>
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        <Navbar
+          currentUser={currentUser}
+          company={company}
+          onLogout={handleLogout}
+          isMobileView={isMobileView}
+          setIsMobileView={setIsMobileView}
+        />
+
+        <main className="flex-1 overflow-y-auto bg-slate-50">
+          <AnimatePresence mode="wait">
+            {isMobileView || currentUser.role === 'operativo' ? (
+              <motion.div
+                key="mobile"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="p-4"
+              >
+                <MobileRapportinoView
+                  currentUser={currentUser}
+                  cantieri={cantieri}
+                  personale={personale}
+                  mezzi={mezzi}
+                  rapportini={rapportini}
+                  onAddRapportino={cloudHandlers.saveRapportino}
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="desktop"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                className="p-4 sm:p-8"
+              >
+                <AdminDashboard
+                  company={company}
+                  cantieri={cantieri}
+                  onAddCantiere={cloudHandlers.saveCantiere}
+                  personale={personale}
+                  onAddPersonale={cloudHandlers.savePersonale}
+                  mezzi={mezzi}
+                  onAddMezzo={cloudHandlers.saveMezzo}
+                  contabilita={contabilita}
+                  onAddContabilita={cloudHandlers.saveContabilita}
+                  rapportini={rapportini}
+                  onAddRapportino={cloudHandlers.saveRapportino}
+                  materiali={materiali}
+                  onAddMateriale={cloudHandlers.saveMateriale}
+                  users={users}
+                  onSaveUser={cloudHandlers.saveUser}
+                  onDeleteUser={cloudHandlers.deleteUser}
+                  currentUser={currentUser}
+                  activeTab={activeTab}
+                  setActiveTab={setActiveTab}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
+      </div>
     </div>
   );
 }
