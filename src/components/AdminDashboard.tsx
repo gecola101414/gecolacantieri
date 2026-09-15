@@ -1618,7 +1618,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Aziendale</p>
                   <p className="text-2xl font-black text-emerald-600">
-                    €{(rapportini.reduce((acc, r) => acc + (r.personnelHours.find(ph => ph.personnelId === selectedPersonale.id)?.hours || 0), 0) * selectedPersonale.hourlyRate).toLocaleString()}
+                    €{(rapportini.reduce((acc, r) => acc + (r.personnelHours.find(ph => ph.personnelId === selectedPersonale.id)?.hours || 0), 0) * (selectedPersonale.hourlyRate || 0)).toLocaleString()}
                   </p>
                 </div>
               </div>

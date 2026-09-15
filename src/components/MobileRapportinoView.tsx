@@ -3,7 +3,7 @@ import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferC
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
-  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
@@ -163,18 +163,24 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
+    if (file && company) {
+      setIsSubmitting(true);
+      try {
+        const path = `rapportini/foto-${Date.now()}-${file.name}`;
+        const url = await firestoreService.uploadFile(company.id, path, file);
         const currentFoto = newRapportino.foto || [];
         setNewRapportino({
           ...newRapportino,
-          foto: [...currentFoto, reader.result as string]
+          foto: [...currentFoto, url]
         });
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Error uploading photo:', err);
+        alert('Errore nel caricamento della foto. Riprova.');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -192,26 +198,36 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     });
   };
 
-  const handleSubmit = () => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
     if (!selectedCantiere) return;
-    const rapportino: Rapportino = {
-      id: 'rap-' + Date.now(),
-      userId: currentUser.id,
-      userName: currentUser.name,
-      cantiereId: selectedCantiere.id,
-      date: newRapportino.date || new Date().toISOString().split('T')[0],
-      personale: newRapportino.personale || [],
-      materiali: newRapportino.materiali || [],
-      mezzi: newRapportino.mezzi || [],
-      foto: newRapportino.foto || [],
-      note: newRapportino.note || '',
-      personnelHours: newRapportino.personnelHours || [],
-      mezziHours: newRapportino.mezziHours || [],
-      materialiUsed: newRapportino.materialiUsed || [],
-    };
-    onAddRapportino(rapportino);
-    setStep('list');
-    alert('Rapportino inviato con successo al server cloud!');
+    setIsSubmitting(true);
+    try {
+      const rapportino: Rapportino = {
+        id: 'rap-' + Date.now(),
+        userId: currentUser.id,
+        userName: currentUser.name,
+        cantiereId: selectedCantiere.id,
+        date: newRapportino.date || new Date().toISOString().split('T')[0],
+        personale: newRapportino.personale || [],
+        materiali: newRapportino.materiali || [],
+        mezzi: newRapportino.mezzi || [],
+        foto: newRapportino.foto || [],
+        note: newRapportino.note || '',
+        personnelHours: newRapportino.personnelHours || [],
+        mezziHours: newRapportino.mezziHours || [],
+        materialiUsed: newRapportino.materialiUsed || [],
+      };
+      await onAddRapportino(rapportino);
+      setStep('list');
+      alert('Rapportino inviato con successo al server cloud!');
+    } catch (err) {
+      console.error('Error submitting rapportino:', err);
+      alert('Errore nell\'invio del rapportino. Controlla la connessione e riprova.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const userRapportini = rapportini.filter(r => r.userId === currentUser.id);
@@ -581,9 +597,14 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                     ) : (
                       <button 
                         onClick={handleSubmit}
-                        className="flex-1 bg-amber-500 text-slate-950 font-bold py-4 rounded-2xl text-xs shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2"
+                        disabled={isSubmitting}
+                        className="flex-1 bg-amber-500 text-slate-950 font-bold py-4 rounded-2xl text-xs shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
                       >
-                        Invia Rapportino <Send className="w-4 h-4" />
+                        {isSubmitting ? (
+                          <>Inviando... <Loader2 className="w-4 h-4 animate-spin" /></>
+                        ) : (
+                          <>Invia Rapportino <Send className="w-4 h-4" /></>
+                        )}
                       </button>
                     )}
                   </div>

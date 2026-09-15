@@ -1,8 +1,9 @@
-import { db } from './firebase';
+import { db, storage } from './firebase';
 import { 
   collection, doc, getDoc, getDocs, setDoc, query, where, 
   onSnapshot, deleteDoc, updateDoc, writeBatch, orderBy 
 } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
   Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument
@@ -37,13 +38,22 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 function sanitizeData<T>(data: T): T {
-  const result = { ...data } as any;
-  Object.keys(result).forEach(key => {
-    if (result[key] === undefined) {
-      delete result[key];
-    }
-  });
-  return result;
+  if (data === null || data === undefined) return data;
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeData(item)) as any;
+  }
+  if (typeof data === 'object') {
+    const result = { ...data } as any;
+    Object.keys(result).forEach(key => {
+      if (result[key] === undefined) {
+        delete result[key];
+      } else {
+        result[key] = sanitizeData(result[key]);
+      }
+    });
+    return result;
+  }
+  return data;
 }
 
 export const firestoreService = {
@@ -199,8 +209,10 @@ export const firestoreService = {
 
   async saveRapportino(companyId: string, r: Rapportino): Promise<void> {
     const path = `companies/${companyId}/rapportini/${r.id}`;
+    console.log(`Saving rapportino to ${path}`, r);
     try {
-      await setDoc(doc(db, 'companies', companyId, 'rapportini', r.id), sanitizeData(r));
+      const sanitizedR = sanitizeData(r);
+      await setDoc(doc(db, 'companies', companyId, 'rapportini', r.id), sanitizedR);
       
       // Update Cantiere Data (Stock and Hours)
       const cantiere = await this.getCantiereById(companyId, r.cantiereId);
@@ -213,9 +225,12 @@ export const firestoreService = {
           for (const mu of r.materialiUsed) {
             const itemIdx = stock.findIndex(i => i.materialeId === mu.materialeId);
             if (itemIdx >= 0) {
-              const unitCost = stock[itemIdx].totalCost / stock[itemIdx].quantity;
-              stock[itemIdx].quantity -= mu.quantity;
-              stock[itemIdx].totalCost -= unitCost * mu.quantity;
+              const currentQty = stock[itemIdx].quantity || 0;
+              const currentTotalCost = stock[itemIdx].totalCost || 0;
+              const unitCost = currentQty > 0 ? currentTotalCost / currentQty : 0;
+              
+              stock[itemIdx].quantity = currentQty - mu.quantity;
+              stock[itemIdx].totalCost = currentTotalCost - (unitCost * mu.quantity);
               addedMaterialCost += unitCost * mu.quantity;
               
               // Log movement
@@ -235,25 +250,28 @@ export const firestoreService = {
 
         // 2. Update Work Hours & Personnel Cost
         let addedPersonnelCost = 0;
-        const rapportinoHours = r.personnelHours.reduce((acc, ph) => acc + ph.hours, 0);
+        const personnelHours = r.personnelHours || [];
+        const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (ph.hours || 0), 0);
         
         // Get all personnel to find rates
         const allPersonale = await this.getPersonale(companyId);
-        for (const ph of r.personnelHours) {
+        for (const ph of personnelHours) {
           const p = allPersonale.find(pers => pers.id === ph.personnelId);
           if (p) {
-            addedPersonnelCost += ph.hours * (p.hourlyRate || 0);
+            addedPersonnelCost += (ph.hours || 0) * (p.hourlyRate || 0);
           }
         }
         
         await updateDoc(doc(db, `companies/${companyId}/cantieri`, r.cantiereId), {
-          stock,
+          stock: sanitizeData(stock),
           totalMaterialCost: (cantiere.totalMaterialCost || 0) + addedMaterialCost,
           totalWorkHours: (cantiere.totalWorkHours || 0) + rapportinoHours,
           totalPersonnelCost: (cantiere.totalPersonnelCost || 0) + addedPersonnelCost
         });
       }
+      console.log(`Rapportino ${r.id} saved successfully.`);
     } catch (e) {
+      console.error(`Error saving rapportino ${r.id}:`, e);
       handleFirestoreError(e, OperationType.WRITE, path);
     }
   },
@@ -383,49 +401,19 @@ export const firestoreService = {
   },
 
   async updateCompanyMagazzino(companyId: string, move: StockMovement): Promise<void> {
-    const company = await this.getCompanyById(companyId);
-    if (!company) return;
-    
-    const stock = company.magazzinoCentrale || [];
-    const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
-    
-    if (itemIdx >= 0) {
-      stock[itemIdx].quantity += move.quantity;
-      stock[itemIdx].totalCost += (move.costoUnitario || 0) * move.quantity;
-    } else {
-      stock.push({
-        materialeId: move.materialeId,
-        materialeName: move.materialeName,
-        quantity: move.quantity,
-        unit: 'u', // Placeholder, should get from material
-        totalCost: (move.costoUnitario || 0) * move.quantity
-      });
-    }
-    
-    await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: stock });
-  },
-
-  async updateTransferStock(companyId: string, move: StockMovement): Promise<void> {
-    if (!move.toId || move.toId === 'centrale') return;
-    
-    // 1. Scalo da Magazzino Centrale
-    const company = await this.getCompanyById(companyId);
-    if (company && company.magazzinoCentrale) {
-      const centralIdx = company.magazzinoCentrale.findIndex(i => i.materialeId === move.materialeId);
-      if (centralIdx >= 0) {
-        company.magazzinoCentrale[centralIdx].quantity -= move.quantity;
-        await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: company.magazzinoCentrale });
+    try {
+      const company = await this.getCompanyById(companyId);
+      if (!company) {
+        console.error(`Company ${companyId} not found during magazzino update`);
+        return;
       }
-    }
-
-    // 2. Carico su Cantiere
-    const cantiere = await this.getCantiereById(companyId, move.toId);
-    if (cantiere) {
-      const stock = cantiere.stock || [];
+      
+      const stock = company.magazzinoCentrale || [];
       const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+      
       if (itemIdx >= 0) {
-        stock[itemIdx].quantity += move.quantity;
-        stock[itemIdx].totalCost += (move.costoUnitario || 0) * move.quantity;
+        stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + move.quantity;
+        stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + ((move.costoUnitario || 0) * move.quantity);
       } else {
         stock.push({
           materialeId: move.materialeId,
@@ -435,10 +423,55 @@ export const firestoreService = {
           totalCost: (move.costoUnitario || 0) * move.quantity
         });
       }
-      await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
-        stock,
-        totalMaterialCost: (cantiere.totalMaterialCost || 0) + ((move.costoUnitario || 0) * move.quantity)
-      });
+      
+      await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: sanitizeData(stock) });
+      console.log(`Magazzino Centrale updated for material ${move.materialeName}`);
+    } catch (e) {
+      console.error('Error updating company magazzino:', e);
+      throw e;
+    }
+  },
+
+  async updateTransferStock(companyId: string, move: StockMovement): Promise<void> {
+    if (!move.toId || move.toId === 'centrale') return;
+    
+    try {
+      // 1. Scalo da Magazzino Centrale
+      const company = await this.getCompanyById(companyId);
+      if (company && company.magazzinoCentrale) {
+        const centralIdx = company.magazzinoCentrale.findIndex(i => i.materialeId === move.materialeId);
+        if (centralIdx >= 0) {
+          company.magazzinoCentrale[centralIdx].quantity = (company.magazzinoCentrale[centralIdx].quantity || 0) - move.quantity;
+          await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: sanitizeData(company.magazzinoCentrale) });
+        }
+      }
+
+      // 2. Carico su Cantiere
+      const cantiere = await this.getCantiereById(companyId, move.toId);
+      if (cantiere) {
+        const stock = cantiere.stock || [];
+        const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+        if (itemIdx >= 0) {
+          stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + move.quantity;
+          stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + ((move.costoUnitario || 0) * move.quantity);
+        } else {
+          stock.push({
+            materialeId: move.materialeId,
+            materialeName: move.materialeName,
+            quantity: move.quantity,
+            unit: 'u',
+            totalCost: (move.costoUnitario || 0) * move.quantity
+          });
+        }
+        await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
+          stock: sanitizeData(stock),
+          totalMaterialCost: (cantiere.totalMaterialCost || 0) + ((move.costoUnitario || 0) * move.quantity)
+        });
+      }
+      console.log(`Transfer stock updated for material ${move.materialeName} to cantiere ${move.toId}`);
+    } catch (e) {
+      console.error('Error in transfer stock update:', e);
+      throw e;
     }
   },
 
@@ -497,6 +530,18 @@ export const firestoreService = {
       }
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async uploadFile(companyId: string, path: string, file: File | Blob): Promise<string> {
+    const storageRef = ref(storage, `companies/${companyId}/${path}`);
+    try {
+      const snapshot = await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(snapshot.ref);
+      return url;
+    } catch (e) {
+      console.error('Error uploading file:', e);
+      throw e;
     }
   }
 };

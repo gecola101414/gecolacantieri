@@ -15,7 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2 } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
 import { db } from './lib/firebase';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc } from 'firebase/firestore';
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -57,6 +57,12 @@ export default function App() {
     if (!company) return;
 
     setIsCloudLoading(true);
+
+    const unsubCompany = onSnapshot(doc(db, 'companies', company.id), (snap) => {
+      if (snap.exists()) {
+        setCompany(snap.data() as Company);
+      }
+    });
 
     const unsubUsers = onSnapshot(collection(db, 'companies', company.id, 'users'), (snap) => {
       const data = snap.docs.map(doc => doc.data() as UserAccount);
@@ -103,6 +109,7 @@ export default function App() {
     setIsCloudLoading(false);
 
     return () => {
+      unsubCompany();
       unsubUsers();
       unsubCantieri();
       unsubPersonale();
