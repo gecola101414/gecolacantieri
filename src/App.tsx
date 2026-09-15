@@ -71,13 +71,13 @@ export default function App() {
       id: 'tc-' + Date.now(),
       code,
       userId: currentUser.id,
-      expiresAt: new Date(Date.now() + 120 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 600 * 1000).toISOString(),
       used: false
     };
     try {
-      await firestoreService.saveTransferCode(company.id, newCode);
+      await firestoreService.saveTransferCode(company, currentUser, newCode);
       setActiveTransferCode(newCode);
-      setTransferTimeLeft(120);
+      setTransferTimeLeft(600);
     } catch (err) {
       console.error('Transfer code error:', err);
       alert('Errore nella generazione del codice di trasferimento.');

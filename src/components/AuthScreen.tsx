@@ -170,7 +170,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleTransferCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const codeStr = transferCodeInput.trim().toUpperCase();
+    const codeStr = transferCodeInput.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     if (!codeStr || codeStr.length < 4) {
       setLoginError('Inserisci il codice di 6 caratteri generato dal tuo cellulare.');
       return;
@@ -180,30 +180,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     try {
       // 1. Risoluzione globale del codice PC (accesso diretto istantaneo)
       const res = await firestoreService.resolveTransferCode(codeStr);
-      if (res) {
-        const foundCompany = await firestoreService.getCompanyById(res.companyId);
-        const foundUser = await firestoreService.getUserById(res.companyId, res.userId);
-        if (foundCompany && foundUser) {
-          if (!foundUser.active) {
-            setLoginError('Account disattivato dall\'amministratore.');
-            setIsLoading(false);
-            return;
-          }
-          const companyUsers = await firestoreService.getUsers(foundCompany.id);
-          setCompany(foundCompany);
-          setUsers(companyUsers);
-          localStorage.setItem('last_company_code', foundCompany.code);
-          onLogin(foundUser);
+      if (res && res.company && res.user) {
+        const foundCompany = res.company;
+        const foundUser = res.user;
+        if (!foundUser.active) {
+          setLoginError('Account disattivato dall\'amministratore.');
+          setIsLoading(false);
           return;
         }
+        const companyUsers = await firestoreService.getUsers(foundCompany.id);
+        setCompany(foundCompany);
+        setUsers(companyUsers.length > 0 ? companyUsers : [foundUser]);
+        localStorage.setItem('last_company_code', foundCompany.code);
+        onLogin(foundUser);
+        return;
       }
 
-      // 2. Fallback con ricerca specifica dell'azienda se già selezionata
+      // 2. Fallback con ricerca specifica dell'azienda se già presente
       if (company) {
         const codeData = await firestoreService.getTransferCode(company.id, codeStr);
         if (codeData && !codeData.used) {
           const expiresAt = new Date(codeData.expiresAt).getTime();
-          if (Date.now() <= expiresAt) {
+          if (Date.now() <= expiresAt + 5 * 60 * 1000) {
             if (selectedUser && codeData.userId !== selectedUser.id) {
               setLoginError('Questo codice non appartiene all\'utente selezionato.');
               setIsLoading(false);
@@ -224,7 +222,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         }
       }
 
-      setLoginError('Codice non valido, scaduto (validità 120s) o già utilizzato. Rigeneralo dal tuo cellulare.');
+      setLoginError('Codice non trovato, scaduto o già utilizzato. Premi "Codice PC" sul cellulare per generarne uno nuovo e riprova.');
     } catch (err) {
       console.error('Error verifying transfer code:', err);
       setLoginError('Errore durante la verifica del codice di trasferimento.');
@@ -414,9 +412,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             ) : (
               <div key="auth-tabs">
                 {/* Mode Selector Tabs */}
-                {!company && (
+                {!company && mode === 'register_admin' && (
                   <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl text-[11px] text-emerald-400 font-medium mb-8 text-center">
-                    Nessun server aziendale rilevato. Crea il tuo workspace per iniziare.
+                    Crea il tuo nuovo server aziendale Cloud per iniziare.
                   </div>
                 )}
                 

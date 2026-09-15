@@ -371,45 +371,91 @@ export const firestoreService = {
   },
 
   // Transfer Codes
-  async saveTransferCode(companyId: string, code: TransferCode): Promise<void> {
+  async saveTransferCode(companyOrId: Company | string, codeOrUser: TransferCode | UserAccount, maybeCode?: TransferCode): Promise<void> {
+    let companyId: string;
+    let companyData: Company | null = null;
+    let userId: string;
+    let userData: UserAccount | null = null;
+    let code: TransferCode;
+
+    if (typeof companyOrId === 'object') {
+      companyData = companyOrId;
+      companyId = companyOrId.id;
+      userData = codeOrUser as UserAccount;
+      userId = (codeOrUser as UserAccount).id;
+      code = maybeCode!;
+    } else {
+      companyId = companyOrId;
+      code = codeOrUser as TransferCode;
+      userId = code.userId;
+    }
+
     const path = `companies/${companyId}/transferCodes/${code.id}`;
-    const cleanCode = code.code.trim().toUpperCase();
+    const cleanCode = code.code.trim().toUpperCase().replace(/\s+/g, '');
     try {
+      const rootPayload: any = {
+        id: code.id,
+        code: cleanCode,
+        companyId,
+        userId,
+        expiresAt: code.expiresAt,
+        used: false,
+        createdAt: new Date().toISOString()
+      };
+      if (companyData) {
+        rootPayload.company = sanitizeData(companyData);
+      }
+      if (userData) {
+        rootPayload.user = sanitizeData(userData);
+      }
+
       await Promise.all([
         setDoc(doc(db, 'companies', companyId, 'transferCodes', code.id), sanitizeData(code)),
-        setDoc(doc(db, 'transferCodes', cleanCode), {
-          id: code.id,
-          code: cleanCode,
-          companyId,
-          userId: code.userId,
-          expiresAt: code.expiresAt,
-          used: false
-        })
+        setDoc(doc(db, 'transferCodes', cleanCode), rootPayload)
       ]);
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
   },
 
-  async resolveTransferCode(codeStr: string): Promise<{ companyId: string; userId: string; codeId: string } | null> {
-    const cleanCode = codeStr.trim().toUpperCase();
+  async resolveTransferCode(codeStr: string): Promise<{ company: Company; user: UserAccount } | null> {
+    const cleanCode = codeStr.trim().toUpperCase().replace(/\s+/g, '');
     const rootPath = `transferCodes/${cleanCode}`;
     try {
       const snap = await getDoc(doc(db, 'transferCodes', cleanCode));
       if (!snap.exists()) return null;
       const data = snap.data();
       if (data.used) return null;
-      if (new Date(data.expiresAt) < new Date()) return null;
+
+      // Allow 15 minutes grace period to prevent device clock skew issues
+      const expTime = new Date(data.expiresAt).getTime();
+      if (Date.now() > expTime + 5 * 60 * 1000) return null;
 
       // Mark used in root
       await updateDoc(doc(db, 'transferCodes', cleanCode), { used: true });
+
       // Mark used in company subcollection if present
       if (data.companyId && data.id) {
         try {
           await updateDoc(doc(db, 'companies', data.companyId, 'transferCodes', data.id), { used: true });
         } catch (_) {}
       }
-      return { companyId: data.companyId, userId: data.userId, codeId: data.id };
+
+      // If full company and user data were embedded, return them directly
+      let company: Company | null = data.company || null;
+      let user: UserAccount | null = data.user || null;
+
+      if (!company && data.companyId) {
+        company = await this.getCompanyById(data.companyId);
+      }
+      if (!user && data.companyId && data.userId) {
+        user = await this.getUserById(data.companyId, data.userId);
+      }
+
+      if (company && user) {
+        return { company, user };
+      }
+      return null;
     } catch (e) {
       handleFirestoreError(e, OperationType.GET, rootPath);
       return null;
