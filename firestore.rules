@@ -59,5 +59,9 @@ service cloud.firestore {
     match /pairingCodes/{code} {
       allow read, write: if true;
     }
+
+    match /transferCodes/{code} {
+      allow read, write: if true;
+    }
   }
 }

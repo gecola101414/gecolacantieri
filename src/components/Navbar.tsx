@@ -182,10 +182,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="w-full max-w-[1600px] mx-auto flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Accesso PC:</span>
-                  <span className="font-mono font-black text-sm tracking-[0.15em] bg-emerald-500/20 text-white px-2 py-0.5 rounded-md border border-emerald-500/40">
+                  <span className="font-mono font-black text-sm tracking-[0.15em] bg-emerald-500/20 text-white px-2.5 py-0.5 rounded-lg border border-emerald-500/40 shadow-sm">
                     {activeTransferCode.code}
+                  </span>
+                  <span className="text-[10px] text-emerald-300/80 font-medium">
+                    (Sul PC clicca su <span className="text-white font-bold underline">"Codice da Cellulare"</span> ed entra)
                   </span>
                 </div>
               </div>

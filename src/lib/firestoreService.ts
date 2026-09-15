@@ -373,10 +373,46 @@ export const firestoreService = {
   // Transfer Codes
   async saveTransferCode(companyId: string, code: TransferCode): Promise<void> {
     const path = `companies/${companyId}/transferCodes/${code.id}`;
+    const cleanCode = code.code.trim().toUpperCase();
     try {
-      await setDoc(doc(db, 'companies', companyId, 'transferCodes', code.id), sanitizeData(code));
+      await Promise.all([
+        setDoc(doc(db, 'companies', companyId, 'transferCodes', code.id), sanitizeData(code)),
+        setDoc(doc(db, 'transferCodes', cleanCode), {
+          id: code.id,
+          code: cleanCode,
+          companyId,
+          userId: code.userId,
+          expiresAt: code.expiresAt,
+          used: false
+        })
+      ]);
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async resolveTransferCode(codeStr: string): Promise<{ companyId: string; userId: string; codeId: string } | null> {
+    const cleanCode = codeStr.trim().toUpperCase();
+    const rootPath = `transferCodes/${cleanCode}`;
+    try {
+      const snap = await getDoc(doc(db, 'transferCodes', cleanCode));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      if (data.used) return null;
+      if (new Date(data.expiresAt) < new Date()) return null;
+
+      // Mark used in root
+      await updateDoc(doc(db, 'transferCodes', cleanCode), { used: true });
+      // Mark used in company subcollection if present
+      if (data.companyId && data.id) {
+        try {
+          await updateDoc(doc(db, 'companies', data.companyId, 'transferCodes', data.id), { used: true });
+        } catch (_) {}
+      }
+      return { companyId: data.companyId, userId: data.userId, codeId: data.id };
+    } catch (e) {
+      handleFirestoreError(e, OperationType.GET, rootPath);
+      return null;
     }
   },
 

@@ -43,8 +43,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     !company ? 'register_admin' : 'login'
   );
 
-  // Login steps: 'company_code' -> 'user_selection' -> 'password' | 'transfer_code'
-  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code' | 'pairing_code'>('company_code');
+  // Login steps: 'company_code' -> 'user_selection' -> 'password' | 'transfer_code' | 'pairing_code'
+  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code' | 'pairing_code'>(() => {
+    if (typeof window !== 'undefined') {
+      const pref = sessionStorage.getItem('preferred_auth_step');
+      if (pref === 'transfer_code') {
+        sessionStorage.removeItem('preferred_auth_step');
+        return 'transfer_code';
+      }
+    }
+    return 'company_code';
+  });
   const [inputCompanyCode, setInputCompanyCode] = useState(() => {
     return localStorage.getItem('last_company_code') || '';
   });
@@ -160,43 +169,64 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const handleTransferCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedUser || !company) return;
     setLoginError('');
+    const codeStr = transferCodeInput.trim().toUpperCase();
+    if (!codeStr || codeStr.length < 4) {
+      setLoginError('Inserisci il codice di 6 caratteri generato dal tuo cellulare.');
+      return;
+    }
     setIsLoading(true);
 
     try {
-      const codeData = await firestoreService.getTransferCode(company.id, transferCodeInput.trim().toUpperCase());
-      
-      if (!codeData) {
-        setLoginError('Codice non valido o già utilizzato.');
-        setIsLoading(false);
-        return;
+      // 1. Risoluzione globale del codice PC (accesso diretto istantaneo)
+      const res = await firestoreService.resolveTransferCode(codeStr);
+      if (res) {
+        const foundCompany = await firestoreService.getCompanyById(res.companyId);
+        const foundUser = await firestoreService.getUserById(res.companyId, res.userId);
+        if (foundCompany && foundUser) {
+          if (!foundUser.active) {
+            setLoginError('Account disattivato dall\'amministratore.');
+            setIsLoading(false);
+            return;
+          }
+          const companyUsers = await firestoreService.getUsers(foundCompany.id);
+          setCompany(foundCompany);
+          setUsers(companyUsers);
+          localStorage.setItem('last_company_code', foundCompany.code);
+          onLogin(foundUser);
+          return;
+        }
       }
 
-      if (codeData.userId !== selectedUser.id) {
-        setLoginError('Questo codice non appartiene al tuo account.');
-        setIsLoading(false);
-        return;
+      // 2. Fallback con ricerca specifica dell'azienda se già selezionata
+      if (company) {
+        const codeData = await firestoreService.getTransferCode(company.id, codeStr);
+        if (codeData && !codeData.used) {
+          const expiresAt = new Date(codeData.expiresAt).getTime();
+          if (Date.now() <= expiresAt) {
+            if (selectedUser && codeData.userId !== selectedUser.id) {
+              setLoginError('Questo codice non appartiene all\'utente selezionato.');
+              setIsLoading(false);
+              return;
+            }
+            await firestoreService.markTransferCodeUsed(company.id, codeData.id);
+            const foundUser = selectedUser || (await firestoreService.getUserById(company.id, codeData.userId));
+            if (foundUser) {
+              if (!foundUser.active) {
+                setLoginError('Account disattivato dall\'amministratore.');
+                setIsLoading(false);
+                return;
+              }
+              onLogin(foundUser);
+              return;
+            }
+          }
+        }
       }
 
-      const expiresAt = new Date(codeData.expiresAt).getTime();
-      if (Date.now() > expiresAt) {
-        setLoginError('Codice scaduto (validità 120 secondi). Generane uno nuovo dal cellulare.');
-        setIsLoading(false);
-        return;
-      }
-
-      // Codice valido: segna come usato e logga
-      await firestoreService.markTransferCodeUsed(company.id, codeData.id);
-      
-      // Opzionale: lega anche questo dispositivo? 
-      // L'utente dice "certificato del cellulare", quindi forse il PC non si lega per sempre o sì?
-      // "LEGA IL LOGIN AL CELLULARE" -> Computer usa il codice per "entrare con un account certificato".
-      // Lo consideriamo un login autorizzato una tantum o permanente? 
-      // Di solito questi codici autorizzano la sessione.
-      
-      onLogin(selectedUser);
+      setLoginError('Codice non valido, scaduto (validità 120s) o già utilizzato. Rigeneralo dal tuo cellulare.');
     } catch (err) {
+      console.error('Error verifying transfer code:', err);
       setLoginError('Errore durante la verifica del codice di trasferimento.');
     } finally {
       setIsLoading(false);
@@ -416,11 +446,58 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <AnimatePresence mode="wait">
                   {mode === 'login' && (
                     <div className="space-y-5">
+                      {/* Access method selector: Codice PC dal cellulare vs Codice Azienda */}
+                      {(loginStep === 'company_code' || loginStep === 'transfer_code') && (
+                        <div className="grid grid-cols-2 gap-2 bg-slate-950/70 p-1.5 rounded-2xl mb-2 border border-slate-800/80">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLoginError('');
+                              setLoginStep('transfer_code');
+                            }}
+                            className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                              loginStep === 'transfer_code'
+                                ? 'bg-amber-500 text-slate-950 shadow-lg'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <KeyRound className="w-3.5 h-3.5" />
+                              <span>Codice da Cellulare</span>
+                            </div>
+                            <span className={`text-[9px] uppercase tracking-wider font-black ${loginStep === 'transfer_code' ? 'text-slate-950/80' : 'text-emerald-400'}`}>
+                              ⚡ Accesso PC Rapido
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLoginError('');
+                              setLoginStep('company_code');
+                            }}
+                            className={`py-2.5 px-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center gap-0.5 ${
+                              loginStep === 'company_code'
+                                ? 'bg-amber-500 text-slate-950 shadow-lg'
+                                : 'text-slate-400 hover:text-white hover:bg-slate-900/60'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5" />
+                              <span>Codice Azienda</span>
+                            </div>
+                            <span className={`text-[9px] uppercase tracking-wider font-extrabold ${loginStep === 'company_code' ? 'text-slate-950/80' : 'text-slate-500'}`}>
+                              Password Classica
+                            </span>
+                          </button>
+                        </div>
+                      )}
+
                       {loginError && (
                         <motion.div 
                           initial={{ opacity: 0, height: 0 }}
                           animate={{ opacity: 1, height: 'auto' }}
-                          className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-2xl text-[11px] font-medium leading-relaxed"
+                          className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-2xl text-[11px] font-medium leading-relaxed text-left"
                         >
                           {loginError}
                         </motion.div>
@@ -435,7 +512,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           onSubmit={handleCompanyCodeSubmit}
                           className="space-y-5"
                         >
-                          <div className="space-y-2">
+                          <div className="space-y-2 text-left">
                             <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice Server Aziendale</label>
                             <div className="relative group">
                               <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
@@ -466,10 +543,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             </div>
                             <button
                               type="button"
-                              onClick={() => setLoginStep('pairing_code')}
-                              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
+                              onClick={() => {
+                                setLoginError('');
+                                setLoginStep('transfer_code');
+                              }}
+                              className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold py-3.5 rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
                             >
-                              <Smartphone className="w-4 h-4 text-amber-500" /> Usa Chiave Mobile
+                              <KeyRound className="w-4 h-4 text-emerald-400" /> Inserisci Codice dal Cellulare (6 caratteri)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setLoginStep('pairing_code')}
+                              className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium py-3 rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
+                            >
+                              <Smartphone className="w-4 h-4 text-amber-500" /> Usa Chiave Mobile (4 cifre)
                             </button>
                           </div>
                         </motion.form>
@@ -642,45 +729,60 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           onSubmit={handleTransferCodeSubmit}
                           className="space-y-5"
                         >
-                          <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 flex items-center gap-4">
-                            <Smartphone className="w-8 h-8 text-amber-500" />
-                            <div>
-                              <p className="text-[11px] font-bold text-white uppercase tracking-wider">Autorizzazione PC</p>
-                              <p className="text-[10px] text-slate-400">Apri l'app sul cellulare e genera un <span className="text-amber-500 font-bold">Codice di Trasferimento</span>.</p>
+                          <div className="bg-emerald-500/10 border border-emerald-500/25 p-4 rounded-2xl space-y-2 text-left">
+                            <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
+                              <Smartphone className="w-4 h-4" /> Come usare il codice sul PC
                             </div>
+                            <ol className="text-[11px] text-slate-300 leading-relaxed list-decimal list-inside space-y-1">
+                              <li>Apri l'app sul cellulare dove sei già autenticato.</li>
+                              <li>Tocca il pulsante <span className="text-amber-400 font-bold">"Codice PC"</span> in alto nella barra.</li>
+                              <li>Digita qui sotto il codice di 6 caratteri (es. <span className="font-mono font-bold text-emerald-300">AB12CD</span>).</li>
+                            </ol>
                           </div>
 
-                          <div className="space-y-2">
-                            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice di 6 cifre</label>
+                          <div className="space-y-2 text-left">
+                            <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                              Codice Temporaneo da Cellulare (6 caratteri)
+                            </label>
                             <div className="relative group">
-                              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-emerald-400 group-focus-within:text-amber-400 transition-colors" />
                               <input
                                 type="text"
                                 value={transferCodeInput}
                                 onChange={(e) => setTransferCodeInput(e.target.value.toUpperCase())}
                                 placeholder="ES: AB12CD"
                                 maxLength={6}
-                                className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 pl-12 text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all placeholder:text-slate-700 tracking-[0.2em] font-mono"
+                                className="w-full bg-slate-950/70 border-2 border-emerald-500/40 rounded-2xl p-4 pl-12 text-center text-xl sm:text-2xl font-black text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-400 transition-all placeholder:text-slate-700 tracking-[0.25em] font-mono uppercase"
                                 required
                                 autoFocus
                               />
                             </div>
+                            <p className="text-[10px] text-slate-500 text-center">
+                              Accesso istantaneo senza dover reinserire password o codice server.
+                            </p>
                           </div>
 
-                          <div className="flex gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setLoginStep('password')}
-                              className="flex-1 bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all hover:bg-slate-700"
-                            >
-                              Indietro
-                            </button>
+                          <div className="flex flex-col gap-2.5">
                             <button
                               type="submit"
-                              disabled={isLoading}
-                              className="flex-[2] bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                              disabled={isLoading || transferCodeInput.trim().length < 4}
+                              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
                             >
-                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Autorizza PC'}
+                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Entra nel PC <ArrowRight className="w-4 h-4" /></>}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLoginError('');
+                                if (selectedUser) {
+                                  setLoginStep('password');
+                                } else {
+                                  setLoginStep('company_code');
+                                }
+                              }}
+                              className="w-full bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white font-medium py-3 rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
+                            >
+                              Torna al Login con Codice Azienda
                             </button>
                           </div>
                         </motion.form>
