@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -29,6 +29,8 @@ interface AdminDashboardProps {
   onAddMateriale: (m: Materiale) => void;
   movements: StockMovement[];
   onAddMovement: (m: StockMovement) => void;
+  documents: MaterialDocument[];
+  onAddDocument: (d: MaterialDocument) => void;
   currentUser: UserAccount;
   activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita';
   setActiveTab: (tab: any) => void;
@@ -53,6 +55,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddMateriale,
   movements,
   onAddMovement,
+  documents,
+  onAddDocument,
   currentUser,
   activeTab,
   setActiveTab,
@@ -63,7 +67,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAddPersonaleModal, setShowAddPersonaleModal] = useState(false);
   const [showAddMezzoModal, setShowAddMezzoModal] = useState(false);
   const [showAddMovementModal, setShowAddMovementModal] = useState(false);
+  const [showAddMaterialeModal, setShowAddMaterialeModal] = useState(false);
+  const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
   const [selectedRapportino, setSelectedRapportino] = useState<Rapportino | null>(null);
+  const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -190,6 +197,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setNewMenz({ name: '', plate: '', type: 'Autocarro' });
   };
 
+  const [newMateriale, setNewMateriale] = useState<Partial<Materiale>>({
+    name: '',
+    unit: 'mc',
+    category: 'Edili',
+  });
+
+  const handleCreateMateriale = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMateriale.name) return;
+    const m: Materiale = {
+      id: 'mat-' + Date.now(),
+      name: newMateriale.name,
+      unit: newMateriale.unit || 'mc',
+      category: newMateriale.category || 'Edili',
+      defaultPrice: 0,
+    };
+    onAddMateriale(m);
+    setShowAddMaterialeModal(false);
+    setNewMateriale({ name: '', unit: 'mc', category: 'Edili' });
+  };
+
   const handleCreateMovement = (move: Omit<StockMovement, 'id' | 'materialeName'>) => {
     const mat = materiali.find(m => m.id === move.materialeId);
     if (!mat) return;
@@ -201,6 +229,69 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
     onAddMovement(newMove);
     setShowAddMovementModal(false);
+  };
+
+  const [newDocument, setNewDocument] = useState<{
+    number: string;
+    date: string;
+    supplier: string;
+    type: 'bolla' | 'fattura';
+    items: {
+      materialeId: string;
+      quantity: number;
+      unitPrice: number;
+    }[];
+  }>({
+    number: '',
+    date: new Date().toISOString().split('T')[0],
+    supplier: '',
+    type: 'bolla',
+    items: [{ materialeId: '', quantity: 0, unitPrice: 0 }]
+  });
+
+  const handleAddDocumentItem = () => {
+    setNewDocument({
+      ...newDocument,
+      items: [...newDocument.items, { materialeId: '', quantity: 0, unitPrice: 0 }]
+    });
+  };
+
+  const handleCreateDocument = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDocument.number || !newDocument.supplier) return;
+    
+    const items = newDocument.items.map(item => {
+      const mat = materiali.find(m => m.id === item.materialeId);
+      return {
+        materialeId: item.materialeId,
+        materialeName: mat?.name || 'Sconosciuto',
+        quantity: item.quantity,
+        unit: mat?.unit || 'u',
+        unitPrice: item.unitPrice,
+        totalPrice: item.quantity * item.unitPrice
+      };
+    });
+
+    const docData: MaterialDocument = {
+      id: 'doc-' + Date.now(),
+      number: newDocument.number,
+      date: newDocument.date,
+      supplier: newDocument.supplier,
+      type: newDocument.type,
+      items,
+      totalAmount: items.reduce((acc, i) => acc + i.totalPrice, 0),
+      status: 'registrato'
+    };
+
+    onAddDocument(docData);
+    setShowAddDocumentModal(false);
+    setNewDocument({
+      number: '',
+      date: new Date().toISOString().split('T')[0],
+      supplier: '',
+      type: 'bolla',
+      items: [{ materialeId: '', quantity: 0, unitPrice: 0 }]
+    });
   };
 
   const handleResetPassword = (userId: string) => {
@@ -509,7 +600,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 {rapportini.filter(r => r.cantiereId === c.id).sort((a,b) => b.date.localeCompare(a.date))[0]?.date || 'Nessun invio'}
                               </p>
                             </div>
-                            <button className="flex items-center gap-2 px-5 py-2.5 bg-slate-950 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg group">
+                            <button 
+                              onClick={() => setSelectedCantiere(c)}
+                              className="flex items-center gap-2 px-5 py-2.5 bg-slate-950 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg group"
+                            >
                               Dettagli <ChevronRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
                             </button>
                           </div>
@@ -677,7 +771,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       onClick={() => setShowAddMovementModal(true)} 
                       className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-amber-600 transition-all"
                     >
-                      <Plus className="w-4 h-4" /> Nuovo Movimento
+                      <Box className="w-4 h-4" /> Nuovo Movimento
+                    </button>
+                    <button 
+                      onClick={() => setShowAddDocumentModal(true)} 
+                      className="bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-all"
+                    >
+                      <FileText className="w-4 h-4" /> Registra Bolla/Fattura
                     </button>
                   </div>
                 </div>
@@ -693,7 +793,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <h4 className="font-bold">Magazzino Centrale</h4>
                       </div>
                       
-                      <div className="space-y-4">
+                      <div className="space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
                         {!company?.magazzinoCentrale || company.magazzinoCentrale.length === 0 ? (
                           <p className="text-slate-500 text-xs italic">Magazzino vuoto. Carica una bolla per iniziare.</p>
                         ) : (
@@ -705,6 +805,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                               <div className="text-right">
                                 <p className="text-sm font-black text-amber-500">{item.quantity} {item.unit}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* DOCUMENTI REGISTRATI */}
+                    <div className="bg-white rounded-[32px] border border-slate-200 p-6 shadow-sm">
+                      <h4 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-amber-500" /> Ultime Bolle/Fatture
+                      </h4>
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                        {documents.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic">Nessun documento registrato.</p>
+                        ) : (
+                          documents.map(d => (
+                            <div key={d.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 group">
+                              <div className="flex justify-between items-start mb-1">
+                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${d.type === 'bolla' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                  {d.type}
+                                </span>
+                                <span className="text-[9px] text-slate-400 font-bold">{d.date}</span>
+                              </div>
+                              <p className="text-xs font-bold text-slate-900">{d.supplier}</p>
+                              <div className="flex justify-between items-center mt-2">
+                                <p className="text-[10px] text-slate-500">N. {d.number}</p>
+                                <p className="text-xs font-black text-slate-900">€{d.totalAmount.toLocaleString()}</p>
                               </div>
                             </div>
                           ))
@@ -763,6 +891,47 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </motion.div>
             )}
 
+            {/* MATERIALI TAB */}
+            {activeTab === 'materiali' && (
+              <motion.div 
+                key="materiali"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-8"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900">Anagrafica Materiali</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Definisci i materiali che possono essere caricati in magazzino.</p>
+                  </div>
+                  <button onClick={() => setShowAddMaterialeModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
+                    <Plus className="w-4 h-4" /> Nuovo Materiale
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {materiali.length === 0 ? (
+                    <div className="col-span-full bg-white rounded-[40px] p-20 text-center border border-slate-200 shadow-sm">
+                      <Box className="w-12 h-12 text-slate-200 mx-auto mb-6" />
+                      <p className="text-sm text-slate-500">Nessun materiale in anagrafica.</p>
+                    </div>
+                  ) : (
+                    materiali.map(m => (
+                      <div key={m.id} className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{m.name}</p>
+                          <p className="text-[10px] font-bold text-slate-400 uppercase">{m.category}</p>
+                        </div>
+                        <div className="bg-slate-50 px-3 py-1.5 rounded-lg text-[10px] font-bold text-amber-600">
+                          {m.unit}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {/* RAPPORTINI TAB */}
             {activeTab === 'rapportini' && (
               <motion.div 
@@ -800,7 +969,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <p className="text-xs text-slate-500 line-clamp-1">{r.note || 'Nessuna nota aggiuntiva'}</p>
                           </div>
                         </div>
-                        <button className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-950 hover:text-white transition-all">
+                        <button 
+                          onClick={() => setSelectedRapportino(r)}
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-950 hover:text-white transition-all"
+                        >
                           Esamina
                         </button>
                       </div>
@@ -1258,6 +1430,99 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Cantiere Detail Modal */}
+      {selectedCantiere && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">{selectedCantiere.name}</h3>
+                <p className="text-xs font-medium text-slate-500 mt-1">{selectedCantiere.address}</p>
+              </div>
+              <button onClick={() => setSelectedCantiere(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              {/* KPI Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Lavorate Totali</p>
+                  <p className="text-2xl font-black text-slate-900">{selectedCantiere.totalWorkHours || 0} h</p>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Materiali</p>
+                  <p className="text-2xl font-black text-emerald-600">€{(selectedCantiere.totalMaterialCost || 0).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Stock in Cantiere */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Box className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Giacenza Cantiere</span>
+                </div>
+                <div className="space-y-2">
+                  {!selectedCantiere.stock || selectedCantiere.stock.length === 0 ? (
+                    <p className="text-xs text-slate-500 italic p-4 bg-slate-50 rounded-2xl">Nessun materiale in giacenza.</p>
+                  ) : (
+                    selectedCantiere.stock.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl">
+                        <div>
+                          <p className="text-sm font-bold text-slate-900">{item.materialeName}</p>
+                          <p className="text-[10px] text-slate-400">Valore: €{item.totalCost.toLocaleString()}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-amber-600">{item.quantity} {item.unit}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Rapportini recenti di questo cantiere */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <FileText className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Ultimi Rapportini</span>
+                </div>
+                <div className="space-y-2">
+                  {rapportini.filter(r => r.cantiereId === selectedCantiere.id).slice(0, 3).map(r => (
+                    <div key={r.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+                      <span className="text-xs font-bold text-slate-700">{r.date} - {r.userName}</span>
+                      <button 
+                        onClick={() => {
+                          setSelectedRapportino(r);
+                          setSelectedCantiere(null);
+                        }}
+                        className="text-[10px] font-bold text-amber-600 uppercase"
+                      >
+                        Apri
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-10">
+              <button 
+                onClick={() => setSelectedCantiere(null)}
+                className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
+              >
+                Chiudi
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Rapportino Detail Modal */}
       {selectedRapportino && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6">
@@ -1358,6 +1623,231 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Chiudi
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Add Document Modal (Bolla/Fattura) */}
+      {showAddDocumentModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-4xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">Registrazione Acquisto</h3>
+                <p className="text-xs font-medium text-slate-500 mt-1">Carica bolle o fatture per aggiornare il magazzino e i costi fornitori.</p>
+              </div>
+              <div className="bg-amber-500/10 p-3 rounded-2xl">
+                <FileText className="w-6 h-6 text-amber-500" />
+              </div>
+            </div>
+            
+            <form onSubmit={handleCreateDocument} className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo Documento</label>
+                  <select 
+                    value={newDocument.type}
+                    onChange={e => setNewDocument({...newDocument, type: e.target.value as any})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none font-bold"
+                  >
+                    <option value="bolla">Bolla (DDT)</option>
+                    <option value="fattura">Fattura</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">N. Documento *</label>
+                  <input 
+                    type="text" 
+                    value={newDocument.number}
+                    onChange={e => setNewDocument({...newDocument, number: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    placeholder="es. 123/A"
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data *</label>
+                  <input 
+                    type="date" 
+                    value={newDocument.date}
+                    onChange={e => setNewDocument({...newDocument, date: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none font-bold"
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Fornitore *</label>
+                  <input 
+                    type="text" 
+                    value={newDocument.supplier}
+                    onChange={e => setNewDocument({...newDocument, supplier: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    placeholder="Nome fornitore"
+                    required 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold text-slate-900">Righe Materiale</h4>
+                  <button 
+                    type="button" 
+                    onClick={handleAddDocumentItem}
+                    className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1 hover:text-amber-700"
+                  >
+                    <Plus className="w-3 h-3" /> Aggiungi Riga
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {newDocument.items.map((item, idx) => (
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-slate-50/50 p-4 rounded-3xl border border-slate-100">
+                      <div className="md:col-span-5 space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">Materiale</label>
+                        <select 
+                          value={item.materialeId}
+                          onChange={e => {
+                            const updatedItems = [...newDocument.items];
+                            updatedItems[idx].materialeId = e.target.value;
+                            setNewDocument({...newDocument, items: updatedItems});
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none"
+                          required
+                        >
+                          <option value="">Seleziona...</option>
+                          {materiali.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                        </select>
+                      </div>
+                      <div className="md:col-span-3 space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">Quantità</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={item.quantity}
+                          onChange={e => {
+                            const updatedItems = [...newDocument.items];
+                            updatedItems[idx].quantity = Number(e.target.value);
+                            setNewDocument({...newDocument, items: updatedItems});
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none font-bold"
+                          required
+                        />
+                      </div>
+                      <div className="md:col-span-3 space-y-1">
+                        <label className="text-[9px] font-bold text-slate-400 uppercase">Prezzo Unit. (€)</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={item.unitPrice}
+                          onChange={e => {
+                            const updatedItems = [...newDocument.items];
+                            updatedItems[idx].unitPrice = Number(e.target.value);
+                            setNewDocument({...newDocument, items: updatedItems});
+                          }}
+                          className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs outline-none font-bold"
+                          required
+                        />
+                      </div>
+                      <div className="md:col-span-1 flex justify-center pb-2">
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            if (newDocument.items.length === 1) return;
+                            const updatedItems = newDocument.items.filter((_, i) => i !== idx);
+                            setNewDocument({...newDocument, items: updatedItems});
+                          }}
+                          className="p-2 text-slate-300 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-slate-900 rounded-[32px] p-8 flex items-center justify-between text-white">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Totale Documento</p>
+                  <p className="text-3xl font-black text-amber-500">
+                    €{newDocument.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                  </p>
+                </div>
+                <div className="flex gap-4">
+                  <button type="button" onClick={() => setShowAddDocumentModal(false)} className="bg-white/10 hover:bg-white/20 text-white font-bold px-8 py-4 rounded-2xl text-xs transition-all">Annulla</button>
+                  <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-12 py-4 rounded-2xl text-xs shadow-xl transition-all">Registra Documento</button>
+                </div>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Add Materiale Modal */}
+      {showAddMaterialeModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-bold text-slate-900">Configurazione Materiale</h3>
+              <div className="bg-amber-500/10 p-3 rounded-2xl">
+                <List className="w-6 h-6 text-amber-500" />
+              </div>
+            </div>
+            
+            <form onSubmit={handleCreateMateriale} className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome Materiale *</label>
+                <input 
+                  type="text" 
+                  value={newMateriale.name}
+                  onChange={e => setNewMateriale({...newMateriale, name: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  placeholder="es. Cemento RCK 30"
+                  required 
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Unità di Misura *</label>
+                  <input 
+                    type="text" 
+                    value={newMateriale.unit}
+                    onChange={e => setNewMateriale({...newMateriale, unit: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    placeholder="es. mc, kg, mt"
+                    required 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Categoria</label>
+                  <select 
+                    value={newMateriale.category}
+                    onChange={e => setNewMateriale({...newMateriale, category: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  >
+                    <option value="Edili">Edili</option>
+                    <option value="Idraulici">Idraulici</option>
+                    <option value="Elettrici">Elettrici</option>
+                    <option value="Altro">Altro</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowAddMaterialeModal(false)} className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs">Annulla</button>
+                <button type="submit" className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl">Salva Materiale</button>
+              </div>
+            </form>
           </motion.div>
         </div>
       )}

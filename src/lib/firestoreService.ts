@@ -5,7 +5,7 @@ import {
 } from 'firebase/firestore';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
-  Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement
+  Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument
 } from '../types';
 
 // Generic error handler as required by skill
@@ -449,6 +449,43 @@ export const firestoreService = {
     } catch (e) {
       handleFirestoreError(e, OperationType.GET, path);
       return null;
+    }
+  },
+
+  // Documents (Bolle/Fatture)
+  async getMaterialDocuments(companyId: string): Promise<MaterialDocument[]> {
+    const path = `companies/${companyId}/documents`;
+    try {
+      const q = query(collection(db, path), orderBy('date', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as MaterialDocument));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async saveMaterialDocument(companyId: string, docData: MaterialDocument): Promise<void> {
+    const path = `companies/${companyId}/documents/${docData.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'documents', docData.id), sanitizeData(docData));
+      
+      // Create movements for each item
+      for (const item of docData.items) {
+        await this.addMovement(companyId, {
+          id: `mov-${docData.id}-${item.materialeId}`,
+          materialeId: item.materialeId,
+          materialeName: item.materialeName,
+          quantity: item.quantity,
+          type: 'carico_magazzino',
+          date: docData.date,
+          toId: 'centrale',
+          costoUnitario: item.unitPrice,
+          documentId: docData.id
+        });
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
     }
   }
 };

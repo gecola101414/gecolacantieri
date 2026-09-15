@@ -10,7 +10,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2 } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -34,6 +34,7 @@ export default function App() {
   const [rapportini, setRapportini] = useState<Rapportino[]>(initialLocalData.rapportini);
   const [materiali, setMateriali] = useState<Materiale[]>(initialLocalData.materiali || []);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [documents, setDocuments] = useState<MaterialDocument[]>([]);
 
   const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
   const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
@@ -95,6 +96,10 @@ export default function App() {
       setMovements(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as StockMovement)));
     });
 
+    const unsubDocuments = onSnapshot(collection(db, 'companies', company.id, 'documents'), (snap) => {
+      setDocuments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialDocument)));
+    });
+
     setIsCloudLoading(false);
 
     return () => {
@@ -106,6 +111,7 @@ export default function App() {
       unsubContabilita();
       unsubMateriali();
       unsubMovements();
+      unsubDocuments();
     };
   }, [company?.id]);
 
@@ -155,6 +161,7 @@ export default function App() {
     saveMezzo: async (m: Mezzo) => company && await firestoreService.saveMezzo(company.id, m),
     saveMateriale: async (m: Materiale) => company && await firestoreService.saveMateriale(company.id, m),
     saveMovement: async (m: StockMovement) => company && await firestoreService.addMovement(company.id, m),
+    saveDocument: async (d: MaterialDocument) => company && await firestoreService.saveMaterialDocument(company.id, d),
     saveRapportino: async (r: Rapportino) => company && await firestoreService.saveRapportino(company.id, r),
     saveContabilita: async (e: ContabilitaEntry) => company && await firestoreService.saveContabilitaEntry(company.id, e),
     saveUser: async (u: UserAccount) => company && await firestoreService.saveUser(company.id, u),
@@ -280,6 +287,8 @@ export default function App() {
                   onAddMateriale={cloudHandlers.saveMateriale}
                   movements={movements}
                   onAddMovement={cloudHandlers.saveMovement}
+                  documents={documents}
+                  onAddDocument={cloudHandlers.saveDocument}
                   users={users}
                   onSaveUser={cloudHandlers.saveUser}
                   onDeleteUser={cloudHandlers.deleteUser}

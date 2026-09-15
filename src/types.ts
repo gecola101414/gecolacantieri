@@ -91,6 +91,7 @@ export interface Materiale {
   name: string;
   unit: string;
   defaultPrice: number;
+  category?: string;
 }
 
 export interface Rapportino {
@@ -131,6 +132,28 @@ export interface StockItem {
   totalCost: number; // Valore economico della giacenza
 }
 
+export type DocumentType = 'bolla' | 'fattura';
+
+export interface MaterialDocument {
+  id: string;
+  number: string;
+  date: string;
+  supplier: string;
+  type: DocumentType;
+  items: {
+    materialeId: string;
+    materialeName: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    totalPrice: number;
+  }[];
+  totalAmount: number;
+  photoUrl?: string;
+  notes?: string;
+  status: 'registrato' | 'annullato';
+}
+
 export type MovementType = 'carico_magazzino' | 'trasferimento_cantiere' | 'scarico_rapportino' | 'reso_magazzino';
 
 export interface StockMovement {
@@ -144,5 +167,6 @@ export interface StockMovement {
   toId?: string;   // 'centrale' o cantiereId
   costoUnitario?: number;
   rapportinoId?: string; // Se tipo 'scarico_rapportino'
+  documentId?: string; // Link to MaterialDocument
   photoUrl?: string; // Foto della bolla o materiale
 }
