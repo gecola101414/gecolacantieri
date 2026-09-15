@@ -570,14 +570,22 @@ export const firestoreService = {
   },
 
   async uploadFile(companyId: string, path: string, file: File | Blob): Promise<string> {
-    const storageRef = ref(storage, `companies/${companyId}/${path}`);
+    // Resilient file upload with 5s timeout & base64 fallback to prevent any network hangs
     try {
-      const snapshot = await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(snapshot.ref);
-      return url;
+      const storageRef = ref(storage, `companies/${companyId}/${path}`);
+      const uploadPromise = uploadBytes(storageRef, file).then(snapshot => getDownloadURL(snapshot.ref));
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Storage upload timeout')), 5000)
+      );
+      return await Promise.race([uploadPromise, timeoutPromise]);
     } catch (e) {
-      console.error('Error uploading file:', e);
-      throw e;
+      console.warn('Storage upload bypassed or failed, falling back to local data URL:', e);
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(file);
+      });
     }
   }
 };

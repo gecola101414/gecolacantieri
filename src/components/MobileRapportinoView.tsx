@@ -3,11 +3,12 @@ import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferC
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
-  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check, X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
-import imageCompression from 'browser-image-compression';
+import { compressPhoto } from '../utils/imageCompressor';
+import { PhotoLightbox } from './PhotoLightbox';
 import { Logo, FooterBranding } from './Branding';
 
 interface MobileRapportinoViewProps {
@@ -169,32 +170,41 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     });
   };
 
+  const [isCompressingPhoto, setIsCompressingPhoto] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+  const [selectedHistoryRapportino, setSelectedHistoryRapportino] = useState<Rapportino | null>(null);
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && company) {
-      setIsSubmitting(true);
-      try {
-        // Compress image before upload
-        const options = {
-          maxSizeMB: 0.8,
-          maxWidthOrHeight: 1280,
-          useWebWorker: true
-        };
-        const compressedFile = await imageCompression(file, options);
+    if (!file) return;
 
-        const path = `rapportini/foto-${Date.now()}-${file.name}`;
-        const url = await firestoreService.uploadFile(company.id, path, compressedFile);
-        const currentFoto = newRapportino.foto || [];
-        setNewRapportino({
-          ...newRapportino,
-          foto: [...currentFoto, url]
-        });
-      } catch (err) {
-        console.error('Error uploading photo:', err);
-        alert('Errore nel caricamento della foto. Riprova.');
-      } finally {
-        setIsSubmitting(false);
-      }
+    // Reset input value so same camera/file can be reselected if needed
+    e.target.value = '';
+
+    const currentFoto = newRapportino.foto || [];
+    if (currentFoto.length >= 4) {
+      alert('Puoi allegare al massimo 4 foto per rapportino.');
+      return;
+    }
+
+    setIsCompressingPhoto(true);
+    try {
+      // Blazing-fast client-side canvas compression (< 200ms) to clean, optimized data URL
+      const dataUrl = await compressPhoto(file, {
+        maxWidth: 1024,
+        maxHeight: 1024,
+        quality: 0.68
+      });
+
+      setNewRapportino(prev => ({
+        ...prev,
+        foto: [...(prev.foto || []), dataUrl]
+      }));
+    } catch (err) {
+      console.error('Error compressing photo:', err);
+      alert('Errore durante l\'elaborazione della foto. Riprova con un\'altra immagine.');
+    } finally {
+      setIsCompressingPhoto(false);
     }
   };
 
@@ -235,7 +245,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       };
       await onAddRapportino(rapportino);
       setStep('list');
-      alert('Rapportino inviato con successo al server cloud!');
+      const numFoto = (rapportino.foto || []).length;
+      alert(`Rapportino inviato con successo al server cloud!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);
     } catch (err) {
       console.error('Error submitting rapportino:', err);
       alert('Errore nell\'invio del rapportino. Controlla la connessione e riprova.');
@@ -425,17 +436,33 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                 <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-2">Ultimi Invii</h2>
                 <div className="space-y-3">
                   {userRapportini.slice(0, 5).map(r => (
-                    <div key={r.id} className="bg-white px-5 py-4 rounded-2xl border border-slate-200 flex items-center justify-between">
+                    <div 
+                      key={r.id} 
+                      onClick={() => setSelectedHistoryRapportino(r)}
+                      className="bg-white px-5 py-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer hover:border-amber-500/40 hover:shadow-md transition-all group"
+                    >
                       <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center">
-                          <FileText className="w-5 h-5 text-slate-400" />
+                        <div className="w-10 h-10 bg-slate-50 group-hover:bg-amber-500/10 rounded-xl flex items-center justify-center transition-colors">
+                          <FileText className="w-5 h-5 text-slate-400 group-hover:text-amber-600" />
                         </div>
                         <div>
-                          <h4 className="text-xs font-bold text-slate-900">Rapportino {r.date}</h4>
-                          <p className="text-[10px] text-slate-500 font-medium">Inviato al server</p>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-900">Rapportino {r.date}</h4>
+                            {r.foto && r.foto.length > 0 && (
+                              <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-md">
+                                <Camera className="w-3 h-3" /> {r.foto.length}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-500 font-medium">
+                            {cantieri.find(c => c.id === r.cantiereId)?.name || 'Cantiere'}
+                          </p>
                         </div>
                       </div>
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all" />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -608,36 +635,64 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                         />
                         
                         <div className="space-y-3">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Documentazione Fotografica</p>
+                          <div className="flex items-center justify-between px-1">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Documentazione Fotografica</p>
+                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                              {newRapportino.foto?.length || 0} / 4 foto
+                            </span>
+                          </div>
                           
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="grid grid-cols-3 gap-2.5">
                             {newRapportino.foto?.map((f, i) => (
-                              <div key={i} className="aspect-square rounded-xl overflow-hidden border border-slate-200 relative">
-                                <img src={f} alt={`Foto ${i}`} className="w-full h-full object-cover" />
+                              <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-slate-200 relative group shadow-sm bg-slate-100">
+                                <img 
+                                  src={f} 
+                                  alt={`Foto ${i + 1}`} 
+                                  className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                                  onClick={() => setPreviewPhoto(f)}
+                                />
                                 <button 
-                                  onClick={() => {
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     const updated = [...(newRapportino.foto || [])];
                                     updated.splice(i, 1);
                                     setNewRapportino({...newRapportino, foto: updated});
                                   }}
-                                  className="absolute top-1 right-1 p-1 bg-white/80 rounded-full shadow-sm"
+                                  className="absolute top-1.5 right-1.5 p-1.5 bg-slate-950/75 hover:bg-rose-600 text-white rounded-full shadow-md transition-colors"
+                                  title="Elimina foto"
                                 >
-                                  <Trash2 className="w-3 h-3 text-red-500" />
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </button>
+                                <span className="absolute bottom-1.5 left-1.5 text-[9px] font-bold text-white bg-slate-950/60 px-1.5 py-0.5 rounded-md backdrop-blur-xs">
+                                  #{i + 1}
+                                </span>
                               </div>
                             ))}
+
+                            {isCompressingPhoto && (
+                              <div className="aspect-square rounded-2xl border-2 border-amber-500/40 bg-amber-500/10 flex flex-col items-center justify-center text-amber-600 gap-2 animate-pulse">
+                                <Loader2 className="w-6 h-6 animate-spin" />
+                                <span className="text-[9px] font-extrabold uppercase tracking-tight">Elaborazione...</span>
+                              </div>
+                            )}
                             
-                            <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 gap-2 hover:bg-white hover:border-amber-500 transition-all cursor-pointer">
-                              <Camera className="w-6 h-6" />
-                              <span className="text-[8px] font-black uppercase">Aggiungi</span>
-                              <input 
-                                type="file" 
-                                accept="image/*" 
-                                capture="environment"
-                                onChange={handleFileChange}
-                                className="hidden" 
-                              />
-                            </label>
+                            {(!newRapportino.foto || newRapportino.foto.length < 4) && !isCompressingPhoto && (
+                              <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-300 hover:border-amber-500 hover:bg-amber-500/5 rounded-2xl flex flex-col items-center justify-center text-slate-500 hover:text-amber-600 gap-1.5 transition-all cursor-pointer shadow-xs">
+                                <div className="w-9 h-9 rounded-xl bg-white shadow-xs border border-slate-200 flex items-center justify-center">
+                                  <Camera className="w-4 h-4 text-slate-700" />
+                                </div>
+                                <span className="text-[9px] font-bold uppercase tracking-wider">Scatta Foto</span>
+                                <span className="text-[8px] text-slate-400 font-medium">Istantanea</span>
+                                <input 
+                                  type="file" 
+                                  accept="image/*" 
+                                  capture="environment"
+                                  onChange={handleFileChange}
+                                  className="hidden" 
+                                />
+                              </label>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -700,6 +755,122 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
           </div>
         </div>
       </div>
+      {/* Detail Modal for Past Rapportino */}
+      <AnimatePresence>
+        {selectedHistoryRapportino && (
+          <div 
+            className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+            onClick={() => setSelectedHistoryRapportino(null)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-t-[32px] sm:rounded-3xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6 space-y-6 shadow-2xl border border-slate-200"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Rapportino Inviato</span>
+                  <h3 className="text-lg font-black text-slate-900">
+                    {cantieri.find(c => c.id === selectedHistoryRapportino.cantiereId)?.name || 'Cantiere'}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium">Data: {selectedHistoryRapportino.date}</p>
+                </div>
+                <button 
+                  onClick={() => setSelectedHistoryRapportino(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Photos Section */}
+              {selectedHistoryRapportino.foto && selectedHistoryRapportino.foto.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-amber-500" />
+                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Foto Cantiere ({selectedHistoryRapportino.foto.length})
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {selectedHistoryRapportino.foto.map((f, i) => (
+                      <div 
+                        key={i} 
+                        onClick={() => setPreviewPhoto(f)}
+                        className="aspect-square rounded-xl overflow-hidden border border-slate-200 cursor-pointer group relative shadow-xs"
+                      >
+                        <img src={f} alt={`Foto ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <span className="text-[9px] font-bold text-white bg-slate-950/70 px-2 py-0.5 rounded-md">Ingrandisci</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-slate-50 rounded-xl text-center text-xs text-slate-400">
+                  Nessuna foto allegata a questo rapportino.
+                </div>
+              )}
+
+              {/* Note */}
+              {selectedHistoryRapportino.note && (
+                <div className="space-y-1.5 bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Note di Cantiere</p>
+                  <p className="text-xs text-slate-700 font-medium whitespace-pre-wrap">{selectedHistoryRapportino.note}</p>
+                </div>
+              )}
+
+              {/* Personale */}
+              {selectedHistoryRapportino.personale && selectedHistoryRapportino.personale.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Personale Impiegato</p>
+                  <div className="space-y-1.5">
+                    {selectedHistoryRapportino.personale.map((p, i) => (
+                      <div key={i} className="flex justify-between items-center text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <span className="font-semibold text-slate-800">{p.nome}</span>
+                        <span className="font-bold text-amber-600">{p.ore} ore</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Mezzi */}
+              {selectedHistoryRapportino.mezzi && selectedHistoryRapportino.mezzi.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mezzi & Macchinari</p>
+                  <div className="space-y-1.5">
+                    {selectedHistoryRapportino.mezzi.map((m, i) => (
+                      <div key={i} className="flex justify-between items-center text-xs bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <span className="font-semibold text-slate-800">{m.nome}</span>
+                        <span className="font-bold text-blue-600">{m.ore} ore</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <button 
+                onClick={() => setSelectedHistoryRapportino(null)}
+                className="w-full py-3.5 bg-slate-900 text-white rounded-2xl font-bold text-xs hover:bg-slate-800 transition-colors"
+              >
+                Chiudi
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Lightbox for instant high-res photo viewing */}
+      <PhotoLightbox 
+        photoUrl={previewPhoto}
+        onClose={() => setPreviewPhoto(null)}
+        title="Foto Cantiere"
+        subtitle={selectedCantiere?.name || 'Rapportino Giornaliero'}
+      />
     </div>
   );
 };

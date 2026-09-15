@@ -10,6 +10,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as 
 import { seedSimulationData } from '../lib/seeder';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
+import { PhotoLightbox } from './PhotoLightbox';
 
 interface AdminDashboardProps {
   company: Company | null;
@@ -71,6 +72,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAddMaterialeModal, setShowAddMaterialeModal] = useState(false);
   const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
   const [selectedRapportino, setSelectedRapportino] = useState<Rapportino | null>(null);
+  const [adminLightboxPhoto, setAdminLightboxPhoto] = useState<string | null>(null);
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   const [selectedPersonale, setSelectedPersonale] = useState<Personale | null>(null);
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
@@ -1775,8 +1777,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {selectedRapportino.foto.map((f, i) => (
-                      <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-slate-200">
-                        <img src={f} alt={`Foto ${i}`} className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform" onClick={() => window.open(f, '_blank')} />
+                      <div 
+                        key={i} 
+                        className="aspect-square rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group shadow-xs hover:border-amber-500/50 transition-colors"
+                        onClick={() => setAdminLightboxPhoto(f)}
+                      >
+                        <img src={f} alt={`Foto Cantiere ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        <div className="absolute inset-0 bg-slate-950/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <span className="text-[10px] font-bold text-white bg-slate-950/80 px-2.5 py-1 rounded-lg backdrop-blur-xs">
+                            Ingrandisci
+                          </span>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -2190,6 +2201,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           onClose={() => setWhatsappModalCantiere(null)}
         />
       )}
+
+      {/* Photo Lightbox */}
+      <PhotoLightbox
+        photoUrl={adminLightboxPhoto}
+        onClose={() => setAdminLightboxPhoto(null)}
+        title={`Foto Rapportino - ${cantieri.find(c => c.id === selectedRapportino?.cantiereId)?.name || 'Cantiere'}`}
+        subtitle={`Data: ${selectedRapportino?.date || ''} • Inviato da ${users.find(u => u.id === selectedRapportino?.userId)?.name || 'Operatore'}`}
+      />
     </div>
   );
 };
