@@ -27,7 +27,10 @@
         "mustChangePassword": { "type": "boolean" },
         "cantiereId": { "type": "string" },
         "phone": { "type": "string" },
-        "active": { "type": "boolean" }
+        "active": { "type": "boolean" },
+        "deviceId": { "type": "string" },
+        "pairingCode": { "type": "string" },
+        "pairingCodeExpiresAt": { "type": "string" }
       },
       "required": ["id", "companyCode", "name", "username", "password", "role", "mustChangePassword", "active"]
     },
@@ -156,6 +159,10 @@
     "/companies/{companyId}/contabilita/{entryId}": {
       "schema": "ContabilitaEntry",
       "description": "Accounting entries belonging to the company."
+    },
+    "/pairingCodes/{code}": {
+      "schema": "object",
+      "description": "Short-lived pairing codes for quick mobile setup."
     }
   }
 }

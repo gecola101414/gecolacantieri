@@ -52,5 +52,9 @@ service cloud.firestore {
       match /rapportini/{id} { allow read, write: if true; }
       match /contabilita/{id} { allow read, write: if true; }
     }
+
+    match /pairingCodes/{code} {
+      allow read, write: if true;
+    }
   }
 }

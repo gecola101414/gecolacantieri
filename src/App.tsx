@@ -9,6 +9,7 @@ import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2 } from 'lucide-react';
@@ -34,7 +35,7 @@ export default function App() {
   const [materiali, setMateriali] = useState<Materiale[]>(initialLocalData.materiali || []);
 
   const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
-  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali'>('panoramica');
+  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Persistence to localStorage for "Device Binding"
@@ -282,6 +283,7 @@ export default function App() {
           </AnimatePresence>
         </main>
       </div>
+      <PWAInstallButton />
     </div>
   );
 }

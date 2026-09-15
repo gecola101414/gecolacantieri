@@ -43,8 +43,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   );
 
   // Login steps: 'company_code' -> 'user_selection' -> 'password' | 'transfer_code'
-  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code'>('company_code');
+  const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code' | 'pairing_code'>('company_code');
   const [inputCompanyCode, setInputCompanyCode] = useState('');
+  const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [filteredUsers, setFilteredUsers] = useState<UserAccount[]>([]);
   const [loginPassword, setLoginPassword] = useState('');
@@ -193,6 +194,49 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       onLogin(selectedUser);
     } catch (err) {
       setLoginError('Errore durante la verifica del codice di trasferimento.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePairingCodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoading(true);
+    const code = pairingCodeInput.trim();
+    
+    try {
+      const pairingData = await firestoreService.resolvePairingCode(code);
+      if (pairingData) {
+        const foundCompany = await firestoreService.getCompanyById(pairingData.companyId);
+        const foundUser = await firestoreService.getUserById(pairingData.companyId, pairingData.userId);
+        
+        if (foundCompany && foundUser) {
+          const companyUsers = await firestoreService.getUsers(foundCompany.id);
+          setCompany(foundCompany);
+          setUsers(companyUsers);
+          setSelectedUser(foundUser);
+          
+          const localDeviceId = getLocalDeviceId();
+          const isMobile = isMobileDevice();
+          
+          if (isMobile) {
+            // Lega il dispositivo mobile
+            const updatedUser = { ...foundUser, deviceId: localDeviceId };
+            await firestoreService.saveUser(foundCompany.id, updatedUser);
+            onLogin(updatedUser);
+          } else {
+            // Su PC, il pairing code funge da login una tantum o autorizzazione
+            onLogin(foundUser);
+          }
+        } else {
+          setLoginError('Dati account non più validi.');
+        }
+      } else {
+        setLoginError('Chiave non valida o scaduta (validità 30 min). Chiedi una nuova chiave all\'amministratore.');
+      }
+    } catch (err) {
+      setLoginError('Errore durante la verifica della chiave.');
     } finally {
       setIsLoading(false);
     }
@@ -407,13 +451,76 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                               Inserisci il codice fornito dal tuo amministratore per accedere al listino utenti.
                             </p>
                           </div>
-                          <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
-                          >
-                            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verifica Codice <ArrowRight className="w-4 h-4" /></>}
-                          </button>
+                          <div className="flex flex-col gap-3">
+                            <button
+                              type="submit"
+                              disabled={isLoading}
+                              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verifica Codice <ArrowRight className="w-4 h-4" /></>}
+                            </button>
+                            <div className="relative py-2">
+                              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-800"></div></div>
+                              <div className="relative flex justify-center text-[10px] uppercase font-bold"><span className="bg-slate-900 px-2 text-slate-500 tracking-widest">oppure</span></div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setLoginStep('pairing_code')}
+                              className="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
+                            >
+                              <Smartphone className="w-4 h-4 text-amber-500" /> Usa Chiave Mobile
+                            </button>
+                          </div>
+                        </motion.form>
+                      )}
+
+                      {/* STEP: PAIRING CODE */}
+                      {loginStep === 'pairing_code' && (
+                        <motion.form 
+                          key="step-pairing"
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          onSubmit={handlePairingCodeSubmit}
+                          className="space-y-5"
+                        >
+                          <div className="bg-amber-500/10 border border-amber-500/20 p-5 rounded-2xl space-y-2">
+                            <div className="flex items-center gap-2 text-amber-500 font-bold text-xs uppercase tracking-wider">
+                              <KeyRound className="w-4 h-4" /> Configurazione Rapida
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              Inserisci la chiave a 4 cifre generata dall'amministratore per autorizzare istantaneamente questo cellulare.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Chiave Mobile (4 cifre)</label>
+                            <input
+                              type="text"
+                              value={pairingCodeInput}
+                              onChange={(e) => setPairingCodeInput(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                              placeholder="0 0 0 0"
+                              className="w-full bg-slate-950/50 border border-slate-800 rounded-3xl p-6 text-center text-4xl font-black tracking-[0.5em] text-amber-500 outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all"
+                              required
+                              autoFocus
+                            />
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setLoginStep('company_code')}
+                              className="flex-1 bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all hover:bg-slate-700"
+                            >
+                              Annulla
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isLoading}
+                              className="flex-[2] bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold py-4 rounded-2xl shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+                            >
+                              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Autorizza Dispositivo'}
+                            </button>
+                          </div>
                         </motion.form>
                       )}
 

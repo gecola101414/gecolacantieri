@@ -28,10 +28,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const menuItems = [
     { id: 'panoramica', label: 'Panoramica', icon: PieChart },
     { id: 'cantieri', label: 'Cantieri', icon: Building2 },
-    { id: 'contabilita', label: 'Contabilità', icon: DollarSign },
     { id: 'personale', label: 'Personale', icon: HardHat },
     { id: 'mezzi', label: 'Mezzi', icon: Wrench },
-    { id: 'materiali', label: 'Materiali', icon: Box },
     { id: 'rapportini', label: 'Rapportini', icon: FileText },
     { id: 'utenti', label: 'Gestione Utenti', icon: Users },
   ];

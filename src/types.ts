@@ -20,6 +20,9 @@ export interface UserAccount {
   phone: string;
   active: boolean;
   deviceId?: string; // ID del dispositivo legato al primo login mobile
+  pairingCode?: string; // Codice a 4 cifre per accoppiamento rapido
+  pairingCodeExpiresAt?: string;
+  cantieriAccreditati?: string[]; // Cantieri a cui l'utente può inviare rapportini
 }
 
 export interface TransferCode {

@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
-  Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, 
+  Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, Check,
   ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import { firestoreService } from '../lib/firestoreService';
 
 interface AdminDashboardProps {
   company: Company | null;
@@ -27,7 +28,7 @@ interface AdminDashboardProps {
   materiali: Materiale[];
   onAddMateriale: (m: Materiale) => void;
   currentUser: UserAccount;
-  activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali';
+  activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita';
   setActiveTab: (tab: any) => void;
 }
 
@@ -54,11 +55,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 }) => {
   // Modals
   const [showAddCantiereModal, setShowAddCantiereModal] = useState(false);
-  const [showAddContabModal, setShowAddContabModal] = useState(false);
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAddPersonaleModal, setShowAddPersonaleModal] = useState(false);
   const [showAddMezzoModal, setShowAddMezzoModal] = useState(false);
-  const [showAddMaterialeModal, setShowAddMaterialeModal] = useState(false);
+  const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
   
@@ -68,18 +68,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     client: '',
     address: '',
-    budget: 0,
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
     status: 'in_corso',
-  });
-
-  const [newContab, setNewContab] = useState<Partial<ContabilitaEntry>>({
-    cantiereId: '',
-    type: 'sal',
-    amount: 0,
-    date: new Date().toISOString().split('T')[0],
-    description: '',
   });
 
   const [newUser, setNewUser] = useState<Partial<UserAccount>>({
@@ -93,7 +84,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [newPers, setNewPers] = useState<Partial<Personale>>({
     name: '',
     role: 'Operaio Generico',
-    hourlyRate: 20,
     phone: '',
   });
 
@@ -101,40 +91,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     plate: '',
     type: 'Autocarro',
-    hourlyRate: 30,
   });
-
-  const [newMat, setNewMat] = useState<Partial<Materiale>>({
-    name: '',
-    unit: 'mc',
-    defaultPrice: 0,
-  });
-
-  // ... handlers
-  const handleCreateMateriale = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMat.name) return;
-    const m: Materiale = {
-      id: 'm-' + Date.now(),
-      name: newMat.name,
-      unit: newMat.unit || 'mc',
-      defaultPrice: Number(newMat.defaultPrice) || 0,
-    };
-    onAddMateriale(m);
-    setShowAddMaterialeModal(false);
-    setNewMat({ name: '', unit: 'mc', defaultPrice: 0 });
-  };
 
   // Calculate totals
-  const totalEntrate = contabilita
-    .filter((c) => c.type === 'sal' || c.type === 'acconto')
-    .reduce((acc, c) => acc + c.amount, 0);
-
-  const totalUscite = contabilita
-    .filter((c) => c.type !== 'sal' && c.type !== 'acconto')
-    .reduce((acc, c) => acc + Math.abs(c.amount), 0);
-
-  const margineComplessivo = totalEntrate - totalUscite;
+  const activeCantieriCount = cantieri.filter(c => c.status === 'in_corso').length;
+  const todayRapportiniCount = rapportini.filter(r => r.date === new Date().toISOString().split('T')[0]).length;
 
   // Handlers
   const handleCreateCantiere = (e: React.FormEvent) => {
@@ -146,32 +107,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: newCantiere.name,
       client: newCantiere.client,
       address: newCantiere.address || '',
-      budget: Number(newCantiere.budget) || 0,
+      budget: 0,
       startDate: newCantiere.startDate || new Date().toISOString().split('T')[0],
       endDate: newCantiere.endDate || '',
       status: newCantiere.status as any || 'in_corso',
     };
     onAddCantiere(created);
     setShowAddCantiereModal(false);
-    setNewCantiere({ name: '', client: '', address: '', budget: 0, status: 'in_corso' });
-  };
-
-  const handleCreateContab = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContab.cantiereId || !newContab.amount) return;
-    const isEntrata = newContab.type === 'sal' || newContab.type === 'acconto';
-    const finalAmount = isEntrata ? Math.abs(Number(newContab.amount)) : -Math.abs(Number(newContab.amount));
-
-    const entry: ContabilitaEntry = {
-      id: 'cb-' + Date.now(),
-      cantiereId: newContab.cantiereId,
-      type: newContab.type as any,
-      amount: finalAmount,
-      date: newContab.date || new Date().toISOString().split('T')[0],
-      description: newContab.description || '',
-    };
-    onAddContabilita(entry);
-    setShowAddContabModal(false);
+    setNewCantiere({ name: '', client: '', address: '', status: 'in_corso' });
   };
 
   const handleCreateUser = (e: React.FormEvent) => {
@@ -185,7 +128,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       password: '1234',
       role: newUser.role as any || 'operativo',
       mustChangePassword: true,
-      cantiereId: newUser.cantiereId || undefined,
+      cantiereId: newUser.cantiereId || '',
       phone: newUser.phone || '',
       active: true,
     };
@@ -197,14 +140,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCreatePersonale = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPers.name) return;
+    const personnelId = 'p-' + Date.now();
     const p: Personale = {
-      id: 'p-' + Date.now(),
+      id: personnelId,
       name: newPers.name,
       role: newPers.role as any || 'Operaio Generico',
-      hourlyRate: Number(newPers.hourlyRate) || 0,
+      hourlyRate: 0,
       phone: newPers.phone || '',
     };
     onAddPersonale(p);
+
+    // Auto-create User Account for the employee
+    const username = newPers.name.toLowerCase().replace(/\s/g, '.') + '.' + Math.floor(Math.random() * 100);
+    const u: UserAccount = {
+      id: 'usr-' + Date.now(),
+      companyCode: company ? company.code : 'CANT-0000',
+      name: newPers.name,
+      username: username,
+      password: '1234',
+      role: 'operativo',
+      mustChangePassword: true,
+      phone: newPers.phone || '',
+      active: true,
+    };
+    onSaveUser(u);
+
     setShowAddPersonaleModal(false);
     setNewPers({ name: '', role: 'Operaio Generico', hourlyRate: 20, phone: '' });
   };
@@ -217,11 +177,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       name: newMenz.name,
       plate: newMenz.plate || '',
       type: newMenz.type as any || 'Autocarro',
-      hourlyRate: Number(newMenz.hourlyRate) || 0,
+      hourlyRate: 0,
     };
     onAddMezzo(m);
     setShowAddMezzoModal(false);
-    setNewMenz({ name: '', plate: '', type: 'Autocarro', hourlyRate: 30 });
+    setNewMenz({ name: '', plate: '', type: 'Autocarro' });
   };
 
   const handleResetPassword = (userId: string) => {
@@ -262,16 +222,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const chartData = cantieri.slice(0, 5).map(c => {
-    const cContab = contabilita.filter(cb => cb.cantiereId === c.id);
-    const entrate = cContab.filter(cb => cb.amount > 0).reduce((acc, curr) => acc + curr.amount, 0);
-    const costi = cContab.filter(cb => cb.amount < 0).reduce((acc, curr) => acc + Math.abs(curr.amount), 0);
-    return {
-      name: c.name.split(' ')[0],
-      Entrate: entrate,
-      Costi: costi
-    };
-  });
+  const handleGeneratePairingCode = async (user: UserAccount) => {
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    try {
+      await firestoreService.savePairingCode(code, company?.id || '', user.id);
+      alert(`CHIAVE MOBILE GENERATA PER ${user.name.toUpperCase()}\n\nCODICE: ${code}\n\nComunica questo codice al collaboratore. Potrà usarlo per collegare istantaneamente il suo cellulare senza password.`);
+    } catch (err) {
+      alert('Errore nella generazione del codice.');
+    }
+  };
+
+  const handleToggleAccredit = async (userId: string, cantiereId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    const current = user.cantieriAccreditati || [];
+    const updated = current.includes(cantiereId)
+      ? current.filter(id => id !== cantiereId)
+      : [...current, cantiereId];
+      
+    await onSaveUser({ ...user, cantieriAccreditati: updated });
+    // Update local state for modal if open
+    setUserToAccredit({ ...user, cantieriAccreditati: updated });
+  };
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-8 lg:py-12 space-y-12">
@@ -333,10 +306,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* KPI Command Center */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         {[
-          { label: 'Entrate Certificate', value: `€${totalEntrate.toLocaleString()}`, sub: 'SAL & Acconti', icon: ArrowUpRight, color: 'text-emerald-500', bg: 'bg-emerald-500/5', border: 'border-emerald-500/10' },
-          { label: 'Costi Operativi', value: `€${totalUscite.toLocaleString()}`, sub: 'Mezzi, Personale, Materiali', icon: ArrowDownRight, color: 'text-rose-500', bg: 'bg-rose-500/5', border: 'border-rose-500/10' },
-          { label: 'Margine Gestionale', value: `€${margineComplessivo.toLocaleString()}`, sub: 'Margine Lordo Attuale', icon: PieChartIcon, color: 'text-amber-500', bg: 'bg-amber-500/5', border: 'border-amber-500/10' },
-          { label: 'Rapportini Cloud', value: rapportini.length, sub: 'Inviati in Tempo Reale', icon: Cloud, color: 'text-blue-500', bg: 'bg-blue-500/5', border: 'border-blue-500/10' },
+          { label: 'Cantieri Totali', value: cantieri.length, sub: 'In Corso & Sospesi', icon: Building2, color: 'text-amber-500', bg: 'bg-amber-500/5', border: 'border-amber-500/10' },
+          { label: 'Organico Team', value: personale.length, sub: 'Operativi Registrati', icon: HardHat, color: 'text-slate-500', bg: 'bg-slate-500/5', border: 'border-slate-500/10' },
+          { label: 'Mezzi Aziendali', value: mezzi.length, sub: 'Parco Macchine', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-500/5', border: 'border-blue-500/10' },
+          { label: 'Rapportini Cloud', value: rapportini.length, sub: 'Inviati in Tempo Reale', icon: Cloud, color: 'text-emerald-500', bg: 'bg-emerald-500/5', border: 'border-emerald-500/10' },
         ].map((kpi, idx) => (
           <motion.div 
             key={idx}
@@ -373,43 +346,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-8"
               >
-                <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm space-y-8">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-bold text-slate-900">Analisi Flussi Finanziari</h3>
-                      <p className="text-xs font-medium text-slate-500 mt-1">Comparazione entrate vs costi sui primi 5 cantieri attivi</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 rounded-lg text-[10px] font-bold text-slate-500 border border-slate-100">
-                        <Calendar className="w-3 h-3" /> Ultimi 30 giorni
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="h-80 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="colorEntrate" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorCosti" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }} dy={10} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#64748b' }} dx={-10} />
-                        <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontSize: '12px', fontWeight: 'bold' }} />
-                        <Area type="monotone" dataKey="Entrate" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorEntrate)" />
-                        <Area type="monotone" dataKey="Costi" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorCosti)" />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm">
                     <div className="flex items-center justify-between mb-8">
@@ -454,11 +390,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <span className="text-[10px] font-bold uppercase tracking-wider">Nuovo Cantiere</span>
                         </button>
                         <button 
-                          onClick={() => setShowAddContabModal(true)}
+                          onClick={() => setShowAddUserModal(true)}
                           className="flex flex-col items-center justify-center gap-3 p-6 bg-slate-50 hover:bg-amber-500 hover:text-slate-950 rounded-3xl border border-slate-100 transition-all group"
                         >
-                          <DollarSign className="w-6 h-6 group-hover:scale-110 transition-transform" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">Cassa/SAL</span>
+                          <Users className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Nuovo Utente</span>
                         </button>
                       </div>
                     </div>
@@ -478,7 +414,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="text-2xl font-bold text-slate-900">Controllo Progetti</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Gestione economica e avanzamento lavori.</p>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Gestione avanzamento lavori e squadre.</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="relative">
@@ -491,18 +427,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Cantieri Attivi</p>
                     <p className="text-2xl font-bold text-slate-900">{cantieri.filter(c => c.status === 'in_corso').length}</p>
                   </div>
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Budget Totale</p>
-                    <p className="text-2xl font-bold text-slate-900">€{cantieri.reduce((acc, c) => acc + c.budget, 0).toLocaleString()}</p>
-                  </div>
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costi Totali</p>
-                    <p className="text-2xl font-bold text-rose-600">€{contabilita.filter(cb => cb.amount < 0).reduce((acc, cb) => acc + Math.abs(cb.amount), 0).toLocaleString()}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Squadre in Campo</p>
+                    <p className="text-2xl font-bold text-amber-600">
+                      {new Set(rapportini.filter(r => {
+                        const today = new Date().toISOString().split('T')[0];
+                        return r.date === today;
+                      }).map(r => r.userId)).size} Operativi Oggi
+                    </p>
                   </div>
                 </div>
 
@@ -518,10 +455,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {cantieri.map(c => {
-                      const cContab = contabilita.filter(cb => cb.cantiereId === c.id);
-                      const entrate = cContab.filter(cb => cb.amount > 0).reduce((a, b) => a + b.amount, 0);
-                      const costi = cContab.filter(cb => cb.amount < 0).reduce((a, b) => a + Math.abs(b.amount), 0);
-                      const margine = entrate - costi;
                       const statusColor = c.status === 'in_corso' ? 'bg-emerald-500' : c.status === 'sospeso' ? 'bg-amber-500' : 'bg-slate-400';
 
                       return (
@@ -538,26 +471,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </div>
                             
                             <h4 className="text-xl font-bold text-slate-900 mb-2">{c.name}</h4>
-                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-8">
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-6">
                               <MapPin className="w-3.5 h-3.5" /> {c.address}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 mb-8">
-                              <div className="bg-slate-50 p-4 rounded-2xl">
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Entrate (SAL)</p>
-                                <p className="text-sm font-bold text-emerald-600">€{entrate.toLocaleString()}</p>
-                              </div>
-                              <div className="bg-slate-50 p-4 rounded-2xl">
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costi Totali</p>
-                                <p className="text-sm font-bold text-rose-600">€{costi.toLocaleString()}</p>
-                              </div>
                             </div>
                           </div>
 
                           <div className="flex items-center justify-between pt-6 border-t border-slate-100">
                             <div>
-                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Margine Netto</p>
-                              <p className={`text-base font-bold ${margine >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>€{margine.toLocaleString()}</p>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Ultimo Rapportino</p>
+                              <p className="text-sm font-bold text-slate-900">
+                                {rapportini.filter(r => r.cantiereId === c.id).sort((a,b) => b.date.localeCompare(a.date))[0]?.date || 'Nessun invio'}
+                              </p>
                             </div>
                             <button className="flex items-center gap-2 px-5 py-2.5 bg-slate-950 text-white rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-900 transition-all shadow-lg group">
                               Dettagli <ChevronRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
@@ -568,70 +492,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     })}
                   </div>
                 )}
-              </motion.div>
-            )}
-
-            {/* CONTABILITÀ TAB */}
-            {activeTab === 'contabilita' && (
-              <motion.div 
-                key="contabilita"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-8"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-bold text-slate-900">Registro Contabile</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Flussi di cassa, SAL e pagamenti fornitori.</p>
-                  </div>
-                  <button onClick={() => setShowAddContabModal(true)} className="bg-emerald-600 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-emerald-700 transition-all">
-                    <Plus className="w-4 h-4" /> Registra Movimento
-                  </button>
-                </div>
-
-                <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50/50 border-b border-slate-100">
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cantiere</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Descrizione</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Importo</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {contabilita.length === 0 ? (
-                          <tr>
-                            <td colSpan={5} className="px-8 py-20 text-center text-slate-400 text-xs font-bold">Nessun movimento registrato.</td>
-                          </tr>
-                        ) : (
-                          contabilita.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(entry => {
-                            const cantiere = cantieri.find(c => c.id === entry.cantiereId);
-                            return (
-                              <tr key={entry.id} className="hover:bg-slate-50/50 transition-colors">
-                                <td className="px-8 py-5 text-xs font-medium text-slate-500">{entry.date}</td>
-                                <td className="px-8 py-5 text-sm font-bold text-slate-900">{cantiere?.name || 'Cantiere Eliminato'}</td>
-                                <td className="px-8 py-5 text-sm text-slate-600">{entry.description}</td>
-                                <td className="px-8 py-5">
-                                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                                    entry.amount > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                                  }`}>
-                                    {entry.type.replace('_', ' ')}
-                                  </span>
-                                </td>
-                                <td className={`px-8 py-5 text-sm font-bold text-right ${entry.amount > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  {entry.amount > 0 ? '+' : ''}{entry.amount.toLocaleString()}€
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               </motion.div>
             )}
 
@@ -646,14 +506,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="text-2xl font-bold text-slate-900">Organico & Team</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Gestione dei collaboratori e costi orari aziendali.</p>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Gestione dei collaboratori e disponibilità.</p>
                   </div>
                   <button onClick={() => setShowAddPersonaleModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
                     <Plus className="w-4 h-4" /> Aggiungi Personale
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Forza Lavoro</p>
                     <p className="text-2xl font-bold text-slate-900">{personale.length} Operativi</p>
@@ -664,12 +524,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {rapportini.reduce((acc, r) => acc + r.personale.reduce((pAcc, p) => pAcc + p.ore, 0), 0)} h
                     </p>
                   </div>
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Medio Orario</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      €{personale.length > 0 ? (personale.reduce((acc, p) => acc + p.hourlyRate, 0) / personale.length).toFixed(2) : '0'}/h
-                    </p>
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -677,7 +531,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="col-span-full bg-white rounded-[40px] p-20 text-center border border-slate-200 shadow-sm">
                       <HardHat className="w-12 h-12 text-slate-200 mx-auto mb-6" />
                       <h4 className="text-xl font-bold text-slate-900 mb-2">Nessun membro del team.</h4>
-                      <p className="text-sm text-slate-500 max-w-sm mx-auto">Carica l'organico per monitorare i costi del lavoro nei rapportini.</p>
+                      <p className="text-sm text-slate-500 max-w-sm mx-auto">Carica l'organico per visualizzare i collaboratori nei rapportini.</p>
                     </div>
                   ) : (
                     personale.map(p => (
@@ -693,12 +547,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </div>
                         <div className="space-y-3 pt-4 border-t border-slate-50">
                           <div className="flex justify-between text-xs">
-                            <span className="text-slate-400">Costo Orario:</span>
-                            <span className="font-bold text-slate-900">€{p.hourlyRate}/h</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
                             <span className="text-slate-400">Telefono:</span>
                             <span className="font-bold text-slate-900">{p.phone || '-'}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-400">Ultima Attività:</span>
+                            <span className="font-bold text-amber-600">
+                              {rapportini.filter(r => r.personale.some(pp => pp.personaleId === p.id)).sort((a,b) => b.date.localeCompare(a.date))[0]?.date || 'Mai'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -719,14 +575,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
                     <h3 className="text-2xl font-bold text-slate-900">Flotta Mezzi</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Monitoraggio parco macchine e costi di ammortamento.</p>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Monitoraggio parco macchine e operatività.</p>
                   </div>
                   <button onClick={() => setShowAddMezzoModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
                     <Plus className="w-4 h-4" /> Aggiungi Mezzo
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Parco Mezzi</p>
                     <p className="text-2xl font-bold text-slate-900">{mezzi.length} Unità</p>
@@ -737,12 +593,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       {rapportini.reduce((acc, r) => acc + r.mezzi.reduce((mAcc, m) => mAcc + m.ore, 0), 0)} h
                     </p>
                   </div>
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Ammortamento h</p>
-                    <p className="text-2xl font-bold text-slate-900">
-                      €{mezzi.length > 0 ? (mezzi.reduce((acc, m) => acc + m.hourlyRate, 0) / mezzi.length).toFixed(2) : '0'}/h
-                    </p>
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -750,7 +600,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="col-span-full bg-white rounded-[40px] p-20 text-center border border-slate-200 shadow-sm">
                       <Wrench className="w-12 h-12 text-slate-200 mx-auto mb-6" />
                       <h4 className="text-xl font-bold text-slate-900 mb-2">Parco mezzi vuoto.</h4>
-                      <p className="text-sm text-slate-500 max-w-sm mx-auto">Inserisci i mezzi aziendali per imputare i costi di utilizzo ai cantieri.</p>
+                      <p className="text-sm text-slate-500 max-w-sm mx-auto">Inserisci i mezzi aziendali per monitorarne l'utilizzo nei cantieri.</p>
                     </div>
                   ) : (
                     mezzi.map(m => (
@@ -770,8 +620,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <span className="font-bold text-slate-900">{m.type}</span>
                           </div>
                           <div className="flex justify-between text-xs">
-                            <span className="text-slate-400">Costo Utilizzo:</span>
-                            <span className="font-bold text-slate-900">€{m.hourlyRate}/h</span>
+                            <span className="text-slate-400">Ultimo Utilizzo:</span>
+                            <span className="font-bold text-amber-600">
+                               {rapportini.filter(r => r.mezzi.some(mm => mm.mezzoId === m.id)).sort((a,b) => b.date.localeCompare(a.date))[0]?.date || 'Mai'}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -828,64 +680,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </motion.div>
             )}
 
-            {/* MATERIALI TAB */}
-            {activeTab === 'materiali' && (
-              <motion.div 
-                key="materiali"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-8"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-bold text-slate-900">Listino Materiali</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Gestione dei materiali e prezzi di riferimento.</p>
-                  </div>
-                  <button onClick={() => setShowAddMaterialeModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
-                    <Plus className="w-4 h-4" /> Aggiungi Materiale
-                  </button>
-                </div>
-
-                <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                      <thead>
-                        <tr className="bg-slate-50/50 border-b border-slate-100">
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Materiale</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Unità</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Prezzo Base</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {materiali.length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="px-8 py-20 text-center text-slate-400 text-xs font-bold">Nessun materiale in listino.</td>
-                          </tr>
-                        ) : (
-                          materiali.map(m => (
-                            <tr key={m.id} className="hover:bg-slate-50/50 transition-colors">
-                              <td className="px-8 py-5 text-sm font-bold text-slate-900">{m.name}</td>
-                              <td className="px-8 py-5 text-xs font-medium text-slate-500">{m.unit}</td>
-                              <td className="px-8 py-5 text-sm font-bold text-slate-900">€{m.defaultPrice.toLocaleString()}</td>
-                              <td className="px-8 py-5 text-right">
-                                <button 
-                                  onClick={() => handleDeleteMateriale(m.id)}
-                                  className="p-2 hover:bg-rose-50 rounded-xl transition-all group"
-                                >
-                                  <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-rose-500" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
             {/* UTENTI TAB */}
             {activeTab === 'utenti' && (
               <motion.div 
@@ -911,6 +705,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <tr className="bg-slate-50/50 border-b border-slate-100">
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Utente</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ruolo</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accesso Cantieri</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stato Cloud</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Azioni</th>
                         </tr>
@@ -920,11 +715,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-8 py-5">
                               <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 font-bold flex items-center justify-center">
+                                <div className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center transition-all ${
+                                  u.active ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-400 opacity-50'
+                                }`}>
                                   {u.name.charAt(0)}
                                 </div>
                                 <div>
-                                  <p className="text-sm font-bold text-slate-900">{u.name}</p>
+                                  <p className={`text-sm font-bold ${u.active ? 'text-slate-900' : 'text-slate-400 italic'}`}>{u.name}</p>
                                   <p className="text-[10px] font-mono text-slate-500">{u.username}</p>
                                 </div>
                               </div>
@@ -932,17 +729,65 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <td className="px-8 py-5">
                               <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-tighter ${
                                 u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
-                              }`}>
+                                } ${!u.active && 'opacity-50'}`}>
                                 {u.role}
                               </span>
                             </td>
                             <td className="px-8 py-5">
-                              <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-600">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div> Sincronizzato
+                              <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                {u.role === 'admin' ? (
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Tutti i cantieri</span>
+                                ) : (
+                                  <>
+                                    {(u.cantieriAccreditati || []).length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {(u.cantieriAccreditati || []).map(cid => {
+                                          const c = cantieri.find(ct => ct.id === cid);
+                                          return (
+                                            <span key={cid} className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
+                                              {c?.name.split(' ')[0] || 'N/A'}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Nessuno</span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-8 py-5">
+                              <div className="flex items-center gap-3">
+                                <button
+                                  onClick={() => onSaveUser({ ...u, active: !u.active })}
+                                  className={`w-10 h-6 rounded-full transition-all relative ${u.active ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                                >
+                                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${u.active ? 'left-5' : 'left-1'}`}></div>
+                                </button>
+                                <span className={`text-[10px] font-bold uppercase ${u.active ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                  {u.active ? 'Attivo' : 'Spento'}
+                                </span>
                               </div>
                             </td>
                             <td className="px-8 py-5 text-right">
                               <div className="flex items-center gap-2">
+                                <button 
+                                  onClick={() => handleGeneratePairingCode(u)}
+                                  className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                  title="Genera Chiave Mobile (4 cifre)"
+                                >
+                                  <KeyRound className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
+                                </button>
+                                {u.role !== 'admin' && (
+                                  <button 
+                                    onClick={() => setUserToAccredit(u)}
+                                    className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                    title="Gestisci Accesso Cantieri"
+                                  >
+                                    <Building2 className="w-4 h-4 text-slate-400 group-hover:text-emerald-500" />
+                                  </button>
+                                )}
                                 <button 
                                   onClick={() => handleResetDevice(u.id)}
                                   className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
@@ -955,7 +800,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                   className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
                                   title="Reset Password (1234)"
                                 >
-                                  <KeyRound className="w-4 h-4 text-slate-400 group-hover:text-amber-500" />
+                                  <Shield className="w-4 h-4 text-slate-400 group-hover:text-amber-500" />
                                 </button>
                                 {u.id !== currentUser.id && (
                                   <button 
@@ -1007,28 +852,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cliente *</label>
-                  <input 
-                    type="text" 
-                    value={newCantiere.client}
-                    onChange={e => setNewCantiere({...newCantiere, client: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
-                    required 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Budget Previsto (€) *</label>
-                  <input 
-                    type="number" 
-                    value={newCantiere.budget}
-                    onChange={e => setNewCantiere({...newCantiere, budget: Number(e.target.value)})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
-                    required 
-                  />
-                </div>
-              </div>
+      <div className="grid grid-cols-1 gap-6">
+        <div className="space-y-2">
+          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cliente *</label>
+          <input 
+            type="text" 
+            value={newCantiere.client}
+            onChange={e => setNewCantiere({...newCantiere, client: e.target.value})}
+            className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
+            required 
+          />
+        </div>
+      </div>
 
               <div className="flex gap-4 pt-4">
                 <button 
@@ -1043,93 +878,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all"
                 >
                   Crea Cantiere
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Add Contabilità Modal */}
-      {showAddContabModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
-          >
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-2xl font-bold text-slate-900">Registra Movimento</h3>
-              <div className="bg-emerald-500/10 p-3 rounded-2xl">
-                <DollarSign className="w-6 h-6 text-emerald-500" />
-              </div>
-            </div>
-            
-            <form onSubmit={handleCreateContab} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Seleziona Cantiere *</label>
-                <select 
-                  value={newContab.cantiereId}
-                  onChange={e => setNewContab({...newContab, cantiereId: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
-                  required
-                >
-                  <option value="">Seleziona...</option>
-                  {cantieri.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipologia *</label>
-                  <select 
-                    value={newContab.type}
-                    onChange={e => setNewContab({...newContab, type: e.target.value as any})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
-                  >
-                    <option value="sal">SAL (Entrata)</option>
-                    <option value="acconto">Acconto (Entrata)</option>
-                    <option value="spesa_materiale">Spesa Materiale (Uscita)</option>
-                    <option value="carburante">Carburante (Uscita)</option>
-                    <option value="manutenzione">Manutenzione (Uscita)</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Importo (€) *</label>
-                  <input 
-                    type="number" 
-                    value={newContab.amount}
-                    onChange={e => setNewContab({...newContab, amount: Number(e.target.value)})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold"
-                    required 
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Descrizione Movimento *</label>
-                <input 
-                  type="text" 
-                  value={newContab.description}
-                  onChange={e => setNewContab({...newContab, description: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
-                  required 
-                />
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button 
-                  type="button" 
-                  onClick={() => setShowAddContabModal(false)}
-                  className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs"
-                >
-                  Annulla
-                </button>
-                <button 
-                  type="submit"
-                  className="flex-1 bg-emerald-600 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
-                >
-                  Registra Ora
                 </button>
               </div>
             </form>
@@ -1164,7 +912,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Ruolo Operativo *</label>
                   <select 
@@ -1178,16 +926,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Gruista">Gruista</option>
                     <option value="Tecnico">Tecnico</option>
                   </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Costo Orario (€/h) *</label>
-                  <input 
-                    type="number" 
-                    value={newPers.hourlyRate}
-                    onChange={e => setNewPers({...newPers, hourlyRate: Number(e.target.value)})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold"
-                    required 
-                  />
                 </div>
               </div>
 
@@ -1260,7 +998,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipologia *</label>
                   <select 
@@ -1275,16 +1013,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <option value="Bettoniera">Bettoniera</option>
                     <option value="Altro">Altro</option>
                   </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Costo Utilizzo (€/h) *</label>
-                  <input 
-                    type="number" 
-                    value={newMenz.hourlyRate}
-                    onChange={e => setNewMenz({...newMenz, hourlyRate: Number(e.target.value)})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold"
-                    required 
-                  />
                 </div>
               </div>
 
@@ -1308,8 +1036,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Add Materiale Modal */}
-      {showAddMaterialeModal && (
+      {/* Add User Modal */}
+      {showAddUserModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
@@ -1317,58 +1045,73 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
           >
             <div className="flex items-center justify-between mb-8">
-              <h3 className="text-2xl font-bold text-slate-900">Nuovo Materiale</h3>
-              <div className="bg-blue-500/10 p-3 rounded-2xl">
-                <Box className="w-6 h-6 text-blue-500" />
+              <h3 className="text-2xl font-bold text-slate-900">Nuovo Membro Cloud</h3>
+              <div className="bg-amber-500/10 p-3 rounded-2xl">
+                <Users className="w-6 h-6 text-amber-500" />
               </div>
             </div>
             
-            <form onSubmit={handleCreateMateriale} className="space-y-6">
+            <form onSubmit={handleCreateUser} className="space-y-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome Materiale *</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome Completo *</label>
                 <input 
                   type="text" 
-                  value={newMat.name}
-                  onChange={e => setNewMat({...newMat, name: e.target.value})}
+                  value={newUser.name}
+                  onChange={e => setNewUser({...newUser, name: e.target.value})}
                   className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
                   required 
-                  placeholder="es. Cemento RCK 30"
+                  placeholder="es. Mario Rossi"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Unità di Misura *</label>
-                  <select 
-                    value={newMat.unit}
-                    onChange={e => setNewMat({...newMat, unit: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
-                  >
-                    <option value="mc">mc (Metri Cubi)</option>
-                    <option value="kg">kg</option>
-                    <option value="sacchi">sacchi</option>
-                    <option value="mq">mq (Metri Quadri)</option>
-                    <option value="metri">metri</option>
-                    <option value="litri">litri</option>
-                    <option value="cad">cad (Caduno)</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Prezzo stimato (€) *</label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Username (per Login) *</label>
                   <input 
-                    type="number" 
-                    value={newMat.defaultPrice}
-                    onChange={e => setNewMat({...newMat, defaultPrice: Number(e.target.value)})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold"
+                    type="text" 
+                    value={newUser.username}
+                    onChange={e => setNewUser({...newUser, username: e.target.value.toLowerCase().replace(/\s/g, '')})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
                     required 
+                    placeholder="es. mario.rossi"
                   />
                 </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Ruolo Piattaforma *</label>
+                  <select 
+                    value={newUser.role}
+                    onChange={e => setNewUser({...newUser, role: e.target.value as any})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  >
+                    <option value="operativo">Operativo (Solo App Cellulare)</option>
+                    <option value="dirigente">Dirigente (Gestione Limitata)</option>
+                    <option value="admin">Amministratore (Accesso Totale)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Telefono (facoltativo)</label>
+                <input 
+                  type="text" 
+                  value={newUser.phone}
+                  onChange={e => setNewUser({...newUser, phone: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  placeholder="es. +39 333 1234567"
+                />
+              </div>
+
+              <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
+                <p className="text-[10px] font-bold text-amber-700 uppercase mb-1">Nota Sicurezza</p>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  La password iniziale sarà <span className="font-bold">1234</span>. L'utente dovrà cambiarla al primo accesso. Il login sarà legato al primo cellulare utilizzato.
+                </p>
               </div>
 
               <div className="flex gap-4 pt-4">
                 <button 
                   type="button" 
-                  onClick={() => setShowAddMaterialeModal(false)}
+                  onClick={() => setShowAddUserModal(false)}
                   className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs"
                 >
                   Annulla
@@ -1377,10 +1120,74 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   type="submit"
                   className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all"
                 >
-                  Crea Materiale
+                  Crea Account
                 </button>
               </div>
             </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Accreditation Modal */}
+      {userToAccredit && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">Accesso Cantieri</h3>
+                <p className="text-xs font-medium text-slate-500 mt-1">Seleziona i cantieri visibili a {userToAccredit.name}</p>
+              </div>
+              <div className="bg-emerald-500/10 p-3 rounded-2xl">
+                <Building2 className="w-6 h-6 text-emerald-500" />
+              </div>
+            </div>
+            
+            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              {cantieri.length === 0 ? (
+                <p className="text-center py-10 text-slate-400 font-bold text-xs">Nessun cantiere disponibile.</p>
+              ) : (
+                cantieri.map(c => {
+                  const isAccredited = (userToAccredit.cantieriAccreditati || []).includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => handleToggleAccredit(userToAccredit.id, c.id)}
+                      className={`w-full flex items-center justify-between p-4 rounded-2xl border transition-all ${
+                        isAccredited 
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                          : 'bg-slate-50 border-slate-100 text-slate-600 hover:border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${c.status === 'in_corso' ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                        <div className="text-left">
+                          <p className="text-sm font-bold">{c.name}</p>
+                          <p className="text-[10px] uppercase tracking-wider font-bold opacity-60">{c.code}</p>
+                        </div>
+                      </div>
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${
+                        isAccredited ? 'bg-emerald-500 border-emerald-500 text-white' : 'bg-white border-slate-200'
+                      }`}>
+                        {isAccredited && <Check className="w-4 h-4 stroke-[3]" />}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-8">
+              <button 
+                onClick={() => setUserToAccredit(null)}
+                className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all"
+              >
+                Chiudi e Salva
+              </button>
+            </div>
           </motion.div>
         </div>
       )}
@@ -1390,7 +1197,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <WhatsAppExportModal
           cantiere={whatsappModalCantiere}
           rapportini={rapportini}
-          contabilita={contabilita}
           onClose={() => setWhatsappModalCantiere(null)}
         />
       )}

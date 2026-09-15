@@ -6,31 +6,18 @@ import { motion, AnimatePresence } from 'motion/react';
 interface WhatsAppExportModalProps {
   cantiere: Cantiere;
   rapportini: Rapportino[];
-  contabilita: ContabilitaEntry[];
   onClose: () => void;
 }
 
 export const WhatsAppExportModal: React.FC<WhatsAppExportModalProps> = ({
   cantiere,
   rapportini,
-  contabilita,
   onClose,
 }) => {
   const [copied, setCopied] = useState(false);
 
   // Filter items for this cantiere
   const cantiereRapportini = rapportini.filter((r) => r.cantiereId === cantiere.id);
-  const cantiereContab = contabilita.filter((c) => c.cantiereId === cantiere.id);
-
-  const totalEntrate = cantiereContab
-    .filter((c) => c.type === 'sal' || c.type === 'acconto')
-    .reduce((acc, curr) => acc + curr.amount, 0);
-
-  const totalUscite = cantiereContab
-    .filter((c) => c.type !== 'sal' && c.type !== 'acconto')
-    .reduce((acc, curr) => acc + Math.abs(curr.amount), 0);
-
-  const saldo = totalEntrate - totalUscite;
 
   const lastRapportino = cantiereRapportini[cantiereRapportini.length - 1];
 
@@ -38,11 +25,6 @@ export const WhatsAppExportModal: React.FC<WhatsAppExportModalProps> = ({
 📍 Indirizzo: ${cantiere.address}
 👤 Cliente: ${cantiere.client}
 📊 Stato: ${cantiere.status.toUpperCase()}
-
-💰 *SITUAZIONE CONTABILE:*
-• Entrate (SAL/Acconti): €${totalEntrate.toLocaleString()}
-• Costi & Uscite: €${totalUscite.toLocaleString()}
-• Saldo Netto: €${saldo.toLocaleString()}
 
 👷 *ULTIMO RAPPORTINO (${lastRapportino ? lastRapportino.date : 'N/D'}):*
 ${lastRapportino ? lastRapportino.note : 'Nessun rapportino recente'}

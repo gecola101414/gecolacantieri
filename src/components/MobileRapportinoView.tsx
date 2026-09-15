@@ -153,6 +153,9 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   };
 
   const userRapportini = rapportini.filter(r => r.userId === currentUser.id);
+  const filteredCantieri = currentUser.role === 'admin' 
+    ? cantieri 
+    : cantieri.filter(c => (currentUser.cantieriAccreditati || []).includes(c.id));
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col max-w-[640px] mx-auto shadow-2xl relative">
@@ -236,13 +239,13 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                 </div>
                 
                 <div className="space-y-4">
-                  {cantieri.length === 0 ? (
+                  {filteredCantieri.length === 0 ? (
                     <div className="bg-white border-2 border-dashed border-slate-200 rounded-[32px] p-12 text-center">
                       <MapPin className="w-12 h-12 text-slate-200 mx-auto mb-4" />
                       <p className="text-sm font-bold text-slate-400">Nessun cantiere attivo assegnato.</p>
                     </div>
                   ) : (
-                    cantieri.map(c => (
+                    filteredCantieri.map(c => (
                       <button
                         key={c.id}
                         onClick={() => handleCreateNew(c)}
