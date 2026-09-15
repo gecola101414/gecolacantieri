@@ -387,13 +387,17 @@ export const firestoreService = {
   async addMovement(companyId: string, movement: StockMovement): Promise<void> {
     const path = `companies/${companyId}/movements`;
     try {
-      await setDoc(doc(db, path, movement.id), sanitizeData(movement));
+      const sanitizedMove = sanitizeData({
+        ...movement,
+        status: movement.type === 'trasferimento_cantiere' ? 'pending' : movement.status
+      });
+      await setDoc(doc(db, path, movement.id), sanitizedMove);
       
       // Update Stock
       if (movement.type === 'carico_magazzino') {
         await this.updateCompanyMagazzino(companyId, movement);
       } else if (movement.type === 'trasferimento_cantiere') {
-        await this.updateTransferStock(companyId, movement);
+        await this.updateTransferStock(companyId, sanitizedMove);
       }
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -433,20 +437,52 @@ export const firestoreService = {
   },
 
   async updateTransferStock(companyId: string, move: StockMovement): Promise<void> {
-    if (!move.toId || move.toId === 'centrale') return;
-    
     try {
-      // 1. Scalo da Magazzino Centrale
-      const company = await this.getCompanyById(companyId);
-      if (company && company.magazzinoCentrale) {
-        const centralIdx = company.magazzinoCentrale.findIndex(i => i.materialeId === move.materialeId);
-        if (centralIdx >= 0) {
-          company.magazzinoCentrale[centralIdx].quantity = (company.magazzinoCentrale[centralIdx].quantity || 0) - move.quantity;
-          await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: sanitizeData(company.magazzinoCentrale) });
+      // SCALO dal punto di origine
+      if (move.fromId === 'centrale') {
+        const company = await this.getCompanyById(companyId);
+        if (company && company.magazzinoCentrale) {
+          const centralIdx = company.magazzinoCentrale.findIndex(i => i.materialeId === move.materialeId);
+          if (centralIdx >= 0) {
+            company.magazzinoCentrale[centralIdx].quantity = (company.magazzinoCentrale[centralIdx].quantity || 0) - move.quantity;
+            // Calcoliamo il costo proporzionale scalo
+            const unitCost = company.magazzinoCentrale[centralIdx].totalCost / (company.magazzinoCentrale[centralIdx].quantity + move.quantity);
+            company.magazzinoCentrale[centralIdx].totalCost -= (unitCost * move.quantity);
+            
+            await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: sanitizeData(company.magazzinoCentrale) });
+          }
+        }
+      } else if (move.fromId) {
+        const cantiere = await this.getCantiereById(companyId, move.fromId);
+        if (cantiere && cantiere.stock) {
+          const itemIdx = cantiere.stock.findIndex(i => i.materialeId === move.materialeId);
+          if (itemIdx >= 0) {
+            cantiere.stock[itemIdx].quantity -= move.quantity;
+            const unitCost = cantiere.stock[itemIdx].totalCost / (cantiere.stock[itemIdx].quantity + move.quantity);
+            cantiere.stock[itemIdx].totalCost -= (unitCost * move.quantity);
+            await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.fromId), { stock: sanitizeData(cantiere.stock) });
+          }
         }
       }
+      console.log(`Transfer initiated: Material scaled down from source ${move.fromId}`);
+    } catch (e) {
+      console.error('Error in transfer scale down:', e);
+      throw e;
+    }
+  },
 
-      // 2. Carico su Cantiere
+  async acceptTransfer(companyId: string, moveId: string): Promise<void> {
+    const path = `companies/${companyId}/movements/${moveId}`;
+    try {
+      const moveSnap = await getDoc(doc(db, path));
+      if (!moveSnap.exists()) return;
+      const move = moveSnap.data() as StockMovement;
+      if (move.status !== 'pending' || !move.toId) return;
+
+      // 1. Update Movement Status
+      await updateDoc(doc(db, path), { status: 'accepted' });
+
+      // 2. Carico su Cantiere di Destinazione
       const cantiere = await this.getCantiereById(companyId, move.toId);
       if (cantiere) {
         const stock = cantiere.stock || [];
@@ -468,9 +504,9 @@ export const firestoreService = {
           totalMaterialCost: (cantiere.totalMaterialCost || 0) + ((move.costoUnitario || 0) * move.quantity)
         });
       }
-      console.log(`Transfer stock updated for material ${move.materialeName} to cantiere ${move.toId}`);
+      console.log(`Transfer ${moveId} accepted and added to cantiere ${move.toId}`);
     } catch (e) {
-      console.error('Error in transfer stock update:', e);
+      console.error('Error accepting transfer:', e);
       throw e;
     }
   },

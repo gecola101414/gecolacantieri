@@ -170,4 +170,5 @@ export interface StockMovement {
   rapportinoId?: string; // Se tipo 'scarico_rapportino'
   documentId?: string; // Link to MaterialDocument
   photoUrl?: string; // Foto della bolla o materiale
+  status?: 'pending' | 'accepted' | 'rejected';
 }

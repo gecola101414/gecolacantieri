@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { UserAccount, Company, UserRole } from '../types';
-import { Building2, Shield, Lock, User, KeyRound, ArrowRight, CheckCircle2, Sparkles, Smartphone, ChevronRight, Loader2 } from 'lucide-react';
+import { Building2, Shield, Lock, User, KeyRound, ArrowRight, CheckCircle2, Sparkles, Smartphone, ChevronRight, Loader2, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
+import { Logo, FooterBranding } from './Branding';
 
 interface AuthScreenProps {
   company: Company | null;
@@ -316,14 +317,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               initial={{ scale: 0.8 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
-              className="w-20 h-20 bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600 p-[1px] rounded-3xl mx-auto mb-6 shadow-[0_0_40px_-10px_rgba(245,158,11,0.5)]"
+              className="mb-6"
             >
-              <div className="w-full h-full bg-slate-950 rounded-[23px] flex items-center justify-center">
-                <Building2 className="w-9 h-9 text-amber-500 stroke-[1.5]" />
-              </div>
+              <Logo className="justify-center" />
             </motion.div>
             
-            <h1 className="text-3xl font-bold tracking-tight text-white mb-2 font-display">CantieriCloud <span className="text-amber-500">Pro</span></h1>
             <p className="text-sm text-slate-400 font-medium max-w-[280px] mx-auto leading-relaxed">
               Gestione contabile avanzata per l'impresa edile moderna.
             </p>
@@ -784,7 +782,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           transition={{ delay: 0.8 }}
           className="mt-8 text-center"
         >
-          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-[0.2em]">Secure Cloud Infrastructure • v2.0 Pro</p>
+          <FooterBranding />
         </motion.div>
       </motion.div>
     </div>

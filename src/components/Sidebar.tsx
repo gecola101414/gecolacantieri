@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserAccount, Company } from '../types';
+import { Logo, FooterBranding } from './Branding';
 
 interface SidebarProps {
   activeTab: string;
@@ -45,19 +46,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sidebar Header */}
       <div className="p-6 flex items-center justify-between">
         <AnimatePresence mode="wait">
-          {!isCollapsed && (
+          {!isCollapsed ? (
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -10 }}
-              className="flex items-center gap-3"
             >
-              <div className="w-8 h-8 bg-amber-500 rounded-lg flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-slate-950" />
-              </div>
-              <span className="font-bold text-white tracking-tight whitespace-nowrap">
-                CantieriCloud <span className="text-amber-500">Pro</span>
-              </span>
+              <Logo className="scale-75 origin-left" />
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <Logo iconOnly className="scale-75" />
             </motion.div>
           )}
         </AnimatePresence>
@@ -119,10 +122,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           
           {!isCollapsed && (
-            <div className="pt-2 space-y-1">
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold text-slate-400 hover:bg-white/5 hover:text-white transition-all">
-                <Settings className="w-4 h-4" /> Impostazioni
-              </button>
+            <div className="pt-2 space-y-3">
+              <FooterBranding />
               <button
                 onClick={onLogout}
                 className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold text-rose-400 hover:bg-rose-500/10 transition-all"

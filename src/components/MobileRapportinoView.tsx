@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
-  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
+import imageCompression from 'browser-image-compression';
+import { Logo, FooterBranding } from './Branding';
 
 interface MobileRapportinoViewProps {
   currentUser: UserAccount;
@@ -15,7 +17,9 @@ interface MobileRapportinoViewProps {
   personale: Personale[];
   mezzi: Mezzo[];
   rapportini: Rapportino[];
+  movements: StockMovement[];
   onAddRapportino: (r: Rapportino) => void;
+  onAcceptTransfer: (moveId: string) => Promise<void>;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
@@ -25,7 +29,9 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   personale,
   mezzi,
   rapportini,
+  movements,
   onAddRapportino,
+  onAcceptTransfer,
 }) => {
   const [step, setStep] = useState<'list' | 'create'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
@@ -168,8 +174,16 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     if (file && company) {
       setIsSubmitting(true);
       try {
+        // Compress image before upload
+        const options = {
+          maxSizeMB: 0.8,
+          maxWidthOrHeight: 1280,
+          useWebWorker: true
+        };
+        const compressedFile = await imageCompression(file, options);
+
         const path = `rapportini/foto-${Date.now()}-${file.name}`;
-        const url = await firestoreService.uploadFile(company.id, path, file);
+        const url = await firestoreService.uploadFile(company.id, path, compressedFile);
         const currentFoto = newRapportino.foto || [];
         setNewRapportino({
           ...newRapportino,
@@ -230,6 +244,19 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     }
   };
 
+  const handleAccept = async (moveId: string) => {
+    setIsSubmitting(true);
+    try {
+      await onAcceptTransfer(moveId);
+      alert('Carico accettato con successo. Le giacenze di cantiere sono state aggiornate.');
+    } catch (err) {
+      console.error('Error accepting transfer:', err);
+      alert('Errore durante l\'accettazione del carico.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const userRapportini = rapportini.filter(r => r.userId === currentUser.id);
   const filteredCantieri = currentUser.role === 'admin' 
     ? cantieri 
@@ -241,15 +268,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       {/* Mobile Top Bar */}
       <div className="bg-slate-950 text-white p-6 sticky top-0 z-50 rounded-b-[32px] shadow-xl space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
-              <Building2 className="w-6 h-6 text-slate-950" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">CantieriCloud</h1>
-              <p className="text-[10px] font-bold text-amber-500/80 uppercase tracking-widest">Mobile Ops • Cloud Sync</p>
-            </div>
-          </div>
+          <Logo className="scale-75 origin-left" />
           <div className="flex items-center gap-2">
             <button 
               onClick={handleGenerateTransferCode}
@@ -352,6 +371,54 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* Pending Transfers */}
+              {movements.some(m => m.status === 'pending' && m.toId && (currentUser.cantieriAccreditati || []).includes(m.toId)) && (
+                <div>
+                  <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-2 flex items-center gap-2">
+                    <ArrowRightLeft className="w-4 h-4 text-amber-500" /> Materiali in Arrivo
+                  </h2>
+                  <div className="space-y-3">
+                    {movements
+                      .filter(m => m.status === 'pending' && m.toId && (currentUser.cantieriAccreditati || []).includes(m.toId))
+                      .map(m => (
+                        <div key={m.id} className="bg-amber-50 border border-amber-200 p-5 rounded-[28px] shadow-sm">
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest leading-none mb-1">Trasferimento</p>
+                              <p className="text-sm font-black text-slate-900">{m.materialeName}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-black text-slate-900 leading-none">{m.quantity}</p>
+                              <p className="text-[9px] font-bold text-slate-500 uppercase">Quantità</p>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 mb-5">
+                            <MapPin className="w-3 h-3 text-slate-400" />
+                            <p className="text-[10px] font-bold text-slate-500">
+                              DESTINAZIONE: {cantieri.find(c => c.id === m.toId)?.name}
+                            </p>
+                          </div>
+
+                          <button 
+                            onClick={() => handleAccept(m.id)}
+                            disabled={isSubmitting}
+                            className="w-full bg-slate-950 text-white font-bold py-3 rounded-xl text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-slate-900 transition-all disabled:opacity-50"
+                          >
+                            {isSubmitting ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Check className="w-4 h-4" />
+                            )} Accetta Carico
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              <FooterBranding />
 
               {/* History */}
               <div>

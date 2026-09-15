@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { UserAccount, Company } from '../types';
-import { Building2, Shield, User, Smartphone, Cloud, ChevronDown, CheckCircle2, LogOut, Key, Settings, Bell, Search } from 'lucide-react';
+import { Building2, Shield, User, Smartphone, Cloud, ChevronDown, CheckCircle2, LogOut, Key, Settings, Bell, Search, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Logo } from './Branding';
 
 interface NavbarProps {
   currentUser: UserAccount;
@@ -28,17 +29,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           
           {/* Brand & Context */}
           <div className="flex items-center gap-8">
-            <div className="flex items-center gap-3 group cursor-pointer">
-              <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center shadow-[0_0_20px_-5px_rgba(245,158,11,0.5)] group-hover:scale-105 transition-transform duration-300">
-                <Building2 className="w-6 h-6 text-slate-950 stroke-[2]" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-lg font-bold tracking-tight text-white leading-tight">
-                  CantieriCloud <span className="text-amber-500">Pro</span>
-                </span>
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Enterprise OS</span>
-              </div>
-            </div>
+            <Logo className="scale-90" />
 
             {company && (
               <div className="hidden lg:flex items-center gap-4 border-l border-white/10 pl-8">

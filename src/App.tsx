@@ -12,10 +12,11 @@ import { AuthScreen } from './components/AuthScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Building2, Loader2 } from 'lucide-react';
+import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
 import { db } from './lib/firebase';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
+import { Logo } from './components/Branding';
 
 export default function App() {
   const [isInitializing, setIsInitializing] = useState(true);
@@ -173,6 +174,7 @@ export default function App() {
     saveContabilita: async (e: ContabilitaEntry) => company && await firestoreService.saveContabilitaEntry(company.id, e),
     saveUser: async (u: UserAccount) => company && await firestoreService.saveUser(company.id, u),
     deleteUser: async (uid: string) => company && await firestoreService.deleteUser(company.id, uid),
+    acceptTransfer: async (mid: string) => company && await firestoreService.acceptTransfer(company.id, mid),
   };
 
   if (isInitializing) {
@@ -184,13 +186,7 @@ export default function App() {
           transition={{ duration: 0.8, ease: "easeOut" }}
           className="flex flex-col items-center gap-6"
         >
-          <div className="w-24 h-24 bg-amber-500 rounded-[32px] flex items-center justify-center shadow-[0_0_50px_-10px_rgba(245,158,11,0.5)]">
-            <Building2 className="w-12 h-12 text-slate-950 stroke-[2.5]" />
-          </div>
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-white tracking-tight font-display">CantieriCloud <span className="text-amber-500">Pro</span></h1>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">Enterprise Cloud Infrastructure</p>
-          </div>
+          <Logo className="scale-125" />
           <div className="w-48 h-1 bg-slate-900 rounded-full mt-4 overflow-hidden relative">
             <motion.div 
               initial={{ left: '-100%' }}
@@ -267,7 +263,9 @@ export default function App() {
                   personale={personale}
                   mezzi={mezzi}
                   rapportini={rapportini}
+                  movements={movements}
                   onAddRapportino={cloudHandlers.saveRapportino}
+                  onAcceptTransfer={cloudHandlers.acceptTransfer}
                 />
               </motion.div>
             ) : (

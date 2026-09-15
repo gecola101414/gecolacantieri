@@ -898,6 +898,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Materiale</th>
                             <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
                             <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Quantità</th>
+                            <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Stato</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -907,20 +908,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <td className="px-8 py-4">
                                 <p className="text-sm font-bold text-slate-900">{m.materialeName}</p>
                                 <p className="text-[10px] text-slate-400 italic">
-                                  {m.fromId && `Da: ${m.fromId === 'centrale' ? 'Magazzino' : m.fromId}`} 
-                                  {m.toId && ` → A: ${m.toId === 'centrale' ? 'Magazzino' : m.toId}`}
+                                  {m.fromId && `Da: ${m.fromId === 'centrale' ? 'Magazzino' : cantieri.find(c => c.id === m.fromId)?.name || m.fromId}`} 
+                                  {m.toId && ` → A: ${m.toId === 'centrale' ? 'Magazzino' : cantieri.find(c => c.id === m.toId)?.name || m.toId}`}
                                 </p>
                               </td>
                               <td className="px-8 py-4">
                                 <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
                                   m.type === 'carico_magazzino' ? 'bg-emerald-100 text-emerald-700' : 
-                                  m.type === 'trasferimento_cantiere' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                                  m.type === 'trasferimento_cantiere' ? 'bg-blue-100 text-blue-700' : 
+                                  m.type === 'scarico_rapportino' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                                 }`}>
                                   {m.type.replace('_', ' ')}
                                 </span>
                               </td>
                               <td className="px-8 py-4 text-sm font-black text-right text-slate-900">
                                 {m.quantity}
+                              </td>
+                              <td className="px-8 py-4 text-center">
+                                {m.type === 'trasferimento_cantiere' && m.status === 'pending' ? (
+                                  <span className="text-[9px] font-bold text-amber-500 flex items-center justify-center gap-1">
+                                    <Clock className="w-3 h-3" /> In Transito
+                                  </span>
+                                ) : m.type === 'trasferimento_cantiere' && m.status === 'accepted' ? (
+                                  <span className="text-[9px] font-bold text-emerald-500 flex items-center justify-center gap-1">
+                                    <Check className="w-3 h-3" /> Arrivato
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold text-slate-300">-</span>
+                                )}
                               </td>
                             </tr>
                           ))}

@@ -29,7 +29,7 @@ export const WhatsAppExportModal: React.FC<WhatsAppExportModalProps> = ({
 👷 *ULTIMO RAPPORTINO (${lastRapportino ? lastRapportino.date : 'N/D'}):*
 ${lastRapportino ? lastRapportino.note : 'Nessun rapportino recente'}
 
-📱 *Generato con CantieriCloud Pro* (Cloud Firebase)
+📱 *Generato con GECOLA CANTIERI* (Cloud Firebase)
 `;
 
   const handleCopy = () => {

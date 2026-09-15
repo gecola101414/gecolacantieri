@@ -77,9 +77,9 @@ export default defineConfig(() => {
           enabled: true
         },
         manifest: {
-          name: 'CantieriCloud Pro',
-          short_name: 'CantieriCloud',
-          description: 'Gestione contabile e tecnica per cantieri edili in tempo reale.',
+          name: 'Gecola Cantieri',
+          short_name: 'Gecola',
+          description: 'Gestione contabile e tecnica per cantieri edili in tempo reale con Cloud Firebase.',
           theme_color: '#0f172a',
           background_color: '#f8fafc',
           display: 'standalone',

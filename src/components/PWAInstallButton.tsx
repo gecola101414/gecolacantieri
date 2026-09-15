@@ -23,7 +23,7 @@ export const PWAInstallButton: React.FC = () => {
               <Smartphone className="w-6 h-6 text-slate-950" />
             </div>
             <div>
-              <p className="text-xs font-bold text-white">Installa CantieriCloud</p>
+              <p className="text-xs font-bold text-white">Installa Gecola Cantieri</p>
               <p className="text-[10px] text-slate-400">Aggiungi l'icona sul tuo cellulare</p>
             </div>
           </div>
@@ -57,7 +57,7 @@ export const PWAInstallButton: React.FC = () => {
                 <Smartphone className="w-6 h-6 text-slate-950" />
               </div>
               <div>
-                <p className="text-xs font-bold text-white">CantieriCloud per iPhone</p>
+                <p className="text-xs font-bold text-white">Gecola per iPhone</p>
                 <p className="text-[10px] text-slate-400">Crea l'icona dell'app</p>
               </div>
             </div>
