@@ -223,12 +223,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleGeneratePairingCode = async (user: UserAccount) => {
+    if (!company?.id) {
+      alert('Errore: ID Azienda non trovato. Effettua nuovamente il login.');
+      return;
+    }
+
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     try {
-      await firestoreService.savePairingCode(code, company?.id || '', user.id);
+      console.log('Generating pairing code for user:', user.id, 'in company:', company.id);
+      await firestoreService.savePairingCode(code, company.id, user.id);
       alert(`CHIAVE MOBILE GENERATA PER ${user.name.toUpperCase()}\n\nCODICE: ${code}\n\nComunica questo codice al collaboratore. Potrà usarlo per collegare istantaneamente il suo cellulare senza password.`);
     } catch (err) {
-      alert('Errore nella generazione del codice.');
+      console.error('Pairing code generation error:', err);
+      alert(`Errore nella generazione del codice: ${err instanceof Error ? err.message : 'Errore sconosciuto'}`);
     }
   };
 

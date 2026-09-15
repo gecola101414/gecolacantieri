@@ -64,7 +64,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       setActiveTransferCode(newCode);
       setTimeLeft(120);
     } catch (err) {
-      alert('Errore nella generazione del codice.');
+      console.error('Transfer code generation error:', err);
+      alert(`Errore nella generazione del codice: ${err instanceof Error ? err.message : 'Errore sconosciuto'}`);
     } finally {
       setIsGenerating(false);
     }
