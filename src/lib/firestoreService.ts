@@ -211,6 +211,36 @@ export const firestoreService = {
     const path = `companies/${companyId}/rapportini/${r.id}`;
     console.log(`Saving rapportino to ${path}`, r);
     try {
+      // Security check: verify user is active before persisting rapportino
+      if (r.userId) {
+        const user = await this.getUserById(companyId, r.userId);
+        if (user && user.active === false) {
+          console.warn(`[SECURITY] Blocked rapportino submission: user ${r.userId} is deactivated.`);
+          throw new Error('Account utente disattivato dall\'amministratore. Invio bloccato.');
+        }
+      }
+
+      // Ensure timestamp, time and status defaults
+      const now = new Date();
+      if (!r.ora) {
+        r.ora = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+      if (!r.date) {
+        r.date = now.toISOString().split('T')[0];
+      }
+      if (!r.status) {
+        r.status = 'valido';
+      }
+
+      // Ensure sequential progressive number per cantiere
+      if (!r.numeroProgressivo || r.numeroProgressivo <= 0) {
+        const existingRap = await this.getRapportini(companyId);
+        const cantiereRap = existingRap.filter(ex => ex.cantiereId === r.cantiereId && ex.id !== r.id);
+        const maxNum = cantiereRap.reduce((max, cur) => Math.max(max, cur.numeroProgressivo || 0), 0);
+        r.numeroProgressivo = Math.max(maxNum, cantiereRap.length) + 1;
+        r.codiceRapportino = `N° ${r.numeroProgressivo}`;
+      }
+
       const sanitizedR = sanitizeData(r);
       await setDoc(doc(db, 'companies', companyId, 'rapportini', r.id), sanitizedR);
       
@@ -272,6 +302,49 @@ export const firestoreService = {
       console.log(`Rapportino ${r.id} saved successfully.`);
     } catch (e) {
       console.error(`Error saving rapportino ${r.id}:`, e);
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async cancelRapportino(companyId: string, rapportinoId: string, cancelledBy: string, motivo: string): Promise<void> {
+    const path = `companies/${companyId}/rapportini/${rapportinoId}`;
+    try {
+      const snap = await getDoc(doc(db, path));
+      if (!snap.exists()) return;
+      const rap = snap.data() as Rapportino;
+      if (rap.status === 'annullato') return; // Already cancelled
+
+      const now = new Date();
+      const annullatoIl = `${now.toLocaleDateString('it-IT')} ${now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+
+      await updateDoc(doc(db, path), {
+        status: 'annullato',
+        annullatoIl,
+        annullatoDa: cancelledBy,
+        motivoAnnullamento: motivo || 'Annullato dall\'operatore'
+      });
+
+      // Rollback hours from cantiere
+      const cantiere = await this.getCantiereById(companyId, rap.cantiereId);
+      if (cantiere) {
+        const personnelHours = rap.personnelHours || [];
+        const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (ph.hours || 0), 0);
+        const allPersonale = await this.getPersonale(companyId);
+        let removedPersonnelCost = 0;
+        for (const ph of personnelHours) {
+          const p = allPersonale.find(pers => pers.id === ph.personnelId);
+          if (p) {
+            removedPersonnelCost += (ph.hours || 0) * (p.hourlyRate || 0);
+          }
+        }
+        await updateDoc(doc(db, `companies/${companyId}/cantieri`, rap.cantiereId), {
+          totalWorkHours: Math.max(0, (cantiere.totalWorkHours || 0) - rapportinoHours),
+          totalPersonnelCost: Math.max(0, (cantiere.totalPersonnelCost || 0) - removedPersonnelCost)
+        });
+      }
+      console.log(`Rapportino ${rapportinoId} successfully cancelled with audit trail.`);
+    } catch (e) {
+      console.error(`Error cancelling rapportino ${rapportinoId}:`, e);
       handleFirestoreError(e, OperationType.WRITE, path);
     }
   },

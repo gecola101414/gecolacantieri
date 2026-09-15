@@ -9,8 +9,9 @@ import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
+import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -41,6 +42,50 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  // Transfer Code Logic (accessible from mobile top bar)
+  const [activeTransferCode, setActiveTransferCode] = useState<TransferCode | null>(null);
+  const [transferTimeLeft, setTransferTimeLeft] = useState(0);
+  const [isGeneratingTransferCode, setIsGeneratingTransferCode] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (transferTimeLeft > 0) {
+      timer = setInterval(() => {
+        setTransferTimeLeft(prev => prev - 1);
+      }, 1000);
+    } else {
+      setActiveTransferCode(null);
+    }
+    return () => clearInterval(timer);
+  }, [transferTimeLeft]);
+
+  const handleGenerateTransferCode = async () => {
+    if (!currentUser?.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore.');
+      return;
+    }
+    if (!company) return;
+    setIsGeneratingTransferCode(true);
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newCode: TransferCode = {
+      id: 'tc-' + Date.now(),
+      code,
+      userId: currentUser.id,
+      expiresAt: new Date(Date.now() + 120 * 1000).toISOString(),
+      used: false
+    };
+    try {
+      await firestoreService.saveTransferCode(company.id, newCode);
+      setActiveTransferCode(newCode);
+      setTransferTimeLeft(120);
+    } catch (err) {
+      console.error('Transfer code error:', err);
+      alert('Errore nella generazione del codice di trasferimento.');
+    } finally {
+      setIsGeneratingTransferCode(false);
+    }
+  };
+
   // Persistence to localStorage for "Device Binding"
   useEffect(() => { 
     saveLocalCompany(company); 
@@ -68,11 +113,16 @@ export default function App() {
     const unsubUsers = onSnapshot(collection(db, 'companies', company.id, 'users'), (snap) => {
       const data = snap.docs.map(doc => doc.data() as UserAccount);
       setUsers(data);
-      // Update currentUser if it changed in the cloud
-      if (currentUser) {
-        const updated = data.find(u => u.id === currentUser.id);
-        if (updated) setCurrentUser(updated);
-      }
+      // Synchronize currentUser if updated or deactivated in cloud
+      setCurrentUser(prevUser => {
+        if (!prevUser) return null;
+        const updated = data.find(u => u.id === prevUser.id);
+        if (!updated) {
+          // Account was deleted on server
+          return null;
+        }
+        return updated;
+      });
     });
 
     const unsubCantieri = onSnapshot(collection(db, 'companies', company.id, 'cantieri'), (snap) => {
@@ -123,6 +173,27 @@ export default function App() {
     };
   }, [company?.id]);
 
+  // Dedicated real-time listener on active user account to immediately intercept admin deactivations
+  useEffect(() => {
+    if (!company || !currentUser?.id) return;
+
+    const userDocRef = doc(db, 'companies', company.id, 'users', currentUser.id);
+    const unsubUser = onSnapshot(userDocRef, (snap) => {
+      if (snap.exists()) {
+        const cloudUser = snap.data() as UserAccount;
+        setCurrentUser(prev => {
+          if (!prev || prev.id !== cloudUser.id) return prev;
+          return cloudUser;
+        });
+      } else {
+        // Account deleted from server
+        setCurrentUser(null);
+      }
+    });
+
+    return () => unsubUser();
+  }, [company?.id, currentUser?.id]);
+
   // Splash effect
   useEffect(() => {
     const timer = setTimeout(() => setIsInitializing(false), 2000);
@@ -142,11 +213,15 @@ export default function App() {
       const cloudUsers = await firestoreService.getUsers(company.id);
       const cloudUser = cloudUsers.find(u => u.id === user.id);
       if (cloudUser) {
+        if (!cloudUser.active) {
+          alert('Impossibile accedere: utenza disattivata dall\'amministratore aziendale.');
+          return;
+        }
         // Update in cloud if mustChangePassword was cleared
         if (user.password !== cloudUser.password) {
           await firestoreService.saveUser(company.id, user);
         }
-        setCurrentUser(user);
+        setCurrentUser(cloudUser);
       }
     }
   };
@@ -170,11 +245,33 @@ export default function App() {
     saveMateriale: async (m: Materiale) => company && await firestoreService.saveMateriale(company.id, m),
     saveMovement: async (m: StockMovement) => company && await firestoreService.addMovement(company.id, m),
     saveDocument: async (d: MaterialDocument) => company && await firestoreService.saveMaterialDocument(company.id, d),
-    saveRapportino: async (r: Rapportino) => company && await firestoreService.saveRapportino(company.id, r),
+    saveRapportino: async (r: Rapportino) => {
+      if (!company) return;
+      if (currentUser && !currentUser.active) {
+        alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+        throw new Error('Utenza disattivata: invio rapportino non consentito.');
+      }
+      await firestoreService.saveRapportino(company.id, r);
+    },
+    cancelRapportino: async (rapportinoId: string, motivo: string) => {
+      if (!company) return;
+      if (currentUser && !currentUser.active) {
+        alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+        throw new Error('Utenza disattivata: operazione non consentita.');
+      }
+      await firestoreService.cancelRapportino(company.id, rapportinoId, currentUser?.name || 'Operatore', motivo);
+    },
     saveContabilita: async (e: ContabilitaEntry) => company && await firestoreService.saveContabilitaEntry(company.id, e),
     saveUser: async (u: UserAccount) => company && await firestoreService.saveUser(company.id, u),
     deleteUser: async (uid: string) => company && await firestoreService.deleteUser(company.id, uid),
-    acceptTransfer: async (mid: string) => company && await firestoreService.acceptTransfer(company.id, mid),
+    acceptTransfer: async (mid: string) => {
+      if (!company) return;
+      if (currentUser && !currentUser.active) {
+        alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+        throw new Error('Utenza disattivata: operazione non consentita.');
+      }
+      await firestoreService.acceptTransfer(company.id, mid);
+    },
   };
 
   if (isInitializing) {
@@ -215,8 +312,19 @@ export default function App() {
     );
   }
 
+  // If user account is deactivated by company administrator, display immediate lock screen
+  if (!currentUser.active) {
+    return (
+      <AccountDeactivatedScreen
+        currentUser={currentUser}
+        company={company}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative flex overflow-hidden">
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative flex overflow-x-hidden w-full max-w-full">
       {isCloudLoading && (
         <div className="fixed top-4 right-4 z-[110] bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 shadow-lg">
           <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
@@ -237,16 +345,20 @@ export default function App() {
         />
       )}
 
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden w-full max-w-full">
         <Navbar
           currentUser={currentUser}
           company={company}
           onLogout={handleLogout}
           isMobileView={isMobileView}
           setIsMobileView={setIsMobileView}
+          onGenerateTransferCode={handleGenerateTransferCode}
+          activeTransferCode={activeTransferCode}
+          transferTimeLeft={transferTimeLeft}
+          isGeneratingTransferCode={isGeneratingTransferCode}
         />
 
-        <main className="flex-1 overflow-y-auto bg-slate-50">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full bg-slate-50">
           <AnimatePresence mode="wait">
             {isMobileView || currentUser.role === 'operativo' ? (
               <motion.div
@@ -254,7 +366,7 @@ export default function App() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="p-4"
+                className="w-full max-w-full overflow-x-hidden"
               >
                 <MobileRapportinoView
                   currentUser={currentUser}
@@ -265,6 +377,7 @@ export default function App() {
                   rapportini={rapportini}
                   movements={movements}
                   onAddRapportino={cloudHandlers.saveRapportino}
+                  onCancelRapportino={cloudHandlers.cancelRapportino}
                   onAcceptTransfer={cloudHandlers.acceptTransfer}
                 />
               </motion.div>
@@ -288,6 +401,7 @@ export default function App() {
                   onAddContabilita={cloudHandlers.saveContabilita}
                   rapportini={rapportini}
                   onAddRapportino={cloudHandlers.saveRapportino}
+                  onCancelRapportino={cloudHandlers.cancelRapportino}
                   materiali={materiali}
                   onAddMateriale={cloudHandlers.saveMateriale}
                   movements={movements}

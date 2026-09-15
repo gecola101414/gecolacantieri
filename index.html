@@ -2,7 +2,7 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Gecola Cantieri - Gestione Cantieri Cloud</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,6 +13,17 @@
       }
       h1, h2, h3, h4, h5, h6 {
         font-family: 'Outfit', sans-serif;
+      }
+      html, body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden !important;
+        position: relative;
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+      }
+      * {
+        box-sizing: border-box;
       }
     </style>
     <meta name="description" content="Gecola Cantieri: Piattaforma cloud per il collegamento tra server aziendale e collaboratori sui cantieri. Gestione presenze, mezzi e rapportini." />

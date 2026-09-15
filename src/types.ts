@@ -101,9 +101,18 @@ export interface Rapportino {
   userId: string;
   userName: string;
   date: string;
+  ora?: string; // Orario di emissione es. "14:35:10"
+  numeroProgressivo?: number; // Numero progressivo sequenziale per cantiere (1, 2, 3...)
+  codiceRapportino?: string; // Es. "N° 1" o "RAP-01"
+  status?: 'valido' | 'annullato'; // Stato tracciabilità (default 'valido')
+  annullatoIl?: string; // Data e ora annullamento
+  annullatoDa?: string; // Nome utente che ha annullato
+  motivoAnnullamento?: string; // Motivazione obbligatoria dell'annullamento
+  sostituisceRapportinoId?: string; // ID eventuale rapportino precedente rifatto
+  sostituisceNumero?: number; // Numero progressivo del rapportino sostituito
   note: string;
   personale: PersonaleRapportino[];
-  materiali: MaterialeRapportino[]; // This was MaterialsRapportino in some parts
+  materiali: MaterialeRapportino[];
   mezzi: MezzoRapportino[];
   foto: string[]; // URLs or base64
   personnelHours: { personnelId: string; hours: number }[];

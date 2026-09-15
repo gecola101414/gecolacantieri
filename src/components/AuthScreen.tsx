@@ -294,7 +294,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-3.5 sm:p-6 relative overflow-x-hidden w-full max-w-full">
       {/* Decorative background elements */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
         <div className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-amber-500/10 blur-[120px] rounded-full"></div>
@@ -309,7 +309,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         className="max-w-[440px] w-full relative"
       >
-        <div className="bg-slate-900/40 backdrop-blur-3xl rounded-[32px] p-8 sm:p-10 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] border border-slate-800/50 text-slate-100 ring-1 ring-white/5">
+        <div className="bg-slate-900/40 backdrop-blur-3xl rounded-2xl sm:rounded-[32px] p-5 sm:p-8 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] border border-slate-800/50 text-slate-100 ring-1 ring-white/5">
           
           {/* Brand Header */}
           <div className="text-center mb-10">

@@ -49,6 +49,9 @@ service cloud.firestore {
       match /personale/{id} { allow read, write: if true; }
       match /mezzi/{id} { allow read, write: if true; }
       match /materiali/{id} { allow read, write: if true; }
+      match /movements/{id} { allow read, write: if true; }
+      match /documents/{id} { allow read, write: if true; }
+      match /transferCodes/{id} { allow read, write: if true; }
       match /rapportini/{id} { allow read, write: if true; }
       match /contabilita/{id} { allow read, write: if true; }
     }

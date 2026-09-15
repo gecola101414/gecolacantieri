@@ -3,7 +3,8 @@ import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferC
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
-  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check, X
+  Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check, X,
+  Calendar, RotateCcw, Ban, Search, Filter, AlertTriangle, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
@@ -20,6 +21,7 @@ interface MobileRapportinoViewProps {
   rapportini: Rapportino[];
   movements: StockMovement[];
   onAddRapportino: (r: Rapportino) => void;
+  onCancelRapportino?: (rapportinoId: string, motivo: string) => Promise<void>;
   onAcceptTransfer: (moveId: string) => Promise<void>;
 }
 
@@ -32,52 +34,31 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   rapportini,
   movements,
   onAddRapportino,
+  onCancelRapportino,
   onAcceptTransfer,
 }) => {
   const [step, setStep] = useState<'list' | 'create'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   
-  // Transfer Code Logic
-  const [activeTransferCode, setActiveTransferCode] = useState<TransferCode | null>(null);
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [isGenerating, setIsGenerating] = useState(false);
+  // Real-time emission clock ticker
+  const [currentTime, setCurrentTime] = useState(() => 
+    new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
 
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
-    } else {
-      setActiveTransferCode(null);
-    }
+    const timer = setInterval(() => {
+      setCurrentTime(new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, []);
 
-  const handleGenerateTransferCode = async () => {
-    if (!company) return;
-    setIsGenerating(true);
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newCode: TransferCode = {
-      id: 'tc-' + Date.now(),
-      code,
-      userId: currentUser.id,
-      expiresAt: new Date(Date.now() + 120 * 1000).toISOString(),
-      used: false
-    };
-    
-    try {
-      await firestoreService.saveTransferCode(company.id, newCode);
-      setActiveTransferCode(newCode);
-      setTimeLeft(120);
-    } catch (err) {
-      console.error('Transfer code generation error:', err);
-      alert(`Errore nella generazione del codice: ${err instanceof Error ? err.message : 'Errore sconosciuto'}`);
-    } finally {
-      setIsGenerating(false);
-    }
+  // Helper to compute next sequential progressive number for a specific cantiere
+  const getNextNumeroForCantiere = (cantiereId: string): number => {
+    const cantiereRap = rapportini.filter(r => r.cantiereId === cantiereId);
+    const maxNum = cantiereRap.reduce((max, cur) => Math.max(max, cur.numeroProgressivo || 0), 0);
+    return Math.max(maxNum, cantiereRap.length) + 1;
   };
-  
+
   // Create form state
   const [formStep, setFormStep] = useState(1);
   const [newRapportino, setNewRapportino] = useState<Partial<Rapportino>>({
@@ -91,7 +72,20 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     note: '',
   });
 
+  // History filtering & cancellation modal states
+  const [historyFilterCantiere, setHistoryFilterCantiere] = useState<string>('all');
+  const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'valido' | 'annullato'>('all');
+  const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
+  
+  const [cancelModalRapportino, setCancelModalRapportino] = useState<Rapportino | null>(null);
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
+
   const handleCreateNew = (cantiere: Cantiere) => {
+    if (!currentUser.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+      return;
+    }
     setSelectedCantiere(cantiere);
     setNewRapportino({
       userId: currentUser.id,
@@ -107,6 +101,41 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       foto: [],
       note: '',
     });
+    setStep('create');
+    setFormStep(1);
+  };
+
+  // Re-make or clone rapportino (supports re-doing an annulled rapportino preserving full trace)
+  const handleRemakeRapportino = (oldRapportino: Rapportino) => {
+    if (!currentUser.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+      return;
+    }
+    const cantiere = cantieri.find(c => c.id === oldRapportino.cantiereId);
+    if (!cantiere) {
+      alert('Cantiere non trovato o non più attivo.');
+      return;
+    }
+    setSelectedCantiere(cantiere);
+    setNewRapportino({
+      userId: currentUser.id,
+      userName: currentUser.name,
+      cantiereId: cantiere.id,
+      date: new Date().toISOString().split('T')[0],
+      personale: oldRapportino.personale ? [...oldRapportino.personale] : [],
+      materiali: oldRapportino.materiali ? [...oldRapportino.materiali] : [],
+      materialiUsed: oldRapportino.materialiUsed ? [...oldRapportino.materialiUsed] : [],
+      mezzi: oldRapportino.mezzi ? [...oldRapportino.mezzi] : [],
+      personnelHours: oldRapportino.personnelHours ? [...oldRapportino.personnelHours] : [],
+      mezziHours: oldRapportino.mezziHours ? [...oldRapportino.mezziHours] : [],
+      foto: [],
+      note: oldRapportino.note 
+        ? `[Rifacimento a sostituzione di N° ${oldRapportino.numeroProgressivo || 'prec.'}]: ${oldRapportino.note}`
+        : `[Rifacimento a sostituzione di N° ${oldRapportino.numeroProgressivo || 'prec.'}]`,
+      sostituisceRapportinoId: oldRapportino.id,
+      sostituisceNumero: oldRapportino.numeroProgressivo,
+    });
+    setSelectedHistoryRapportino(null);
     setStep('create');
     setFormStep(1);
   };
@@ -225,15 +254,30 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (!currentUser.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+      return;
+    }
     if (!selectedCantiere) return;
     setIsSubmitting(true);
     try {
+      const now = new Date();
+      const emissioneOra = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const emissioneData = newRapportino.date || now.toISOString().split('T')[0];
+      const nextProg = getNextNumeroForCantiere(selectedCantiere.id);
+
       const rapportino: Rapportino = {
         id: 'rap-' + Date.now(),
         userId: currentUser.id,
         userName: currentUser.name,
         cantiereId: selectedCantiere.id,
-        date: newRapportino.date || new Date().toISOString().split('T')[0],
+        date: emissioneData,
+        ora: emissioneOra,
+        numeroProgressivo: nextProg,
+        codiceRapportino: `N° ${nextProg}`,
+        status: 'valido',
+        sostituisceRapportinoId: newRapportino.sostituisceRapportinoId,
+        sostituisceNumero: newRapportino.sostituisceNumero,
         personale: newRapportino.personale || [],
         materiali: newRapportino.materiali || [],
         mezzi: newRapportino.mezzi || [],
@@ -246,7 +290,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       await onAddRapportino(rapportino);
       setStep('list');
       const numFoto = (rapportino.foto || []).length;
-      alert(`Rapportino inviato con successo al server cloud!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);
+      alert(`Rapportino N° ${nextProg} inviato con successo alle ore ${emissioneOra}!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);
     } catch (err) {
       console.error('Error submitting rapportino:', err);
       alert('Errore nell\'invio del rapportino. Controlla la connessione e riprova.');
@@ -255,7 +299,40 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     }
   };
 
+  const handleConfirmCancel = async () => {
+    if (!currentUser.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+      return;
+    }
+    if (!cancelModalRapportino) return;
+    if (!cancelReason.trim()) {
+      alert('Inserisci la motivazione dell\'annullamento (obbligatoria per la tracciabilità aziendale).');
+      return;
+    }
+    if (!onCancelRapportino) {
+      alert('Funzione di annullamento non disponibile.');
+      return;
+    }
+    setIsCancelling(true);
+    try {
+      await onCancelRapportino(cancelModalRapportino.id, cancelReason.trim());
+      alert(`Rapportino N° ${cancelModalRapportino.numeroProgressivo || ''} annullato con successo. La tracciabilità è stata registrata.`);
+      setCancelModalRapportino(null);
+      setCancelReason('');
+      setSelectedHistoryRapportino(null);
+    } catch (err) {
+      console.error('Error cancelling rapportino:', err);
+      alert('Errore durante l\'annullamento del rapportino.');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
   const handleAccept = async (moveId: string) => {
+    if (!currentUser.active) {
+      alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await onAcceptTransfer(moveId);
@@ -268,77 +345,49 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     }
   };
 
-  const userRapportini = rapportini.filter(r => r.userId === currentUser.id);
+  const userRapportini = rapportini.filter(r => 
+    currentUser.role === 'admin' || currentUser.role === 'tecnico' 
+      ? true 
+      : r.userId === currentUser.id
+  );
+
+  const filteredHistoryRapportini = userRapportini
+    .filter(r => {
+      if (historyFilterCantiere !== 'all' && r.cantiereId !== historyFilterCantiere) return false;
+      if (historyFilterStatus === 'valido' && r.status === 'annullato') return false;
+      if (historyFilterStatus === 'annullato' && r.status !== 'annullato') return false;
+      if (historySearchQuery.trim()) {
+        const q = historySearchQuery.toLowerCase();
+        const cName = (cantieri.find(c => c.id === r.cantiereId)?.name || '').toLowerCase();
+        const note = (r.note || '').toLowerCase();
+        const num = (r.numeroProgressivo ? `n° ${r.numeroProgressivo}` : '').toLowerCase();
+        if (!cName.includes(q) && !note.includes(q) && !num.includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const dateA = `${a.date}T${a.ora || '00:00:00'}`;
+      const dateB = `${b.date}T${b.ora || '00:00:00'}`;
+      return dateB.localeCompare(dateA);
+    });
+
+  const validiCount = userRapportini.filter(r => r.status !== 'annullato').length;
+  const annullatiCount = userRapportini.filter(r => r.status === 'annullato').length;
   const filteredCantieri = currentUser.role === 'admin' 
     ? cantieri 
     : cantieri.filter(c => (currentUser.cantieriAccreditati || []).includes(c.id));
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col max-w-[640px] mx-auto shadow-2xl relative">
-      
-      {/* Mobile Top Bar */}
-      <div className="bg-slate-950 text-white p-6 sticky top-0 z-50 rounded-b-[32px] shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <Logo className="scale-75 origin-left" />
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={handleGenerateTransferCode}
-              disabled={isGenerating || timeLeft > 0}
-              className={`p-2.5 rounded-xl border transition-all ${
-                timeLeft > 0 
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500 shadow-[0_0_15px_-5px_rgba(16,185,129,0.5)]' 
-                  : 'bg-white/5 border-white/10 text-white/40 hover:text-white hover:bg-white/10'
-              }`}
-              title="Genera Codice Trasferimento PC"
-            >
-              <KeyRound className={`w-5 h-5 ${isGenerating ? 'animate-pulse' : ''}`} />
-            </button>
-            <div className="w-10 h-10 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-amber-500 text-xs font-bold">
-              {currentUser.name.charAt(0)}
-            </div>
-          </div>
-        </div>
-
-        <AnimatePresence>
-          {activeTransferCode && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -10 }}
-              className="bg-gradient-to-r from-emerald-500 to-emerald-600 p-[1px] rounded-2xl shadow-lg shadow-emerald-500/20"
-            >
-              <div className="bg-slate-950 rounded-[15px] p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center">
-                    <ShieldCheck className="w-5 h-5 text-slate-950" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest leading-none mb-1">Codice Accesso PC</p>
-                    <p className="text-xl font-mono font-black text-white tracking-[0.2em]">{activeTransferCode.code}</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-[9px] font-bold text-slate-500 uppercase">Scade tra</p>
-                  <p className="text-lg font-bold text-white tabular-nums flex items-center gap-1.5 justify-end">
-                    <Timer className="w-4 h-4 text-emerald-500" /> {timeLeft}s
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      <div className="flex-1 p-6 space-y-8 overflow-y-auto pb-32">
-        <AnimatePresence mode="wait">
-          {step === 'list' ? (
-            <motion.div 
-              key="list"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="space-y-8"
-            >
+    <div className="w-full max-w-xl mx-auto px-3.5 py-4 sm:px-6 sm:py-6 overflow-x-hidden space-y-6 pb-20">
+      <AnimatePresence mode="wait">
+        {step === 'list' ? (
+          <motion.div 
+            key="list"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6 w-full max-w-full overflow-x-hidden"
+          >
               {/* Active Assignments */}
               <div>
                 <div className="flex items-center justify-between mb-4 px-2">
@@ -431,76 +480,226 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
               <FooterBranding />
 
-              {/* History */}
-              <div>
-                <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 px-2">Ultimi Invii</h2>
-                <div className="space-y-3">
-                  {userRapportini.slice(0, 5).map(r => (
-                    <div 
-                      key={r.id} 
-                      onClick={() => setSelectedHistoryRapportino(r)}
-                      className="bg-white px-5 py-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer hover:border-amber-500/40 hover:shadow-md transition-all group"
+              {/* History Archive */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-2">
+                  <div>
+                    <h2 className="text-sm font-bold text-slate-900 uppercase tracking-widest">Archivio Rapportini</h2>
+                    <p className="text-[10px] text-slate-500">Consulta, traccia orario, annulla o rifai</p>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400 bg-slate-100 px-2.5 py-1 rounded-full">
+                    {filteredHistoryRapportini.length} di {userRapportini.length}
+                  </span>
+                </div>
+
+                {/* Filter Pills */}
+                <div className="flex flex-wrap items-center gap-1.5 px-1">
+                  <button
+                    onClick={() => setHistoryFilterStatus('all')}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all ${
+                      historyFilterStatus === 'all'
+                        ? 'bg-slate-950 text-white shadow-xs'
+                        : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    Tutti ({userRapportini.length})
+                  </button>
+                  <button
+                    onClick={() => setHistoryFilterStatus('valido')}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                      historyFilterStatus === 'valido'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" /> Validi ({validiCount})
+                  </button>
+                  <button
+                    onClick={() => setHistoryFilterStatus('annullato')}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                      historyFilterStatus === 'annullato'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                    }`}
+                  >
+                    <Ban className="w-3 h-3" /> Annullati ({annullatiCount})
+                  </button>
+                </div>
+
+                {/* Optional Search and Cantiere filter */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 px-1">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Cerca cantiere, note, N°..."
+                      value={historySearchQuery}
+                      onChange={(e) => setHistorySearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500"
+                    />
+                  </div>
+
+                  {filteredCantieri.length > 1 && (
+                    <select
+                      value={historyFilterCantiere}
+                      onChange={(e) => setHistoryFilterCantiere(e.target.value)}
+                      className="w-full px-3 py-2 bg-white rounded-xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500"
                     >
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-slate-50 group-hover:bg-amber-500/10 rounded-xl flex items-center justify-center transition-colors">
-                          <FileText className="w-5 h-5 text-slate-400 group-hover:text-amber-600" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-xs font-bold text-slate-900">Rapportino {r.date}</h4>
-                            {r.foto && r.foto.length > 0 && (
-                              <span className="flex items-center gap-1 text-[9px] font-bold text-amber-600 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-md">
-                                <Camera className="w-3 h-3" /> {r.foto.length}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-slate-500 font-medium">
-                            {cantieri.find(c => c.id === r.cantiereId)?.name || 'Cantiere'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all" />
-                      </div>
+                      <option value="all">Tutti i Cantieri</option>
+                      {filteredCantieri.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                {/* List Cards */}
+                <div className="space-y-3">
+                  {filteredHistoryRapportini.length === 0 ? (
+                    <div className="bg-white rounded-2xl p-8 text-center border border-slate-200">
+                      <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-500">Nessun rapportino trovato con questi filtri.</p>
                     </div>
-                  ))}
+                  ) : (
+                    filteredHistoryRapportini.map(r => {
+                      const isAnnullato = r.status === 'annullato';
+                      const cName = cantieri.find(c => c.id === r.cantiereId)?.name || 'Cantiere';
+
+                      return (
+                        <div 
+                          key={r.id} 
+                          onClick={() => setSelectedHistoryRapportino(r)}
+                          className={`bg-white p-4 rounded-2xl border transition-all cursor-pointer group shadow-xs hover:shadow-md ${
+                            isAnnullato 
+                              ? 'border-rose-200 bg-rose-50/20 hover:border-rose-400' 
+                              : 'border-slate-200 hover:border-amber-500/50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3 min-w-0 flex-1">
+                              {/* Progressive Number Badge */}
+                              <div className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center font-mono font-black shrink-0 ${
+                                isAnnullato 
+                                  ? 'bg-rose-100 text-rose-700 border border-rose-200' 
+                                  : 'bg-amber-500/10 text-amber-700 border border-amber-500/20 group-hover:bg-amber-500 group-hover:text-slate-950 transition-colors'
+                              }`}>
+                                <span className="text-[8px] uppercase tracking-tighter leading-none">PROG</span>
+                                <span className="text-xs leading-none mt-0.5">{r.numeroProgressivo ? `N°${r.numeroProgressivo}` : '—'}</span>
+                              </div>
+
+                              <div className="space-y-1 min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className={`text-xs font-bold leading-tight break-words line-clamp-1 ${isAnnullato ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                    {cName}
+                                  </h4>
+                                  {isAnnullato ? (
+                                    <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 shrink-0">
+                                      <Ban className="w-2.5 h-2.5" /> Annullato
+                                    </span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shrink-0">
+                                      <CheckCircle2 className="w-2.5 h-2.5" /> Valido
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Emission Date and Time */}
+                                <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3 text-slate-400" /> {r.date}
+                                  </span>
+                                  <span className="flex items-center gap-1 font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-sm">
+                                    <Clock className="w-3 h-3 text-amber-600" /> {r.ora || 'Orario N/D'}
+                                  </span>
+                                </div>
+
+                                {r.sostituisceNumero && (
+                                  <p className="text-[9px] font-bold text-amber-700 flex items-center gap-1">
+                                    <RotateCcw className="w-3 h-3" /> Sostituisce Rapportino N° {r.sostituisceNumero}
+                                  </p>
+                                )}
+
+                                {isAnnullato && r.motivoAnnullamento && (
+                                  <p className="text-[10px] text-rose-600 italic line-clamp-1">
+                                    Motivo: "{r.motivoAnnullamento}"
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 self-center">
+                              {r.foto && r.foto.length > 0 && (
+                                <span className="flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-md">
+                                  <Camera className="w-3 h-3" /> {r.foto.length}
+                                </span>
+                              )}
+                              <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-amber-600 group-hover:translate-x-0.5 transition-all" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </motion.div>
           ) : (
             <motion.div 
               key="create"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="space-y-8"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6 w-full max-w-full overflow-x-hidden"
             >
               {/* Breadcrumb / Back */}
               <button 
                 onClick={() => setStep('list')}
                 className="flex items-center gap-2 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-slate-900 transition-colors"
               >
-                <ArrowLeft className="w-4 h-4" /> Annulla Rapportino
+                <ArrowLeft className="w-4 h-4" /> Torna ai Cantieri
               </button>
 
-              <div className="bg-white rounded-[32px] border border-slate-200 shadow-xl overflow-hidden">
-                <div className="bg-slate-950 p-6 text-white">
-                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-1">Nuovo Rapportino Giornaliero</p>
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+                <div className="bg-slate-950 p-5 sm:p-6 text-white">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">
+                      Nuovo Rapportino Giornaliero
+                    </span>
+                    <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 font-mono font-black text-xs border border-amber-500/30">
+                      Prog. N° {selectedCantiere ? getNextNumeroForCantiere(selectedCantiere.id) : '—'}
+                    </span>
+                  </div>
                   <h3 className="text-xl font-bold">{selectedCantiere?.name}</h3>
+                  <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {newRapportino.date || 'Oggi'}
+                    </span>
+                    <span className="flex items-center gap-1 font-mono text-amber-400 font-bold">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" /> Emissione ore {currentTime}
+                    </span>
+                  </div>
+
+                  {newRapportino.sostituisceNumero && (
+                    <div className="mt-3 p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-center gap-2">
+                      <RotateCcw className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Rifacimento a sostituzione del <strong>Rapportino N° {newRapportino.sostituisceNumero}</strong> annullato</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="p-8 space-y-8">
+                <div className="p-4 sm:p-6 space-y-6">
                   {/* Step Progress */}
-                  <div className="flex items-center justify-between mb-8">
-                    {[1, 2, 3].map(s => (
-                      <div key={s} className="flex items-center">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                          formStep >= s ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-400'
+                  <div className="flex items-center justify-between mb-4 w-full">
+                    {[1, 2, 3].map((s, idx) => (
+                      <div key={s} className="flex items-center flex-1 last:flex-initial">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${
+                          formStep >= s ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'bg-slate-100 text-slate-400'
                         }`}>
                           {s}
                         </div>
-                        {s < 3 && <div className={`w-12 h-1 bg-slate-100 mx-2 rounded-full ${formStep > s ? 'bg-amber-500' : ''}`}></div>}
+                        {idx < 2 && (
+                          <div className={`flex-1 h-0.5 mx-2 rounded-full ${formStep > s ? 'bg-amber-500' : 'bg-slate-200'}`} />
+                        )}
                       </div>
                     ))}
                   </div>
@@ -735,26 +934,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
 
-      {/* Floating User Context */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[calc(100%-48px)] max-w-[592px] z-[60]">
-        <div className="bg-slate-950/90 backdrop-blur-xl border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-[0_20px_50px_rgba(0,0,0,0.4)]">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center text-slate-950 font-black text-xs uppercase">
-              {currentUser.name.charAt(0)}
-            </div>
-            <div>
-              <p className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">{currentUser.name}</p>
-              <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest">{currentUser.role}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-[9px] font-bold text-slate-500 bg-white/5 px-2 py-1 rounded-lg">
-            <Cloud className="w-3 h-3" />
-            <span>V2.0 PRO</span>
-          </div>
-        </div>
-      </div>
       {/* Detail Modal for Past Rapportino */}
       <AnimatePresence>
         {selectedHistoryRapportino && (
@@ -767,15 +947,39 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 100 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white rounded-t-[32px] sm:rounded-3xl max-w-lg w-full max-h-[85vh] overflow-y-auto p-6 space-y-6 shadow-2xl border border-slate-200"
+              className="bg-white rounded-t-[32px] sm:rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-6 shadow-2xl border border-slate-200"
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                <div>
-                  <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Rapportino Inviato</span>
-                  <h3 className="text-lg font-black text-slate-900">
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md font-mono font-black text-[11px] bg-slate-950 text-amber-400">
+                      Prog. N° {selectedHistoryRapportino.numeroProgressivo || '—'}
+                    </span>
+                    {selectedHistoryRapportino.status === 'annullato' ? (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1">
+                        <Ban className="w-3 h-3" /> Annullato
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Valido
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-xl font-black text-slate-900 leading-tight">
                     {cantieri.find(c => c.id === selectedHistoryRapportino.cantiereId)?.name || 'Cantiere'}
                   </h3>
-                  <p className="text-xs text-slate-500 font-medium">Data: {selectedHistoryRapportino.date}</p>
+                  <div className="flex items-center gap-3 text-xs text-slate-500 font-medium pt-0.5">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {selectedHistoryRapportino.date}
+                    </span>
+                    <span className="flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-bold">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" /> ore {selectedHistoryRapportino.ora || 'N/D'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Emesso da: <strong>{selectedHistoryRapportino.userName}</strong>
+                  </p>
                 </div>
                 <button 
                   onClick={() => setSelectedHistoryRapportino(null)}
@@ -784,6 +988,39 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                   <X className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* Status Banner / Audit Box */}
+              {selectedHistoryRapportino.status === 'annullato' ? (
+                <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl space-y-1.5">
+                  <div className="flex items-center gap-2 text-rose-700 font-bold text-xs uppercase tracking-wider">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>Rapportino Annullato con Tracciabilità</span>
+                  </div>
+                  <p className="text-[11px] text-rose-800">
+                    Annullato da <strong>{selectedHistoryRapportino.annullatoDa || 'Operatore'}</strong> il {selectedHistoryRapportino.annullatoIl || 'Data non disponibile'}
+                  </p>
+                  <div className="mt-1 bg-white/90 p-2.5 rounded-xl border border-rose-200 text-xs text-rose-900 font-mono">
+                    <span className="font-bold">Motivazione:</span> {selectedHistoryRapportino.motivoAnnullamento || 'Nessuna motivazione specificata'}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Rapportino Valido e Registrato su Cloud</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-700 bg-white/80 px-2 py-0.5 rounded-md font-bold">
+                    N° {selectedHistoryRapportino.numeroProgressivo || '—'}
+                  </span>
+                </div>
+              )}
+
+              {selectedHistoryRapportino.sostituisceNumero && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center gap-2 text-xs text-amber-900 font-medium">
+                  <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Rifacimento a sostituzione del <strong>Rapportino N° {selectedHistoryRapportino.sostituisceNumero}</strong></span>
+                </div>
+              )}
 
               {/* Photos Section */}
               {selectedHistoryRapportino.foto && selectedHistoryRapportino.foto.length > 0 ? (
@@ -853,12 +1090,110 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                 </div>
               )}
 
-              <button 
-                onClick={() => setSelectedHistoryRapportino(null)}
-                className="w-full py-3.5 bg-slate-900 text-white rounded-2xl font-bold text-xs hover:bg-slate-800 transition-colors"
-              >
-                Chiudi
-              </button>
+              {/* Actions Footer */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                {/* Remake / Rifai Button */}
+                <button 
+                  onClick={() => handleRemakeRapportino(selectedHistoryRapportino)}
+                  className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
+                >
+                  <RotateCcw className="w-4 h-4" /> Rifai / Sostituisci Questo Rapportino
+                </button>
+
+                {/* Cancel Button (if not already cancelled) */}
+                {selectedHistoryRapportino.status !== 'annullato' && (
+                  <button 
+                    onClick={() => setCancelModalRapportino(selectedHistoryRapportino)}
+                    className="w-full py-3 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Ban className="w-4 h-4" /> Annulla Rapportino (Lascia Traccia)
+                  </button>
+                )}
+
+                <button 
+                  onClick={() => setSelectedHistoryRapportino(null)}
+                  className="w-full py-3 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-2xl font-bold text-xs transition-colors"
+                >
+                  Chiudi
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Dedicated Cancellation Prompt Modal */}
+      <AnimatePresence>
+        {cancelModalRapportino && (
+          <div 
+            className="fixed inset-0 z-[120] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => !isCancelling && setCancelModalRapportino(null)}
+          >
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl border border-rose-200"
+            >
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Annulla Rapportino</h3>
+                  <p className="text-xs text-slate-500">
+                    Prog. N° {cancelModalRapportino.numeroProgressivo || '—'} • {cantieri.find(c => c.id === cancelModalRapportino.cantiereId)?.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-rose-50 rounded-2xl text-xs text-rose-800 space-y-1">
+                <p className="font-bold">Attenzione: Tracciabilità Ufficiale</p>
+                <p>
+                  L'annullamento non cancella il documento ma lo marca come <strong>ANNULLATO</strong>, 
+                  stornando automaticamente le ore e i costi associati al cantiere e registrando chi e quando ha effettuato l'annullamento.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Motivazione dell'Annullamento <span className="text-rose-600">*</span>
+                </label>
+                <textarea 
+                  rows={3}
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="Es: Errore ore operaio Rossi, inserito cantiere errato, ecc..."
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:border-rose-500 focus:bg-white resize-none"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button 
+                  type="button"
+                  disabled={isCancelling}
+                  onClick={() => {
+                    setCancelModalRapportino(null);
+                    setCancelReason('');
+                  }}
+                  className="flex-1 py-3 bg-slate-100 text-slate-700 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors disabled:opacity-50"
+                >
+                  Indietro
+                </button>
+                <button 
+                  type="button"
+                  disabled={isCancelling || !cancelReason.trim()}
+                  onClick={handleConfirmCancel}
+                  className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 transition-colors disabled:opacity-50"
+                >
+                  {isCancelling ? (
+                    <>Annullando... <Loader2 className="w-4 h-4 animate-spin" /></>
+                  ) : (
+                    <>Conferma Annulla <Ban className="w-4 h-4" /></>
+                  )}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
-  Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera
+  Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
@@ -24,6 +24,7 @@ interface AdminDashboardProps {
   onAddContabilita: (e: ContabilitaEntry) => void;
   rapportini: Rapportino[];
   onAddRapportino: (r: Rapportino) => void;
+  onCancelRapportino?: (rapportinoId: string, motivo: string) => Promise<void>;
   users: UserAccount[];
   onSaveUser: (u: UserAccount) => void;
   onDeleteUser: (uid: string) => void;
@@ -50,6 +51,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddContabilita,
   rapportini,
   onAddRapportino,
+  onCancelRapportino,
   users,
   onSaveUser,
   onDeleteUser,
@@ -78,6 +80,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Rapportini filters & cancellation state
+  const [rapportiniFilterCantiere, setRapportiniFilterCantiere] = useState<string>('all');
+  const [rapportiniFilterStatus, setRapportiniFilterStatus] = useState<'all' | 'valido' | 'annullato'>('all');
+  const [rapportiniSearch, setRapportiniSearch] = useState<string>('');
+  const [showAdminCancelDialog, setShowAdminCancelDialog] = useState<boolean>(false);
+  const [adminCancelReason, setAdminCancelReason] = useState<string>('');
+  const [isAdminCancelling, setIsAdminCancelling] = useState<boolean>(false);
+
+  const handleAdminCancelRapportino = async () => {
+    if (!selectedRapportino || !onCancelRapportino) return;
+    if (!adminCancelReason.trim()) {
+      alert('Inserisci la motivazione dell\'annullamento (obbligatoria).');
+      return;
+    }
+    setIsAdminCancelling(true);
+    try {
+      await onCancelRapportino(selectedRapportino.id, adminCancelReason.trim());
+      setSelectedRapportino(prev => prev ? {
+        ...prev,
+        status: 'annullato',
+        annullatoIl: new Date().toLocaleString('it-IT'),
+        annullatoDa: currentUser.name,
+        motivoAnnullamento: adminCancelReason.trim()
+      } : null);
+      setShowAdminCancelDialog(false);
+      setAdminCancelReason('');
+      alert('Rapportino annullato con successo. Le ore e i costi associati al cantiere sono stati stornati.');
+    } catch (err) {
+      console.error('Error cancelling rapportino:', err);
+      alert('Errore durante l\'annullamento del rapportino.');
+    } finally {
+      setIsAdminCancelling(false);
+    }
+  };
   
   // ... rest of state
   const [newCantiere, setNewCantiere] = useState<Partial<Cantiere>>({
@@ -385,7 +422,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-8 lg:py-12 space-y-12">
+    <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 py-6 lg:py-12 space-y-8 lg:space-y-12 overflow-x-hidden">
       
       {/* Header & Company Card */}
       <div className="flex flex-col lg:flex-row gap-8 items-start justify-between">
@@ -991,54 +1028,200 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             {/* RAPPORTINI TAB */}
-            {activeTab === 'rapportini' && (
-              <motion.div 
-                key="rapportini"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="space-y-8"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-2xl font-bold text-slate-900">Rapportini Cloud</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Archivio storico dei rapportini inviati dal campo.</p>
-                  </div>
-                </div>
+            {activeTab === 'rapportini' && (() => {
+              const filteredAdminRapportini = rapportini
+                .filter(r => {
+                  if (rapportiniFilterCantiere !== 'all' && r.cantiereId !== rapportiniFilterCantiere) return false;
+                  if (rapportiniFilterStatus === 'valido' && r.status === 'annullato') return false;
+                  if (rapportiniFilterStatus === 'annullato' && r.status !== 'annullato') return false;
+                  if (rapportiniSearch.trim()) {
+                    const q = rapportiniSearch.toLowerCase();
+                    const cName = (cantieri.find(c => c.id === r.cantiereId)?.name || '').toLowerCase();
+                    const uName = (users.find(u => u.id === r.userId)?.name || r.userName || '').toLowerCase();
+                    const note = (r.note || '').toLowerCase();
+                    const num = (r.numeroProgressivo ? `n° ${r.numeroProgressivo}` : '').toLowerCase();
+                    if (!cName.includes(q) && !uName.includes(q) && !note.includes(q) && !num.includes(q)) return false;
+                  }
+                  return true;
+                })
+                .sort((a, b) => {
+                  const dateA = `${a.date}T${a.ora || '00:00:00'}`;
+                  const dateB = `${b.date}T${b.ora || '00:00:00'}`;
+                  return dateB.localeCompare(dateA);
+                });
 
-                <div className="grid grid-cols-1 gap-4">
-                  {rapportini.length === 0 ? (
-                    <div className="bg-white rounded-[40px] p-20 text-center border border-slate-200 shadow-sm">
-                      <FileText className="w-12 h-12 text-slate-200 mx-auto mb-6" />
-                      <h4 className="text-xl font-bold text-slate-900 mb-2">Nessun rapportino ricevuto.</h4>
-                      <p className="text-sm text-slate-500 max-w-sm mx-auto">I rapportini appariranno qui man mano che vengono inviati dai dispositivi mobili.</p>
+              const adminValidiCount = rapportini.filter(r => r.status !== 'annullato').length;
+              const adminAnnullatiCount = rapportini.filter(r => r.status === 'annullato').length;
+
+              return (
+                <motion.div 
+                  key="rapportini"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-6"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-2xl font-bold text-slate-900">Rapportini Cloud & Tracciabilità</h3>
+                      <p className="text-xs font-medium text-slate-500 mt-1">
+                        Archivio completo numerato progressivamente per cantiere, con orario di emissione e storico annullamenti.
+                      </p>
                     </div>
-                  ) : (
-                    rapportini.map(r => (
-                      <div key={r.id} className="bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm flex items-center justify-between group hover:border-amber-500/30 transition-all">
-                        <div className="flex items-center gap-6">
-                          <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
-                            <FileText className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="text-sm font-bold text-slate-900">Rapportino del {r.date}</h4>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase">DA: {r.userName}</span>
-                            </div>
-                            <p className="text-xs text-slate-500 line-clamp-1">{r.note || 'Nessuna nota aggiuntiva'}</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => setSelectedRapportino(r)}
-                          className="flex items-center gap-2 px-4 py-2 bg-slate-50 rounded-xl text-[10px] font-bold uppercase tracking-widest hover:bg-slate-950 hover:text-white transition-all"
-                        >
-                          Esamina
-                        </button>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setRapportiniFilterStatus('all')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                          rapportiniFilterStatus === 'all'
+                            ? 'bg-slate-950 text-white'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        Tutti ({rapportini.length})
+                      </button>
+                      <button
+                        onClick={() => setRapportiniFilterStatus('valido')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          rapportiniFilterStatus === 'valido'
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Validi ({adminValidiCount})
+                      </button>
+                      <button
+                        onClick={() => setRapportiniFilterStatus('annullato')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          rapportiniFilterStatus === 'annullato'
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                        }`}
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" /> Annullati ({adminAnnullatiCount})
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Filters Bar */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="relative sm:col-span-2">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Cerca per cantiere, operatore, note o N° progressivo..."
+                        value={rapportiniSearch}
+                        onChange={(e) => setRapportiniSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500"
+                      />
+                    </div>
+
+                    <select
+                      value={rapportiniFilterCantiere}
+                      onChange={(e) => setRapportiniFilterCantiere(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500"
+                    >
+                      <option value="all">Tutti i Cantieri ({cantieri.length})</option>
+                      {cantieri.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3">
+                    {filteredAdminRapportini.length === 0 ? (
+                      <div className="bg-white rounded-[32px] p-16 text-center border border-slate-200 shadow-xs">
+                        <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
+                        <h4 className="text-lg font-bold text-slate-900 mb-1">Nessun rapportino trovato.</h4>
+                        <p className="text-xs text-slate-500 max-w-sm mx-auto">Nessun documento corrisponde ai criteri di filtro impostati.</p>
                       </div>
-                    ))
-                  )}
-                </div>
-              </motion.div>
-            )}
+                    ) : (
+                      filteredAdminRapportini.map(r => {
+                        const isAnnullato = r.status === 'annullato';
+                        const cantiereObj = cantieri.find(c => c.id === r.cantiereId);
+                        const userObj = users.find(u => u.id === r.userId);
+
+                        return (
+                          <div 
+                            key={r.id} 
+                            className={`bg-white p-5 rounded-[24px] border shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4 group transition-all ${
+                              isAnnullato 
+                                ? 'border-rose-200 bg-rose-50/15' 
+                                : 'border-slate-200 hover:border-amber-500/40'
+                            }`}
+                          >
+                            <div className="flex items-start sm:items-center gap-4">
+                              {/* Progressive Number Badge */}
+                              <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-mono font-black shrink-0 ${
+                                isAnnullato
+                                  ? 'bg-rose-100 text-rose-700 border border-rose-200'
+                                  : 'bg-slate-950 text-amber-400 group-hover:bg-amber-500 group-hover:text-slate-950 transition-colors'
+                              }`}>
+                                <span className="text-[8px] tracking-tighter uppercase leading-none opacity-80">PROG</span>
+                                <span className="text-sm font-black leading-none mt-0.5">{r.numeroProgressivo ? `N°${r.numeroProgressivo}` : '—'}</span>
+                              </div>
+
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h4 className={`text-sm font-bold ${isAnnullato ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
+                                    {cantiereObj?.name || 'Cantiere'}
+                                  </h4>
+                                  {isAnnullato ? (
+                                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
+                                      Annullato
+                                    </span>
+                                  ) : (
+                                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                      Valido
+                                    </span>
+                                  )}
+                                  {r.sostituisceNumero && (
+                                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                      Rifacimento N° {r.sostituisceNumero}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                                  <span>Data: <strong className="text-slate-700">{r.date}</strong></span>
+                                  <span>Ora emissione: <strong className="text-amber-600 font-mono">{r.ora || 'N/D'}</strong></span>
+                                  <span>Emesso da: <strong className="text-slate-700">{userObj?.name || r.userName}</strong></span>
+                                </div>
+
+                                {isAnnullato && r.motivoAnnullamento && (
+                                  <p className="text-xs text-rose-700 bg-rose-100/60 px-2.5 py-1 rounded-lg italic">
+                                    Annullato da {r.annullatoDa || 'Operatore'} ({r.annullatoIl || 'Data non disp.'}): "{r.motivoAnnullamento}"
+                                  </p>
+                                )}
+
+                                {!isAnnullato && r.note && (
+                                  <p className="text-xs text-slate-500 line-clamp-1 italic">
+                                    "{r.note}"
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                              {r.foto && r.foto.length > 0 && (
+                                <span className="flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-xl">
+                                  <Camera className="w-3.5 h-3.5" /> {r.foto.length}
+                                </span>
+                              )}
+                              <button 
+                                onClick={() => setSelectedRapportino(r)}
+                                className="px-4 py-2 bg-slate-100 hover:bg-slate-950 hover:text-white rounded-xl text-xs font-bold transition-all"
+                              >
+                                Esamina Dettagli
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })()}
 
             {/* UTENTI TAB */}
             {activeTab === 'utenti' && (
@@ -1696,16 +1879,79 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
           >
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h3 className="text-2xl font-bold text-slate-900">Dettaglio Rapportino</h3>
-                <p className="text-xs font-medium text-slate-500 mt-1">
-                  Inviato da {users.find(u => u.id === selectedRapportino.userId)?.name} il {selectedRapportino.date}
-                </p>
+            <div className="flex items-start justify-between mb-6">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-lg font-mono font-black text-xs bg-slate-950 text-amber-400">
+                    Prog. Cantiere N° {selectedRapportino.numeroProgressivo || '—'}
+                  </span>
+                  {selectedRapportino.status === 'annullato' ? (
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
+                      Annullato
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      Valido
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-2xl font-black text-slate-900">
+                  {cantieri.find(c => c.id === selectedRapportino.cantiereId)?.name || 'Cantiere'}
+                </h3>
+                <div className="flex items-center gap-4 text-xs text-slate-500 font-medium">
+                  <span>Data: <strong className="text-slate-700">{selectedRapportino.date}</strong></span>
+                  <span>Ora emissione: <strong className="text-amber-600 font-mono">{selectedRapportino.ora || 'N/D'}</strong></span>
+                  <span>Emesso da: <strong className="text-slate-700">{users.find(u => u.id === selectedRapportino.userId)?.name || selectedRapportino.userName}</strong></span>
+                </div>
               </div>
               <button onClick={() => setSelectedRapportino(null)} className="p-2 hover:bg-slate-100 rounded-full">
                 <X className="w-6 h-6 text-slate-400" />
               </button>
+            </div>
+
+            {/* Status & Replacement Notice */}
+            <div className="mb-6 space-y-3">
+              {selectedRapportino.status === 'annullato' ? (
+                <div className="p-5 bg-rose-50 border border-rose-200 rounded-3xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-rose-700 font-bold text-xs uppercase tracking-wider">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
+                      <span>Rapportino Annullato Ufficialmente</span>
+                    </div>
+                    <span className="text-[10px] font-bold text-rose-700 uppercase bg-rose-200/70 px-2 py-0.5 rounded-md">
+                      Stornato
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-800">
+                    Annullato da <strong>{selectedRapportino.annullatoDa || 'Amministratore'}</strong> il {selectedRapportino.annullatoIl || 'Data non disponibile'}
+                  </p>
+                  <div className="bg-white/90 p-3 rounded-2xl border border-rose-200 text-xs text-rose-900 font-mono">
+                    <span className="font-bold">Motivo dell'annullamento:</span> {selectedRapportino.motivoAnnullamento || 'Nessuna motivazione specificata'}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-3xl flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Rapportino Valido e Contabilizzato a Cantiere</span>
+                  </div>
+                  {onCancelRapportino && (
+                    <button
+                      onClick={() => setShowAdminCancelDialog(true)}
+                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" /> Annulla Rapportino
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {selectedRapportino.sostituisceNumero && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 font-medium flex items-center gap-2">
+                  <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Rifacimento a sostituzione del <strong>Rapportino N° {selectedRapportino.sostituisceNumero}</strong> precedentemente annullato.</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-8">
@@ -1812,6 +2058,73 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
               >
                 Chiudi
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Admin Cancel Confirmation Dialog */}
+      {showAdminCancelDialog && selectedRapportino && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[300] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[32px] shadow-2xl max-w-lg w-full p-8 border border-rose-200 space-y-6"
+          >
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="text-lg font-bold text-slate-900">Annulla Rapportino Ufficiale</h4>
+                <p className="text-xs text-slate-500">
+                  Prog. N° {selectedRapportino.numeroProgressivo || '—'} • {cantieri.find(c => c.id === selectedRapportino.cantiereId)?.name}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-rose-50 rounded-2xl text-xs text-rose-900 space-y-1">
+              <p className="font-bold">Tracciabilità e Storno Automatico:</p>
+              <p>
+                Questo rapportino verrà marcato come <strong>ANNULLATO</strong>. 
+                Tutte le ore del personale e dei mezzi verranno stornate dal computo del cantiere.
+                L'operazione è tracciata in modo permanente e non eliminabile.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">
+                Motivazione obbligatoria dell'annullamento <span className="text-rose-600">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={adminCancelReason}
+                onChange={(e) => setAdminCancelReason(e.target.value)}
+                placeholder="Es: Errore ore operaio Rossi, inserito cantiere errato..."
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-hidden focus:border-rose-500 focus:bg-white resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isAdminCancelling}
+                onClick={() => {
+                  setShowAdminCancelDialog(false);
+                  setAdminCancelReason('');
+                }}
+                className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors"
+              >
+                Indietro
+              </button>
+              <button
+                type="button"
+                disabled={isAdminCancelling || !adminCancelReason.trim()}
+                onClick={handleAdminCancelRapportino}
+                className="flex-1 py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/20 transition-all disabled:opacity-50"
+              >
+                {isAdminCancelling ? 'Annullando...' : 'Conferma Annulla'}
               </button>
             </div>
           </motion.div>
