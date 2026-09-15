@@ -48,6 +48,7 @@ export interface Cantiere {
   stock?: StockItem[]; // Giacenza specifica del cantiere
   totalMaterialCost?: number; // Costo totale materiali impiegati
   totalWorkHours?: number; // Ore totali lavorate (aggiornate dai rapportini)
+  totalPersonnelCost?: number; // Costo totale personale (ore * hourlyRate)
 }
 
 export interface Personale {

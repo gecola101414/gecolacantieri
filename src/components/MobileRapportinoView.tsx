@@ -148,6 +148,36 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
     });
   };
 
+  const handleAddManualMateriale = () => {
+    const name = prompt('Nome materiale:');
+    if (!name) return;
+    const qty = prompt('Quantità:');
+    if (!qty) return;
+    const unit = prompt('Unità di misura:', 'u');
+    if (!unit) return;
+
+    const currentVisual = newRapportino.materiali || [];
+    setNewRapportino({
+      ...newRapportino,
+      materiali: [...currentVisual, { materialeId: 'manual-' + Date.now(), materialeName: name, quantity: Number(qty), unit }]
+    });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const currentFoto = newRapportino.foto || [];
+        setNewRapportino({
+          ...newRapportino,
+          foto: [...currentFoto, reader.result as string]
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleAddMezzo = (mezzoId: string, hours: number) => {
     const mezzo = mezzi.find(m => m.id === mezzoId);
     if (!mezzo) return;
@@ -406,7 +436,15 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                       
                       <div className="space-y-4">
                         <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Materiali in Cantiere</p>
+                          <div className="flex items-center justify-between mb-4">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Materiali in Cantiere</p>
+                            <button 
+                              onClick={handleAddManualMateriale}
+                              className="text-[10px] font-bold text-amber-600 uppercase flex items-center gap-1"
+                            >
+                              <Plus className="w-3 h-3" /> Aggiungi Manuale
+                            </button>
+                          </div>
                           {!selectedCantiere?.stock || selectedCantiere.stock.length === 0 ? (
                             <p className="text-[10px] text-slate-500 italic">Nessun materiale caricato in questo cantiere.</p>
                           ) : (
@@ -485,9 +523,39 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                           onChange={e => setNewRapportino({...newRapportino, note: e.target.value})}
                           className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm min-h-[120px] outline-none focus:ring-1 focus:ring-amber-500"
                         />
-                        <div className="p-10 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center text-slate-400 gap-3 hover:bg-white hover:border-amber-500 transition-all cursor-pointer">
-                          <Camera className="w-8 h-8" />
-                          <span className="text-[10px] font-bold uppercase tracking-widest">Scatta Foto Cantiere</span>
+                        
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Documentazione Fotografica</p>
+                          
+                          <div className="grid grid-cols-3 gap-2">
+                            {newRapportino.foto?.map((f, i) => (
+                              <div key={i} className="aspect-square rounded-xl overflow-hidden border border-slate-200 relative">
+                                <img src={f} alt={`Foto ${i}`} className="w-full h-full object-cover" />
+                                <button 
+                                  onClick={() => {
+                                    const updated = [...(newRapportino.foto || [])];
+                                    updated.splice(i, 1);
+                                    setNewRapportino({...newRapportino, foto: updated});
+                                  }}
+                                  className="absolute top-1 right-1 p-1 bg-white/80 rounded-full shadow-sm"
+                                >
+                                  <Trash2 className="w-3 h-3 text-red-500" />
+                                </button>
+                              </div>
+                            ))}
+                            
+                            <label className="aspect-square bg-slate-50 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 gap-2 hover:bg-white hover:border-amber-500 transition-all cursor-pointer">
+                              <Camera className="w-6 h-6" />
+                              <span className="text-[8px] font-black uppercase">Aggiungi</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                capture="environment"
+                                onChange={handleFileChange}
+                                className="hidden" 
+                              />
+                            </label>
+                          </div>
                         </div>
                       </div>
                     </motion.div>

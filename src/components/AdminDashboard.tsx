@@ -3,10 +3,11 @@ import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, 
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
+import { seedSimulationData } from '../lib/seeder';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 
@@ -71,6 +72,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAddDocumentModal, setShowAddDocumentModal] = useState(false);
   const [selectedRapportino, setSelectedRapportino] = useState<Rapportino | null>(null);
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
+  const [selectedPersonale, setSelectedPersonale] = useState<Personale | null>(null);
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -98,6 +100,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     name: '',
     role: 'Operaio Generico',
     phone: '',
+    hourlyRate: 22,
   });
 
   const [newMenz, setNewMenz] = useState<Partial<Mezzo>>({
@@ -292,6 +295,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       type: 'bolla',
       items: [{ materialeId: '', quantity: 0, unitPrice: 0 }]
     });
+  };
+
+  const [isSeeding, setIsSeeding] = useState(false);
+  const handleSeedSimulation = async () => {
+    if (!company) return;
+    if (!window.confirm('Vuoi caricare 20 materiali di simulazione e aggiornare le tariffe orarie?')) return;
+    
+    setIsSeeding(true);
+    try {
+      await seedSimulationData(company.id);
+      alert('Dati di simulazione caricati con successo!');
+    } catch (e) {
+      alert('Errore durante il caricamento dei dati.');
+    } finally {
+      setIsSeeding(false);
+    }
   };
 
   const handleResetPassword = (userId: string) => {
@@ -587,9 +606,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </button>
                             </div>
                             
-                            <h4 className="text-xl font-bold text-slate-900 mb-2">{c.name}</h4>
+                            <h4 className="text-xl font-bold text-slate-900 mb-1">{c.name}</h4>
                             <div className="flex items-center gap-2 text-xs font-medium text-slate-500 mb-6">
                               <MapPin className="w-3.5 h-3.5" /> {c.address}
+                            </div>
+
+                            <div className="flex items-center gap-6 mb-6">
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Ore Lavorate</p>
+                                <p className="text-sm font-black text-slate-900">{c.totalWorkHours || 0}h</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Costo Totale</p>
+                                <p className="text-sm font-black text-emerald-600">€{((c.totalMaterialCost || 0) + (c.totalPersonnelCost || 0)).toLocaleString()}</p>
+                              </div>
                             </div>
                           </div>
 
@@ -669,6 +699,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <div className="flex justify-between text-xs">
                             <span className="text-slate-400">Telefono:</span>
                             <span className="font-bold text-slate-900">{p.phone || '-'}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-400">Costo Orario:</span>
+                            <span className="font-bold text-emerald-600">€{p.hourlyRate || 0}/h</span>
                           </div>
                           <div className="flex justify-between text-xs">
                             <span className="text-slate-400">Ultima Attività:</span>
@@ -767,6 +801,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <p className="text-xs font-medium text-slate-500 mt-1">Carico bolle, giacenze centrali e trasferimenti a cantiere.</p>
                   </div>
                   <div className="flex items-center gap-3">
+                    <button 
+                      onClick={handleSeedSimulation}
+                      disabled={isSeeding}
+                      className="bg-amber-50 text-amber-600 px-5 py-3 rounded-xl text-xs font-bold border border-amber-200 flex items-center gap-2 hover:bg-amber-100 transition-all disabled:opacity-50"
+                    >
+                      <Cloud className={`w-4 h-4 ${isSeeding ? 'animate-spin' : ''}`} /> Simula Dati
+                    </button>
                     <button 
                       onClick={() => setShowAddMovementModal(true)} 
                       className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-amber-600 transition-all"
@@ -1231,14 +1272,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Contatto Telefonico</label>
-                <input 
-                  type="text" 
-                  value={newPers.phone}
-                  onChange={e => setNewPers({...newPers, phone: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Contatto Telefonico</label>
+                  <input 
+                    type="text" 
+                    value={newPers.phone}
+                    onChange={e => setNewPers({...newPers, phone: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Costo Orario (€/h) *</label>
+                  <input 
+                    type="number" 
+                    value={newPers.hourlyRate}
+                    onChange={e => setNewPers({...newPers, hourlyRate: Number(e.target.value)})}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    required
+                  />
+                </div>
               </div>
 
               <div className="flex gap-4 pt-4">
@@ -1450,14 +1503,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             <div className="space-y-8">
               {/* KPI Grid */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Lavorate Totali</p>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Lavorate</p>
                   <p className="text-2xl font-black text-slate-900">{selectedCantiere.totalWorkHours || 0} h</p>
                 </div>
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Materiali</p>
                   <p className="text-2xl font-black text-emerald-600">€{(selectedCantiere.totalMaterialCost || 0).toLocaleString()}</p>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Personale</p>
+                  <p className="text-2xl font-black text-amber-600">€{(selectedCantiere.totalPersonnelCost || 0).toLocaleString()}</p>
+                </div>
+                <div className="p-6 bg-slate-900 rounded-3xl border border-slate-800 shadow-xl shadow-slate-900/20">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Totale</p>
+                  <p className="text-2xl font-black text-white">€{((selectedCantiere.totalMaterialCost || 0) + (selectedCantiere.totalPersonnelCost || 0)).toLocaleString()}</p>
                 </div>
               </div>
 
@@ -1523,6 +1584,93 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
+      {/* Personale Detail Modal */}
+      {selectedPersonale && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center text-xl font-black">
+                  {selectedPersonale.name.charAt(0)}
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-slate-900">{selectedPersonale.name}</h3>
+                  <p className="text-xs font-medium text-amber-600 uppercase tracking-widest">{selectedPersonale.role}</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedPersonale(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Totali (Cloud)</p>
+                  <p className="text-2xl font-black text-slate-900">
+                    {rapportini.reduce((acc, r) => acc + (r.personnelHours.find(ph => ph.personnelId === selectedPersonale.id)?.hours || 0), 0)} h
+                  </p>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Aziendale</p>
+                  <p className="text-2xl font-black text-emerald-600">
+                    €{(rapportini.reduce((acc, r) => acc + (r.personnelHours.find(ph => ph.personnelId === selectedPersonale.id)?.hours || 0), 0) * selectedPersonale.hourlyRate).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-500" /> Storico Presenze & Cantieri
+                </h4>
+                <div className="space-y-2">
+                  {rapportini
+                    .filter(r => r.personnelHours.some(ph => ph.personnelId === selectedPersonale.id))
+                    .sort((a,b) => b.date.localeCompare(a.date))
+                    .map(r => (
+                      <div key={r.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
+                        <div>
+                          <p className="text-xs font-bold text-slate-900">{r.date}</p>
+                          <p className="text-[10px] text-slate-500 uppercase font-medium">
+                            {cantieri.find(c => c.id === r.cantiereId)?.name || 'Cantiere Sconosciuto'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs font-black text-amber-600">
+                            {r.personnelHours.find(ph => ph.personnelId === selectedPersonale.id)?.hours} ore
+                          </span>
+                          <button 
+                            onClick={() => {
+                              setSelectedRapportino(r);
+                              setSelectedPersonale(null);
+                            }}
+                            className="p-2 bg-white rounded-xl shadow-sm text-slate-400 hover:text-amber-500 transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-10">
+              <button 
+                onClick={() => setSelectedPersonale(null)}
+                className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
+              >
+                Chiudi Scheda
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       {/* Rapportino Detail Modal */}
       {selectedRapportino && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6">
@@ -1562,10 +1710,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="text-[10px] font-bold uppercase tracking-widest">Personale</span>
                   </div>
                   <div className="space-y-2">
-                    {selectedRapportino.personnelHours.map((ph, i) => (
+                    {(selectedRapportino.personale || []).map((p, i) => (
                       <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
-                        <span className="text-xs font-bold text-slate-700">{personale.find(p => p.id === ph.personnelId)?.name}</span>
-                        <span className="text-xs font-black text-amber-600">{ph.hours}h</span>
+                        <span className="text-xs font-bold text-slate-700">{p.nome}</span>
+                        <span className="text-xs font-black text-amber-600">{p.ore}h</span>
                       </div>
                     ))}
                   </div>
@@ -1577,10 +1725,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="text-[10px] font-bold uppercase tracking-widest">Mezzi</span>
                   </div>
                   <div className="space-y-2">
-                    {selectedRapportino.mezziHours.map((mh, i) => (
+                    {(selectedRapportino.mezzi || []).map((m, i) => (
                       <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
-                        <span className="text-xs font-bold text-slate-700">{mezzi.find(m => m.id === mh.mezzoId)?.name}</span>
-                        <span className="text-xs font-black text-blue-600">{mh.hours}h</span>
+                        <span className="text-xs font-bold text-slate-700">{m.nome}</span>
+                        <span className="text-xs font-black text-blue-600">{m.ore}h</span>
                       </div>
                     ))}
                   </div>
@@ -1594,14 +1742,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <span className="text-[10px] font-bold uppercase tracking-widest">Materiali Impiegati</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {selectedRapportino.materialiUsed.map((mu, i) => (
+                  {(selectedRapportino.materiali || []).map((mu, i) => (
                     <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
-                      <span className="text-xs font-bold text-slate-700">{materiali.find(m => m.id === mu.materialeId)?.name}</span>
+                      <span className="text-xs font-bold text-slate-700">{mu.materialeName}</span>
                       <span className="text-xs font-black text-emerald-600">{mu.quantity} {mu.unit}</span>
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Foto Documentation */}
+              {selectedRapportino.foto && selectedRapportino.foto.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Camera className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Foto Cantiere</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {selectedRapportino.foto.map((f, i) => (
+                      <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-slate-200">
+                        <img src={f} alt={`Foto ${i}`} className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform" onClick={() => window.open(f, '_blank')} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Note */}
               <div className="space-y-4">
@@ -1712,6 +1877,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <select 
                           value={item.materialeId}
                           onChange={e => {
+                            if (e.target.value === 'new') {
+                              const name = prompt('Inserisci nome nuovo materiale:');
+                              const unit = prompt('Unità di misura (es. mc, kg):', 'mc');
+                              if (name && unit) {
+                                const mId = 'mat-' + Date.now();
+                                onAddMateriale({ id: mId, name, unit, category: 'Edili', defaultPrice: 0 });
+                                const updatedItems = [...newDocument.items];
+                                updatedItems[idx].materialeId = mId;
+                                setNewDocument({...newDocument, items: updatedItems});
+                              }
+                              return;
+                            }
                             const updatedItems = [...newDocument.items];
                             updatedItems[idx].materialeId = e.target.value;
                             setNewDocument({...newDocument, items: updatedItems});
@@ -1720,6 +1897,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           required
                         >
                           <option value="">Seleziona...</option>
+                          <option value="new" className="text-amber-600 font-bold">+ AGGIUNGI NUOVO MATERIALE...</option>
                           {materiali.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
                         </select>
                       </div>

@@ -233,13 +233,24 @@ export const firestoreService = {
           }
         }
 
-        // 2. Update Work Hours
+        // 2. Update Work Hours & Personnel Cost
+        let addedPersonnelCost = 0;
         const rapportinoHours = r.personnelHours.reduce((acc, ph) => acc + ph.hours, 0);
+        
+        // Get all personnel to find rates
+        const allPersonale = await this.getPersonale(companyId);
+        for (const ph of r.personnelHours) {
+          const p = allPersonale.find(pers => pers.id === ph.personnelId);
+          if (p) {
+            addedPersonnelCost += ph.hours * (p.hourlyRate || 0);
+          }
+        }
         
         await updateDoc(doc(db, `companies/${companyId}/cantieri`, r.cantiereId), {
           stock,
           totalMaterialCost: (cantiere.totalMaterialCost || 0) + addedMaterialCost,
-          totalWorkHours: (cantiere.totalWorkHours || 0) + rapportinoHours
+          totalWorkHours: (cantiere.totalWorkHours || 0) + rapportinoHours,
+          totalPersonnelCost: (cantiere.totalPersonnelCost || 0) + addedPersonnelCost
         });
       }
     } catch (e) {
