@@ -75,8 +75,11 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   const [formStep, setFormStep] = useState(1);
   const [newRapportino, setNewRapportino] = useState<Partial<Rapportino>>({
     personale: [],
-    materiali: [],
+    materiali: [], // Visual only
+    materialiUsed: [], // Database stock sync
     mezzi: [],
+    personnelHours: [],
+    mezziHours: [],
     foto: [],
     note: '',
   });
@@ -90,7 +93,10 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       date: new Date().toISOString().split('T')[0],
       personale: [],
       materiali: [],
+      materialiUsed: [],
       mezzi: [],
+      personnelHours: [],
+      mezziHours: [],
       foto: [],
       note: '',
     });
@@ -100,38 +106,60 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
   const handleTogglePersonale = (p: Personale) => {
     const current = newRapportino.personale || [];
+    const currentHours = newRapportino.personnelHours || [];
     const exists = current.find(item => item.personaleId === p.id);
     if (exists) {
-      setNewRapportino({ ...newRapportino, personale: current.filter(item => item.personaleId !== p.id) });
+      setNewRapportino({ 
+        ...newRapportino, 
+        personale: current.filter(item => item.personaleId !== p.id),
+        personnelHours: currentHours.filter(item => item.personnelId !== p.id)
+      });
     } else {
-      setNewRapportino({ ...newRapportino, personale: [...current, { personaleId: p.id, nome: p.name, ore: 8 }] });
+      setNewRapportino({ 
+        ...newRapportino, 
+        personale: [...current, { personaleId: p.id, nome: p.name, ore: 8 }],
+        personnelHours: [...currentHours, { personnelId: p.id, hours: 8 }]
+      });
     }
   };
 
   const handleUpdateOre = (pId: string, ore: number) => {
     const current = newRapportino.personale || [];
+    const currentHours = newRapportino.personnelHours || [];
     setNewRapportino({
       ...newRapportino,
-      personale: current.map(item => item.personaleId === pId ? { ...item, ore } : item)
+      personale: current.map(item => item.personaleId === pId ? { ...item, ore } : item),
+      personnelHours: currentHours.map(item => item.personnelId === pId ? { ...item, hours: ore } : item)
     });
   };
 
-  const handleAddMateriale = () => {
-    const nome = prompt('Nome materiale (es. Cemento RCK 30):');
-    if (!nome) return;
-    const quantita = prompt('Quantità (es. 5 mc):');
-    if (!quantita) return;
-    const current = newRapportino.materiali || [];
-    setNewRapportino({ ...newRapportino, materiali: [...current, { nome, quantita }] });
+  const handleAddMaterialeFromStock = (materialeId: string, quantity: number) => {
+    if (!selectedCantiere?.stock) return;
+    const stockItem = selectedCantiere.stock.find(s => s.materialeId === materialeId);
+    if (!stockItem) return;
+
+    const currentUsed = newRapportino.materialiUsed || [];
+    const currentVisual = newRapportino.materiali || [];
+
+    setNewRapportino({
+      ...newRapportino,
+      materialiUsed: [...currentUsed, { materialeId, quantity, unit: stockItem.unit }],
+      materiali: [...currentVisual, { materialeId, materialeName: stockItem.materialeName, quantity, unit: stockItem.unit }]
+    });
   };
 
-  const handleAddMezzo = () => {
-    const mId = prompt('ID Mezzo o Targa:');
-    if (!mId) return;
-    const ore = prompt('Ore utilizzo:');
-    if (!ore) return;
-    const current = newRapportino.mezzi || [];
-    setNewRapportino({ ...newRapportino, mezzi: [...current, { mezzoId: mId, nome: mId, ore: Number(ore) }] });
+  const handleAddMezzo = (mezzoId: string, hours: number) => {
+    const mezzo = mezzi.find(m => m.id === mezzoId);
+    if (!mezzo) return;
+
+    const currentMezzi = newRapportino.mezzi || [];
+    const currentMezziHours = newRapportino.mezziHours || [];
+
+    setNewRapportino({
+      ...newRapportino,
+      mezzi: [...currentMezzi, { mezzoId, nome: mezzo.name, ore: hours }],
+      mezziHours: [...currentMezziHours, { mezzoId, hours }]
+    });
   };
 
   const handleSubmit = () => {
@@ -147,6 +175,9 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       mezzi: newRapportino.mezzi || [],
       foto: newRapportino.foto || [],
       note: newRapportino.note || '',
+      personnelHours: newRapportino.personnelHours || [],
+      mezziHours: newRapportino.mezziHours || [],
+      materialiUsed: newRapportino.materialiUsed || [],
     };
     onAddRapportino(rapportino);
     setStep('list');
@@ -372,36 +403,75 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                   {formStep === 2 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
                       <h4 className="text-lg font-bold text-slate-900">Materiali & Mezzi</h4>
-                      <div className="grid grid-cols-1 gap-4">
-                        <button onClick={handleAddMateriale} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-amber-500 transition-all">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-amber-500 transition-colors">
-                              <Building2 className="w-5 h-5" />
+                      
+                      <div className="space-y-4">
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Materiali in Cantiere</p>
+                          {!selectedCantiere?.stock || selectedCantiere.stock.length === 0 ? (
+                            <p className="text-[10px] text-slate-500 italic">Nessun materiale caricato in questo cantiere.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {selectedCantiere.stock.map(item => (
+                                <button 
+                                  key={item.materialeId}
+                                  onClick={() => {
+                                    const q = prompt(`Quantità di ${item.materialeName} (${item.unit}) utilizzata (Disponibile: ${item.quantity}):`);
+                                    if (q) handleAddMaterialeFromStock(item.materialeId, Number(q));
+                                  }}
+                                  className="w-full flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 text-left"
+                                >
+                                  <div>
+                                    <p className="text-xs font-bold text-slate-900">{item.materialeName}</p>
+                                    <p className="text-[10px] text-slate-500">Disp: {item.quantity} {item.unit}</p>
+                                  </div>
+                                  <Plus className="w-4 h-4 text-amber-500" />
+                                </button>
+                              ))}
                             </div>
-                            <span className="text-xs font-bold text-slate-700">Aggiungi Materiale</span>
+                          )}
+                        </div>
+
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">Mezzi Disponibili</p>
+                          <div className="space-y-2">
+                            {mezzi.map(m => (
+                              <button 
+                                key={m.id}
+                                onClick={() => {
+                                  const h = prompt(`Ore utilizzo per ${m.name}:`);
+                                  if (h) handleAddMezzo(m.id, Number(h));
+                                }}
+                                className="w-full flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 text-left"
+                              >
+                                <div>
+                                  <p className="text-xs font-bold text-slate-900">{m.name}</p>
+                                  <p className="text-[10px] text-slate-500">{m.plate}</p>
+                                </div>
+                                <Plus className="w-4 h-4 text-blue-500" />
+                              </button>
+                            ))}
                           </div>
-                          <Plus className="w-4 h-4 text-slate-400" />
-                        </button>
-                        <button onClick={handleAddMezzo} className="flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl group hover:border-amber-500 transition-all">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-slate-400 group-hover:text-amber-500 transition-colors">
-                              <Wrench className="w-5 h-5" />
-                            </div>
-                            <span className="text-xs font-bold text-slate-700">Aggiungi Mezzo</span>
-                          </div>
-                          <Plus className="w-4 h-4 text-slate-400" />
-                        </button>
+                        </div>
                       </div>
 
                       {/* Summary List */}
-                      <div className="space-y-2 mt-4">
-                        {newRapportino.materiali?.map((m, i) => (
-                          <div key={i} className="flex items-center justify-between px-4 py-3 bg-white border border-slate-200 rounded-xl text-[10px] font-bold">
-                            <span className="text-slate-900">{m.nome}</span>
-                            <span className="text-amber-600">{m.quantita}</span>
-                          </div>
-                        ))}
-                      </div>
+                      {(newRapportino.materiali?.length || 0) + (newRapportino.mezzi?.length || 0) > 0 && (
+                        <div className="space-y-2 mt-6">
+                          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Riepilogo Selezione</p>
+                          {newRapportino.materiali?.map((m, i) => (
+                            <div key={`mat-${i}`} className="flex items-center justify-between px-4 py-3 bg-amber-500/5 border border-amber-500/20 rounded-xl text-[10px] font-bold">
+                              <span className="text-slate-900">{m.materialeName}</span>
+                              <span className="text-amber-600">{m.quantity} {m.unit}</span>
+                            </div>
+                          ))}
+                          {newRapportino.mezzi?.map((m, i) => (
+                            <div key={`mez-${i}`} className="flex items-center justify-between px-4 py-3 bg-blue-500/5 border border-blue-500/20 rounded-xl text-[10px] font-bold">
+                              <span className="text-slate-900">{m.nome}</span>
+                              <span className="text-blue-600">{m.ore} ore</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </motion.div>
                   )}
 

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
@@ -27,6 +27,8 @@ interface AdminDashboardProps {
   onDeleteUser: (uid: string) => void;
   materiali: Materiale[];
   onAddMateriale: (m: Materiale) => void;
+  movements: StockMovement[];
+  onAddMovement: (m: StockMovement) => void;
   currentUser: UserAccount;
   activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita';
   setActiveTab: (tab: any) => void;
@@ -49,6 +51,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onDeleteUser,
   materiali,
   onAddMateriale,
+  movements,
+  onAddMovement,
   currentUser,
   activeTab,
   setActiveTab,
@@ -58,6 +62,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showAddPersonaleModal, setShowAddPersonaleModal] = useState(false);
   const [showAddMezzoModal, setShowAddMezzoModal] = useState(false);
+  const [showAddMovementModal, setShowAddMovementModal] = useState(false);
+  const [selectedRapportino, setSelectedRapportino] = useState<Rapportino | null>(null);
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -182,6 +188,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     onAddMezzo(m);
     setShowAddMezzoModal(false);
     setNewMenz({ name: '', plate: '', type: 'Autocarro' });
+  };
+
+  const handleCreateMovement = (move: Omit<StockMovement, 'id' | 'materialeName'>) => {
+    const mat = materiali.find(m => m.id === move.materialeId);
+    if (!mat) return;
+
+    const newMove: StockMovement = {
+      ...move,
+      id: 'mov-' + Date.now(),
+      materialeName: mat.name
+    };
+    onAddMovement(newMove);
+    setShowAddMovementModal(false);
   };
 
   const handleResetPassword = (userId: string) => {
@@ -636,6 +655,110 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     ))
                   )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* MAGAZZINO TAB */}
+            {activeTab === 'magazzino' && (
+              <motion.div 
+                key="magazzino"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-8"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold text-slate-900">Magazzino & Logistica</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Carico bolle, giacenze centrali e trasferimenti a cantiere.</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setShowAddMovementModal(true)} 
+                      className="bg-amber-500 text-slate-950 px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-amber-600 transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> Nuovo Movimento
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                  {/* GIACENZA CENTRALE */}
+                  <div className="xl:col-span-1 space-y-6">
+                    <div className="bg-slate-900 rounded-[32px] p-8 text-white">
+                      <div className="flex items-center gap-3 mb-6">
+                        <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center">
+                          <Box className="w-5 h-5 text-slate-950" />
+                        </div>
+                        <h4 className="font-bold">Magazzino Centrale</h4>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {!company?.magazzinoCentrale || company.magazzinoCentrale.length === 0 ? (
+                          <p className="text-slate-500 text-xs italic">Magazzino vuoto. Carica una bolla per iniziare.</p>
+                        ) : (
+                          company.magazzinoCentrale.map((item, i) => (
+                            <div key={i} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
+                              <div>
+                                <p className="text-sm font-bold">{item.materialeName}</p>
+                                <p className="text-[10px] text-slate-400">Valore: €{item.totalCost?.toLocaleString()}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-black text-amber-500">{item.quantity} {item.unit}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ULTIMI MOVIMENTI */}
+                  <div className="xl:col-span-2 bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
+                      <h4 className="font-bold text-slate-900">Registro Movimenti</h4>
+                      <div className="bg-slate-50 px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-500">
+                        {movements.length} Operazioni
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead>
+                          <tr className="bg-slate-50/50">
+                            <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Data</th>
+                            <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Materiale</th>
+                            <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Tipo</th>
+                            <th className="px-8 py-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Quantità</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {movements.map(m => (
+                            <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-8 py-4 text-xs font-medium text-slate-500">{m.date}</td>
+                              <td className="px-8 py-4">
+                                <p className="text-sm font-bold text-slate-900">{m.materialeName}</p>
+                                <p className="text-[10px] text-slate-400 italic">
+                                  {m.fromId && `Da: ${m.fromId === 'centrale' ? 'Magazzino' : m.fromId}`} 
+                                  {m.toId && ` → A: ${m.toId === 'centrale' ? 'Magazzino' : m.toId}`}
+                                </p>
+                              </td>
+                              <td className="px-8 py-4">
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                                  m.type === 'carico_magazzino' ? 'bg-emerald-100 text-emerald-700' : 
+                                  m.type === 'trasferimento_cantiere' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  {m.type.replace('_', ' ')}
+                                </span>
+                              </td>
+                              <td className="px-8 py-4 text-sm font-black text-right text-slate-900">
+                                {m.quantity}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -1129,6 +1252,183 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   Crea Account
                 </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Rapportino Detail Modal */}
+      {selectedRapportino && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900">Dettaglio Rapportino</h3>
+                <p className="text-xs font-medium text-slate-500 mt-1">
+                  Inviato da {users.find(u => u.id === selectedRapportino.userId)?.name} il {selectedRapportino.date}
+                </p>
+              </div>
+              <button onClick={() => setSelectedRapportino(null)} className="p-2 hover:bg-slate-100 rounded-full">
+                <X className="w-6 h-6 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="space-y-8">
+              {/* Cantiere Info */}
+              <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
+                <div className="flex items-center gap-3 mb-4 text-amber-500">
+                  <Building2 className="w-5 h-5" />
+                  <span className="font-bold text-sm uppercase tracking-widest">Cantiere</span>
+                </div>
+                <p className="text-lg font-black text-slate-900">{cantieri.find(c => c.id === selectedRapportino.cantiereId)?.name}</p>
+                <p className="text-xs text-slate-500">{cantieri.find(c => c.id === selectedRapportino.cantiereId)?.address}</p>
+              </div>
+
+              {/* Ore Lavorate */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <HardHat className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Personale</span>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedRapportino.personnelHours.map((ph, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
+                        <span className="text-xs font-bold text-slate-700">{personale.find(p => p.id === ph.personnelId)?.name}</span>
+                        <span className="text-xs font-black text-amber-600">{ph.hours}h</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Wrench className="w-4 h-4" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Mezzi</span>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedRapportino.mezziHours.map((mh, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
+                        <span className="text-xs font-bold text-slate-700">{mezzi.find(m => m.id === mh.mezzoId)?.name}</span>
+                        <span className="text-xs font-black text-blue-600">{mh.hours}h</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Materiali Usati */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Box className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Materiali Impiegati</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {selectedRapportino.materialiUsed.map((mu, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-xl">
+                      <span className="text-xs font-bold text-slate-700">{materiali.find(m => m.id === mu.materialeId)?.name}</span>
+                      <span className="text-xs font-black text-emerald-600">{mu.quantity} {mu.unit}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Note */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <MessageSquare className="w-4 h-4" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest">Note di Cantiere</span>
+                </div>
+                <div className="p-6 bg-slate-50 rounded-3xl text-sm text-slate-600 leading-relaxed italic">
+                  "{selectedRapportino.note}"
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-10 flex gap-4">
+              <button 
+                onClick={() => setSelectedRapportino(null)}
+                className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
+              >
+                Chiudi
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Add Movement Modal */}
+      {showAddMovementModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
+          >
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-bold text-slate-900">Movimento Magazzino</h3>
+              <div className="bg-amber-500/10 p-3 rounded-2xl">
+                <Box className="w-6 h-6 text-amber-500" />
+              </div>
+            </div>
+            
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.currentTarget);
+              handleCreateMovement({
+                materialeId: formData.get('materialeId') as string,
+                quantity: Number(formData.get('quantity')),
+                costoUnitario: Number(formData.get('costoUnitario')),
+                type: formData.get('type') as any,
+                toId: formData.get('toId') as string,
+                fromId: formData.get('type') === 'trasferimento_cantiere' ? 'centrale' : undefined,
+                date: new Date().toISOString().split('T')[0]
+              });
+            }} className="space-y-6">
+              
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipologia Operazione *</label>
+                <select name="type" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none" required>
+                  <option value="carico_magazzino">Carico Bolla (In Magazzino Centrale)</option>
+                  <option value="trasferimento_cantiere">Dirotta a Cantiere (Carico Cantiere)</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Materiale *</label>
+                <select name="materialeId" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none" required>
+                  <option value="">Seleziona materiale...</option>
+                  {materiali.map(m => <option key={m.id} value={m.id}>{m.name} ({m.unit})</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quantità *</label>
+                  <input name="quantity" type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Costo Unitario (€) *</label>
+                  <input name="costoUnitario" type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Destinazione (solo per trasferimento)</label>
+                <select name="toId" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none">
+                  <option value="">Nessuna (Resta in Magazzino)</option>
+                  {cantieri.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <button type="button" onClick={() => setShowAddMovementModal(false)} className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs">Annulla</button>
+                <button type="submit" className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl">Registra</button>
               </div>
             </form>
           </motion.div>

@@ -30,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'cantieri', label: 'Cantieri', icon: Building2 },
     { id: 'personale', label: 'Personale', icon: HardHat },
     { id: 'mezzi', label: 'Mezzi', icon: Wrench },
+    { id: 'magazzino', label: 'Magazzino', icon: Box },
     { id: 'rapportini', label: 'Rapportini', icon: FileText },
     { id: 'utenti', label: 'Gestione Utenti', icon: Users },
   ];

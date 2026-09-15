@@ -1,11 +1,11 @@
 import { db } from './firebase';
 import { 
   collection, doc, getDoc, getDocs, setDoc, query, where, 
-  onSnapshot, deleteDoc, updateDoc, writeBatch 
+  onSnapshot, deleteDoc, updateDoc, writeBatch, orderBy 
 } from 'firebase/firestore';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
-  Rapportino, ContabilitaEntry, Materiale, TransferCode 
+  Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement
 } from '../types';
 
 // Generic error handler as required by skill
@@ -201,6 +201,47 @@ export const firestoreService = {
     const path = `companies/${companyId}/rapportini/${r.id}`;
     try {
       await setDoc(doc(db, 'companies', companyId, 'rapportini', r.id), sanitizeData(r));
+      
+      // Update Cantiere Data (Stock and Hours)
+      const cantiere = await this.getCantiereById(companyId, r.cantiereId);
+      if (cantiere) {
+        const stock = cantiere.stock || [];
+        let addedMaterialCost = 0;
+        
+        // 1. Update Stock from used materials
+        if (r.materialiUsed && r.materialiUsed.length > 0) {
+          for (const mu of r.materialiUsed) {
+            const itemIdx = stock.findIndex(i => i.materialeId === mu.materialeId);
+            if (itemIdx >= 0) {
+              const unitCost = stock[itemIdx].totalCost / stock[itemIdx].quantity;
+              stock[itemIdx].quantity -= mu.quantity;
+              stock[itemIdx].totalCost -= unitCost * mu.quantity;
+              addedMaterialCost += unitCost * mu.quantity;
+              
+              // Log movement
+              await this.addMovement(companyId, {
+                id: `mov-${r.id}-${mu.materialeId}`,
+                materialeId: mu.materialeId,
+                materialeName: stock[itemIdx].materialeName,
+                quantity: mu.quantity,
+                type: 'scarico_rapportino',
+                date: r.date,
+                fromId: r.cantiereId,
+                rapportinoId: r.id
+              });
+            }
+          }
+        }
+
+        // 2. Update Work Hours
+        const rapportinoHours = r.personnelHours.reduce((acc, ph) => acc + ph.hours, 0);
+        
+        await updateDoc(doc(db, `companies/${companyId}/cantieri`, r.cantiereId), {
+          stock,
+          totalMaterialCost: (cantiere.totalMaterialCost || 0) + addedMaterialCost,
+          totalWorkHours: (cantiere.totalWorkHours || 0) + rapportinoHours
+        });
+      }
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -298,6 +339,104 @@ export const firestoreService = {
       return snap.exists() ? snap.data() as Company : null;
     } catch (e) {
       handleFirestoreError(e, OperationType.GET, path);
+      return null;
+    }
+  },
+
+  async getMovements(companyId: string): Promise<StockMovement[]> {
+    const path = `companies/${companyId}/movements`;
+    try {
+      const q = query(collection(db, path), orderBy('date', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.GET, path);
+      return [];
+    }
+  },
+
+  async addMovement(companyId: string, movement: StockMovement): Promise<void> {
+    const path = `companies/${companyId}/movements`;
+    try {
+      await setDoc(doc(db, path, movement.id), sanitizeData(movement));
+      
+      // Update Stock
+      if (movement.type === 'carico_magazzino') {
+        await this.updateCompanyMagazzino(companyId, movement);
+      } else if (movement.type === 'trasferimento_cantiere') {
+        await this.updateTransferStock(companyId, movement);
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async updateCompanyMagazzino(companyId: string, move: StockMovement): Promise<void> {
+    const company = await this.getCompanyById(companyId);
+    if (!company) return;
+    
+    const stock = company.magazzinoCentrale || [];
+    const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+    
+    if (itemIdx >= 0) {
+      stock[itemIdx].quantity += move.quantity;
+      stock[itemIdx].totalCost += (move.costoUnitario || 0) * move.quantity;
+    } else {
+      stock.push({
+        materialeId: move.materialeId,
+        materialeName: move.materialeName,
+        quantity: move.quantity,
+        unit: 'u', // Placeholder, should get from material
+        totalCost: (move.costoUnitario || 0) * move.quantity
+      });
+    }
+    
+    await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: stock });
+  },
+
+  async updateTransferStock(companyId: string, move: StockMovement): Promise<void> {
+    if (!move.toId || move.toId === 'centrale') return;
+    
+    // 1. Scalo da Magazzino Centrale
+    const company = await this.getCompanyById(companyId);
+    if (company && company.magazzinoCentrale) {
+      const centralIdx = company.magazzinoCentrale.findIndex(i => i.materialeId === move.materialeId);
+      if (centralIdx >= 0) {
+        company.magazzinoCentrale[centralIdx].quantity -= move.quantity;
+        await updateDoc(doc(db, 'companies', companyId), { magazzinoCentrale: company.magazzinoCentrale });
+      }
+    }
+
+    // 2. Carico su Cantiere
+    const cantiere = await this.getCantiereById(companyId, move.toId);
+    if (cantiere) {
+      const stock = cantiere.stock || [];
+      const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+      if (itemIdx >= 0) {
+        stock[itemIdx].quantity += move.quantity;
+        stock[itemIdx].totalCost += (move.costoUnitario || 0) * move.quantity;
+      } else {
+        stock.push({
+          materialeId: move.materialeId,
+          materialeName: move.materialeName,
+          quantity: move.quantity,
+          unit: 'u',
+          totalCost: (move.costoUnitario || 0) * move.quantity
+        });
+      }
+      await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
+        stock,
+        totalMaterialCost: (cantiere.totalMaterialCost || 0) + ((move.costoUnitario || 0) * move.quantity)
+      });
+    }
+  },
+
+  async getCantiereById(companyId: string, cantiereId: string): Promise<Cantiere | null> {
+    const path = `companies/${companyId}/cantieri/${cantiereId}`;
+    try {
+      const snap = await getDoc(doc(db, path));
+      return snap.exists() ? { id: snap.id, ...snap.data() } as Cantiere : null;
+    } catch (e) {
       return null;
     }
   },

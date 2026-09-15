@@ -44,7 +44,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Login steps: 'company_code' -> 'user_selection' -> 'password' | 'transfer_code'
   const [loginStep, setLoginStep] = useState<'company_code' | 'user_selection' | 'password' | 'transfer_code' | 'pairing_code'>('company_code');
-  const [inputCompanyCode, setInputCompanyCode] = useState('');
+  const [inputCompanyCode, setInputCompanyCode] = useState(() => {
+    return localStorage.getItem('last_company_code') || '';
+  });
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserAccount | null>(null);
   const [filteredUsers, setFilteredUsers] = useState<UserAccount[]>([]);
@@ -80,6 +82,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setCompany(foundCompany);
         setUsers(companyUsers);
         setFilteredUsers(companyUsers);
+        localStorage.setItem('last_company_code', code);
         setLoginStep('user_selection');
       } else {
         setLoginError('Codice azienda non valido.');

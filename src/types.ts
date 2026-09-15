@@ -6,6 +6,7 @@ export interface Company {
   code: string; // Codice aziendale fornito dal sistema (es. CANT-9821)
   adminName: string;
   createdAt: string;
+  magazzinoCentrale?: StockItem[]; // Giacenza nel magazzino principale
 }
 
 export interface UserAccount {
@@ -44,6 +45,9 @@ export interface Cantiere {
   endDate: string;
   status: 'in_corso' | 'completato' | 'sospeso';
   notes?: string;
+  stock?: StockItem[]; // Giacenza specifica del cantiere
+  totalMaterialCost?: number; // Costo totale materiali impiegati
+  totalWorkHours?: number; // Ore totali lavorate (aggiornate dai rapportini)
 }
 
 export interface Personale {
@@ -70,8 +74,10 @@ export interface PersonaleRapportino {
 }
 
 export interface MaterialeRapportino {
-  nome: string;
-  quantita: string;
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  unit: string;
 }
 
 export interface MezzoRapportino {
@@ -95,9 +101,12 @@ export interface Rapportino {
   date: string;
   note: string;
   personale: PersonaleRapportino[];
-  materiali: MaterialeRapportino[];
+  materiali: MaterialeRapportino[]; // This was MaterialsRapportino in some parts
   mezzi: MezzoRapportino[];
   foto: string[]; // URLs or base64
+  personnelHours: { personnelId: string; hours: number }[];
+  mezziHours: { mezzoId: string; hours: number }[];
+  materialiUsed: { materialeId: string; quantity: number; unit: string }[];
 }
 
 export type ContabilitaType = 'sal' | 'acconto' | 'spesa_materiale' | 'spesa_mezzo' | 'carburante' | 'manutenzione' | 'altro';
@@ -112,4 +121,28 @@ export interface ContabilitaEntry {
   supplier?: string;
   invoiceNumber?: string;
   mezzoId?: string; // Se collegato ad un mezzo specifico (carburante/manutenzione)
+}
+
+export interface StockItem {
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  unit: string;
+  totalCost: number; // Valore economico della giacenza
+}
+
+export type MovementType = 'carico_magazzino' | 'trasferimento_cantiere' | 'scarico_rapportino' | 'reso_magazzino';
+
+export interface StockMovement {
+  id: string;
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  type: MovementType;
+  date: string;
+  fromId?: string; // 'centrale' o cantiereId
+  toId?: string;   // 'centrale' o cantiereId
+  costoUnitario?: number;
+  rapportinoId?: string; // Se tipo 'scarico_rapportino'
+  photoUrl?: string; // Foto della bolla o materiale
 }

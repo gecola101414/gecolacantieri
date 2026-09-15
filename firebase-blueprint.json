@@ -160,6 +160,10 @@
       "schema": "ContabilitaEntry",
       "description": "Accounting entries belonging to the company."
     },
+    "/companies/{companyId}/movements/{movementId}": {
+      "schema": "object",
+      "description": "Inventory movements (loading, transfers, consumption)."
+    },
     "/pairingCodes/{code}": {
       "schema": "object",
       "description": "Short-lived pairing codes for quick mobile setup."
