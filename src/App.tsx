@@ -324,7 +324,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative flex overflow-x-hidden w-full max-w-full">
+    <div className="h-screen bg-slate-50 font-sans text-slate-900 selection:bg-amber-500 selection:text-slate-950 relative flex overflow-hidden w-full max-w-full">
       {isCloudLoading && (
         <div className="fixed top-4 right-4 z-[110] bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-700 flex items-center gap-2 shadow-lg">
           <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
@@ -345,7 +345,7 @@ export default function App() {
         />
       )}
 
-      <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden w-full max-w-full">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden w-full max-w-full">
         <Navbar
           currentUser={currentUser}
           company={company}
