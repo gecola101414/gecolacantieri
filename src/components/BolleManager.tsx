@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import { MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount } from '../types';
 import { extractTextFromPdf, parseBollaOrFatturaText, ExtractedDocumentData } from '../utils/pdfExtractor';
 import { compressPhoto } from '../utils/imageCompressor';
-import { extractTextFromImage } from '../utils/ocrExtractor';
 import { 
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
@@ -196,10 +195,59 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
         setUploadedPdfDataUrl(compressedDataUrl);
 
-        // Client-side OCR with Tesseract.js
-        const rawText = await extractTextFromImage(compressedDataUrl);
-        const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawText, file.name);
-        applyExtractedData(parsed, 'Foto / Scansione (con Tesseract OCR Locale)');
+        // Utilizziamo nuovamente l'Intelligenza Artificiale (Gemini) tramite il nostro server.
+        // L'OCR locale senza AI (come Tesseract) produce solo testo confusionario e non riesce a "capire" le tabelle o i totali.
+        const res = await fetch('/api/analyze-bolla', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: compressedDataUrl,
+            mimeType: 'image/jpeg',
+            fileName: file.name,
+          }),
+        });
+
+        const json = await res.json();
+        if (json.success && json.data) {
+          const d = json.data;
+          const mappedItems = (d.items || []).map((it: any) => {
+            const qty = Number(it.quantity) || 1;
+            const uPrice = Number(it.unitPrice) || (it.totalPrice && qty ? Number((it.totalPrice / qty).toFixed(2)) : 0);
+            const tPrice = Number(it.totalPrice) || Number((qty * uPrice).toFixed(2));
+            return {
+              code: it.code || undefined,
+              materialeName: it.materialeName || '',
+              quantity: qty,
+              unit: it.unit || 'pz',
+              unitPrice: uPrice,
+              totalPrice: tPrice,
+            };
+          });
+
+          const parsed: ExtractedDocumentData = {
+            type: d.type === 'fattura' ? 'fattura' : 'bolla',
+            number: d.number || '',
+            date: d.date || new Date().toISOString().split('T')[0],
+            supplier: d.supplier || '',
+            destinationCantiere: d.destinationCantiere || '',
+            totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : mappedItems.reduce((s, i) => s + i.totalPrice, 0),
+            imponibile: typeof d.imponibile === 'number' ? d.imponibile : undefined,
+            summaryDescription: d.summaryDescription || '',
+            rawText: JSON.stringify(d),
+            confidence: { supplier: true, number: true, date: true, totalAmount: true, items: true },
+            items: mappedItems,
+          };
+
+          applyExtractedData(parsed, 'Foto / Scansione (con Gemini Vision AI)');
+          if (d.notes) {
+            setDocForm(prev => ({
+              ...prev,
+              acceptanceNote: d.notes,
+            }));
+          }
+        } else {
+          throw new Error(json.error || 'Analisi visiva non riuscita');
+        }
 
       } else {
         // PDF file handling
@@ -849,7 +897,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-slate-800">Acquisizione Bolla:</span>
                   <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-full">
-                    Tesseract OCR Locale (No Server)
+                    Gemini Vision AI
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -975,7 +1023,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         <div className="w-12 h-12 rounded-full border-4 border-amber-200 border-t-amber-500 animate-spin" />
                         <Sparkles className="w-5 h-5 text-amber-600 absolute inset-0 m-auto" />
                       </div>
-                      <p className="text-sm font-bold text-slate-900">Analisi con OCR Locale (Tesseract)...</p>
+                      <p className="text-sm font-bold text-slate-900">Analisi con Intelligenza Artificiale Visione (Gemini)...</p>
                       <p className="text-xs text-slate-600">
                         Lettura fornitore, n. documento, data, cantiere di destinazione, totale ufficiale e lista materiali...
                       </p>
@@ -998,7 +1046,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           {uploadedPdfName ? `File selezionato: ${uploadedPdfName}` : 'Carica Foto da Smartphone (WhatsApp, JPG, PNG) o PDF della Bolla'}
                         </p>
                         <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
-                          L'analisi del testo (OCR) avviene localmente nel browser (senza inviare l'immagine al server).
+                          Puoi fotografare la bolla cartacea anche con ombre o ruotata: Gemini Vision legge fornitore, numero, data, totale esatto e tutti i materiali.
                         </p>
                       </div>
                     </div>
