@@ -31,9 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'cantieri', label: 'Cantieri', icon: Building2 },
     { id: 'personale', label: 'Personale', icon: HardHat },
     { id: 'mezzi', label: 'Mezzi', icon: Wrench },
-    { id: 'magazzino', label: 'Magazzino', icon: Box },
     { id: 'bolle', label: 'Bolle & DDT (PDF)', icon: ReceiptText },
-    { id: 'materiali', label: 'Lista Materiali', icon: List },
     { id: 'rapportini', label: 'Rapportini', icon: FileText },
     { id: 'utenti', label: 'Gestione Utenti', icon: Users },
   ];
@@ -45,33 +43,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className="bg-slate-950 border-r border-white/5 flex flex-col h-screen sticky top-0 z-50 transition-all duration-300 ease-in-out overflow-hidden"
     >
       {/* Sidebar Header */}
-      <div className="p-6 flex items-center justify-between">
-        <AnimatePresence mode="wait">
-          {!isCollapsed ? (
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-            >
-              <Logo className="scale-75 origin-left" />
-            </motion.div>
-          ) : (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Logo iconOnly className="scale-75" />
-            </motion.div>
-          )}
-        </AnimatePresence>
-        
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-colors"
-        >
-          {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-        </button>
+      <div className="p-6 flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <AnimatePresence mode="wait">
+            {!isCollapsed ? (
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+              >
+                <Logo className="scale-75 origin-left" />
+              </motion.div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Logo iconOnly className="scale-75" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-2 hover:bg-white/5 rounded-lg text-slate-500 hover:text-white transition-colors"
+          >
+            {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+          </button>
+        </div>
+
+        {!isCollapsed && company && (
+          <motion.div 
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }}
+            className="bg-slate-900/50 border border-white/5 p-3 rounded-xl flex items-center justify-between"
+          >
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Codice Server</span>
+            <span className="text-xs font-mono font-bold text-amber-500 tracking-wider">{company.code}</span>
+          </motion.div>
+        )}
       </div>
 
       {/* Navigation */}

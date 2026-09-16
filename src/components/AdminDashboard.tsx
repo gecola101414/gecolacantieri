@@ -13,6 +13,15 @@ import { firestoreService } from '../lib/firestoreService';
 import { PhotoLightbox } from './PhotoLightbox';
 import { BolleManager } from './BolleManager';
 
+const formatItalianDate = (isoString?: string) => {
+  if (!isoString) return '';
+  const parts = isoString.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoString;
+};
+
 interface AdminDashboardProps {
   company: Company | null;
   cantieri: Cantiere[];
@@ -429,90 +438,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 py-6 lg:py-12 space-y-8 lg:space-y-12 overflow-x-hidden">
+    <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 pb-6 lg:pb-12 space-y-4 lg:space-y-8">
       
-      {/* Header & Company Card */}
-      <div className="flex flex-col lg:flex-row gap-8 items-start justify-between">
-        <div className="space-y-4">
-          <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="flex items-center gap-3"
-          >
-            <div className="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-amber-500/20">
-              Admin Console
-            </div>
-            <div className="h-1 w-8 bg-slate-800 rounded-full"></div>
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">BENVENUTO, {currentUser.name.toUpperCase()}</span>
-          </motion.div>
-          <h2 className="text-4xl lg:text-5xl font-bold tracking-tight text-slate-900 leading-[1.1]">
-            Il controllo della tua impresa <br /> 
-            <span className="text-slate-400">in tempo reale.</span>
-          </h2>
-        </div>
-
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full lg:w-auto bg-slate-950 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl ring-1 ring-white/10"
-        >
-          <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full"></div>
-          <div className="relative z-10 flex flex-col gap-6">
-            <div className="flex items-center justify-between gap-12">
-              <div>
-                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Società Registrata</p>
-                <h3 className="text-xl font-bold text-white tracking-tight">{company?.name}</h3>
-              </div>
-              <div className="bg-slate-900 p-3 rounded-2xl border border-white/5 shadow-inner">
-                <Building2 className="w-6 h-6 text-amber-500" />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice Accesso Team</p>
-              <button 
-                onClick={handleCopyCode}
-                className="w-full flex items-center justify-between bg-slate-900 hover:bg-slate-800 border border-white/5 p-4 rounded-2xl group transition-all"
-              >
-                <span className="text-lg font-mono font-bold tracking-[0.2em] text-amber-500">{company?.code}</span>
-                <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 group-hover:text-white uppercase transition-colors">
-                  {copiedCode ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCode ? 'Copiato' : 'Copia'}</span>
-                </div>
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* KPI Command Center */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-        {[
-          { label: 'Cantieri Totali', value: cantieri.length, sub: 'In Corso & Sospesi', icon: Building2, color: 'text-amber-500', bg: 'bg-amber-500/5', border: 'border-amber-500/10' },
-          { label: 'Organico Team', value: personale.length, sub: 'Operativi Registrati', icon: HardHat, color: 'text-slate-500', bg: 'bg-slate-500/5', border: 'border-slate-500/10' },
-          { label: 'Mezzi Aziendali', value: mezzi.length, sub: 'Parco Macchine', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-500/5', border: 'border-blue-500/10' },
-          { label: 'Rapportini Cloud', value: rapportini.length, sub: 'Inviati in Tempo Reale', icon: Cloud, color: 'text-emerald-500', bg: 'bg-emerald-500/5', border: 'border-emerald-500/10' },
-        ].map((kpi, idx) => (
-          <motion.div 
-            key={idx}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.1 }}
-            className={`bg-white p-8 rounded-[32px] border ${kpi.border} shadow-sm group hover:shadow-xl hover:-translate-y-1 transition-all duration-300`}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <div className={`${kpi.bg} ${kpi.color} p-3 rounded-2xl`}>
-                <kpi.icon className="w-6 h-6 stroke-[2.5]" />
-              </div>
-              <MoreHorizontal className="w-5 h-5 text-slate-300" />
-            </div>
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">{kpi.label}</p>
-            <h4 className="text-3xl font-bold text-slate-900 tracking-tight mb-1">{kpi.value}</h4>
-            <p className="text-xs font-medium text-slate-500">{kpi.sub}</p>
-          </motion.div>
-        ))}
-      </div>
-
       {/* Main Content Area */}
       <div className="w-full">
         {/* Tab Content Display */}
@@ -528,6 +455,88 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 exit={{ opacity: 0, y: -10 }}
                 className="space-y-8"
               >
+                {/* Header & Company Card */}
+                <div className="flex flex-col lg:flex-row gap-8 items-start justify-between">
+                  <div className="space-y-4">
+                    <motion.div 
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="flex items-center gap-3"
+                    >
+                      <div className="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-amber-500/20">
+                        Admin Console
+                      </div>
+                      <div className="h-1 w-8 bg-slate-800 rounded-full"></div>
+                      <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">BENVENUTO, {currentUser.name.toUpperCase()}</span>
+                    </motion.div>
+                    <h2 className="text-4xl lg:text-5xl font-bold tracking-tight text-slate-900 leading-[1.1]">
+                      Il controllo della tua impresa <br /> 
+                      <span className="text-slate-400">in tempo reale.</span>
+                    </h2>
+                  </div>
+
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="w-full lg:w-auto bg-slate-950 rounded-[32px] p-8 text-white relative overflow-hidden shadow-2xl ring-1 ring-white/10"
+                  >
+                    <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/10 blur-3xl rounded-full"></div>
+                    <div className="relative z-10 flex flex-col gap-6">
+                      <div className="flex items-center justify-between gap-12">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Società Registrata</p>
+                          <h3 className="text-xl font-bold text-white tracking-tight">{company?.name}</h3>
+                        </div>
+                        <div className="bg-slate-900 p-3 rounded-2xl border border-white/5 shadow-inner">
+                          <Building2 className="w-6 h-6 text-amber-500" />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice Accesso Team</p>
+                        <button 
+                          onClick={handleCopyCode}
+                          className="w-full flex items-center justify-between bg-slate-900 hover:bg-slate-800 border border-white/5 p-4 rounded-2xl group transition-all"
+                        >
+                          <span className="text-lg font-mono font-bold tracking-[0.2em] text-amber-500">{company?.code}</span>
+                          <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 group-hover:text-white uppercase transition-colors">
+                            {copiedCode ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                            <span>{copiedCode ? 'Copiato' : 'Copia'}</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+
+                {/* KPI Command Center */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                  {[
+                    { label: 'Cantieri Totali', value: cantieri.length, sub: 'In Corso & Sospesi', icon: Building2, color: 'text-amber-500', bg: 'bg-amber-500/5', border: 'border-amber-500/10' },
+                    { label: 'Organico Team', value: personale.length, sub: 'Operativi Registrati', icon: HardHat, color: 'text-slate-500', bg: 'bg-slate-500/5', border: 'border-slate-500/10' },
+                    { label: 'Mezzi Aziendali', value: mezzi.length, sub: 'Parco Macchine', icon: Wrench, color: 'text-blue-500', bg: 'bg-blue-500/5', border: 'border-blue-500/10' },
+                    { label: 'Rapportini Cloud', value: rapportini.length, sub: 'Inviati in Tempo Reale', icon: Cloud, color: 'text-emerald-500', bg: 'bg-emerald-500/5', border: 'border-emerald-500/10' },
+                  ].map((kpi, idx) => (
+                    <motion.div 
+                      key={idx}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.1 }}
+                      className={`bg-white p-8 rounded-[32px] border ${kpi.border} shadow-sm group hover:shadow-xl hover:-translate-y-1 transition-all duration-300`}
+                    >
+                      <div className="flex items-center justify-between mb-6">
+                        <div className={`${kpi.bg} ${kpi.color} p-3 rounded-2xl`}>
+                          <kpi.icon className="w-6 h-6 stroke-[2.5]" />
+                        </div>
+                        <MoreHorizontal className="w-5 h-5 text-slate-300" />
+                      </div>
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1">{kpi.label}</p>
+                      <h4 className="text-3xl font-bold text-slate-900 tracking-tight mb-1">{kpi.value}</h4>
+                      <p className="text-xs font-medium text-slate-500">{kpi.sub}</p>
+                    </motion.div>
+                  ))}
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm">
                     <div className="flex items-center justify-between mb-8">
@@ -549,7 +558,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                               <div>
                                 <h5 className="text-xs font-bold text-slate-900">{r.userName}</h5>
-                                <p className="text-[10px] text-slate-500 font-medium">{r.date}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">{formatItalianDate(r.date)}</p>
                               </div>
                             </div>
                             <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-amber-500 transition-colors" />
@@ -1093,75 +1102,77 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               return (
                 <motion.div 
                   key="rapportini"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
                   className="space-y-6"
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-2xl font-bold text-slate-900">Rapportini Cloud & Tracciabilità</h3>
-                      <p className="text-xs font-medium text-slate-500 mt-1">
-                        Archivio completo numerato progressivamente per cantiere, con orario di emissione e storico annullamenti.
-                      </p>
+                  <div className="sticky top-0 z-20 bg-slate-50 pb-4 pt-4 shadow-sm border-b border-slate-200/50 mb-6 -mx-4 px-4 sm:-mx-8 sm:px-8">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                      <div>
+                        <h3 className="text-2xl font-bold text-slate-900">Rapportini Cloud & Tracciabilità</h3>
+                        <p className="text-xs font-medium text-slate-500 mt-1">
+                          Archivio completo numerato progressivamente per cantiere, con orario di emissione e storico annullamenti.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setRapportiniFilterStatus('all')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            rapportiniFilterStatus === 'all'
+                              ? 'bg-slate-950 text-white'
+                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          Tutti ({rapportini.length})
+                        </button>
+                        <button
+                          onClick={() => setRapportiniFilterStatus('valido')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            rapportiniFilterStatus === 'valido'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Validi ({adminValidiCount})
+                        </button>
+                        <button
+                          onClick={() => setRapportiniFilterStatus('annullato')}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            rapportiniFilterStatus === 'annullato'
+                              ? 'bg-rose-600 text-white'
+                              : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                          }`}
+                        >
+                          <AlertCircle className="w-3.5 h-3.5" /> Annullati ({adminAnnullatiCount})
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setRapportiniFilterStatus('all')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                          rapportiniFilterStatus === 'all'
-                            ? 'bg-slate-950 text-white'
-                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        Tutti ({rapportini.length})
-                      </button>
-                      <button
-                        onClick={() => setRapportiniFilterStatus('valido')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                          rapportiniFilterStatus === 'valido'
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
-                        }`}
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Validi ({adminValidiCount})
-                      </button>
-                      <button
-                        onClick={() => setRapportiniFilterStatus('annullato')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                          rapportiniFilterStatus === 'annullato'
-                            ? 'bg-rose-600 text-white'
-                            : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
-                        }`}
-                      >
-                        <AlertCircle className="w-3.5 h-3.5" /> Annullati ({adminAnnullatiCount})
-                      </button>
-                    </div>
-                  </div>
+                    {/* Filters Bar */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div className="relative sm:col-span-2">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Cerca per cantiere, operatore, note o N° progressivo..."
+                          value={rapportiniSearch}
+                          onChange={(e) => setRapportiniSearch(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500 shadow-sm"
+                        />
+                      </div>
 
-                  {/* Filters Bar */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div className="relative sm:col-span-2">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Cerca per cantiere, operatore, note o N° progressivo..."
-                        value={rapportiniSearch}
-                        onChange={(e) => setRapportiniSearch(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500"
-                      />
+                      <select
+                        value={rapportiniFilterCantiere}
+                        onChange={(e) => setRapportiniFilterCantiere(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500 shadow-sm"
+                      >
+                        <option value="all">Tutti i Cantieri ({cantieri.length})</option>
+                        {cantieri.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
                     </div>
-
-                    <select
-                      value={rapportiniFilterCantiere}
-                      onChange={(e) => setRapportiniFilterCantiere(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500"
-                    >
-                      <option value="all">Tutti i Cantieri ({cantieri.length})</option>
-                      {cantieri.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
                   </div>
 
                   <div className="grid grid-cols-1 gap-3">
@@ -1206,6 +1217,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                     <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
                                       Annullato
                                     </span>
+                                  ) : r.isNonLavorato ? (
+                                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-300">
+                                      Non Lavorato
+                                    </span>
                                   ) : (
                                     <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
                                       Valido
@@ -1219,7 +1234,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
 
                                 <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                                  <span>Data: <strong className="text-slate-700">{r.date}</strong></span>
+                                  <span>Data: <strong className="text-slate-700">{formatItalianDate(r.date)}</strong></span>
                                   <span>Ora emissione: <strong className="text-amber-600 font-mono">{r.ora || 'N/D'}</strong></span>
                                   <span>Emesso da: <strong className="text-slate-700">{userObj?.name || r.userName}</strong></span>
                                 </div>
@@ -1854,7 +1869,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="space-y-2">
                   {rapportini.filter(r => r.cantiereId === selectedCantiere.id).slice(0, 3).map(r => (
                     <div key={r.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                      <span className="text-xs font-bold text-slate-700">{r.date} - {r.userName}</span>
+                      <span className="text-xs font-bold text-slate-700">{formatItalianDate(r.date)} - {r.userName}</span>
                       <button 
                         onClick={() => {
                           setSelectedRapportino(r);
@@ -1932,7 +1947,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     .map(r => (
                       <div key={r.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
                         <div>
-                          <p className="text-xs font-bold text-slate-900">{r.date}</p>
+                          <p className="text-xs font-bold text-slate-900">{formatItalianDate(r.date)}</p>
                           <p className="text-[10px] text-slate-500 uppercase font-medium">
                             {cantieri.find(c => c.id === r.cantiereId)?.name || 'Cantiere Sconosciuto'}
                           </p>
@@ -1987,6 +2002,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200">
                       Annullato
                     </span>
+                  ) : selectedRapportino.isNonLavorato ? (
+                    <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-300">
+                      Non Lavorato
+                    </span>
                   ) : (
                     <span className="px-2.5 py-0.5 rounded-lg text-xs font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
                       Valido
@@ -1997,7 +2016,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {cantieri.find(c => c.id === selectedRapportino.cantiereId)?.name || 'Cantiere'}
                 </h3>
                 <div className="flex items-center gap-4 text-xs text-slate-500 font-medium">
-                  <span>Data: <strong className="text-slate-700">{selectedRapportino.date}</strong></span>
+                  <span>Data: <strong className="text-slate-700">{formatItalianDate(selectedRapportino.date)}</strong></span>
                   <span>Ora emissione: <strong className="text-amber-600 font-mono">{selectedRapportino.ora || 'N/D'}</strong></span>
                   <span>Emesso da: <strong className="text-slate-700">{users.find(u => u.id === selectedRapportino.userId)?.name || selectedRapportino.userName}</strong></span>
                 </div>

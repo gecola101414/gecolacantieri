@@ -12,6 +12,15 @@ import { compressPhoto } from '../utils/imageCompressor';
 import { PhotoLightbox } from './PhotoLightbox';
 import { Logo, FooterBranding } from './Branding';
 
+const formatItalianDate = (isoString?: string) => {
+  if (!isoString) return '';
+  const parts = isoString.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return isoString;
+};
+
 interface MobileRapportinoViewProps {
   currentUser: UserAccount;
   company: Company | null;
@@ -76,6 +85,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   const [historyFilterCantiere, setHistoryFilterCantiere] = useState<string>('all');
   const [historyFilterStatus, setHistoryFilterStatus] = useState<'all' | 'valido' | 'annullato'>('all');
   const [historySearchQuery, setHistorySearchQuery] = useState<string>('');
+  const [missingDateBannerText, setMissingDateBannerText] = useState<string>('');
   
   const [cancelModalRapportino, setCancelModalRapportino] = useState<Rapportino | null>(null);
   const [cancelReason, setCancelReason] = useState<string>('');
@@ -86,12 +96,41 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
       return;
     }
+    
+    // Controllo rapportini mancanti
+    const cantiereRap = rapportini.filter(r => r.cantiereId === cantiere.id && r.status !== 'annullato');
+    let defaultDate = new Date().toISOString().split('T')[0];
+    let bannerText = '';
+    
+    if (cantiereRap.length > 0) {
+      const sortedRap = [...cantiereRap].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const lastDate = sortedRap[0].date;
+      
+      const lastDateObj = new Date(lastDate);
+      const todayObj = new Date();
+      todayObj.setHours(0,0,0,0);
+      lastDateObj.setHours(0,0,0,0);
+      
+      const diffTime = todayObj.getTime() - lastDateObj.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      // Se manca più di 1 giorno e oggi non è lo stesso giorno dell'ultimo
+      if (diffDays > 1) {
+        const nextDate = new Date(lastDateObj);
+        nextDate.setDate(nextDate.getDate() + 1);
+        defaultDate = nextDate.toISOString().split('T')[0];
+        const formattedNextDate = `${defaultDate.split('-')[2]}/${defaultDate.split('-')[1]}/${defaultDate.split('-')[0]}`;
+        bannerText = `Attenzione: manca il rapportino del giorno ${formattedNextDate}. Sei obbligato a compilarlo (o segnarlo "Non Lavorato") prima di procedere con i giorni successivi.`;
+      }
+    }
+    
     setSelectedCantiere(cantiere);
+    setMissingDateBannerText(bannerText);
     setNewRapportino({
       userId: currentUser.id,
       userName: currentUser.name,
       cantiereId: cantiere.id,
-      date: new Date().toISOString().split('T')[0],
+      date: defaultDate,
       personale: [],
       materiali: [],
       materialiUsed: [],
@@ -253,7 +292,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (isNonLavorato: boolean = false) => {
     if (!currentUser.active) {
       alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
       return;
@@ -273,19 +312,23 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
         cantiereId: selectedCantiere.id,
         date: emissioneData,
         ora: emissioneOra,
+        submittedAt: now.toISOString(),
         numeroProgressivo: nextProg,
         codiceRapportino: `N° ${nextProg}`,
         status: 'valido',
+        isNonLavorato: isNonLavorato,
         sostituisceRapportinoId: newRapportino.sostituisceRapportinoId,
         sostituisceNumero: newRapportino.sostituisceNumero,
-        personale: newRapportino.personale || [],
-        materiali: newRapportino.materiali || [],
-        mezzi: newRapportino.mezzi || [],
-        foto: newRapportino.foto || [],
-        note: newRapportino.note || '',
-        personnelHours: newRapportino.personnelHours || [],
-        mezziHours: newRapportino.mezziHours || [],
-        materialiUsed: newRapportino.materialiUsed || [],
+        personale: isNonLavorato ? [] : (newRapportino.personale || []),
+        materiali: isNonLavorato ? [] : (newRapportino.materiali || []),
+        mezzi: isNonLavorato ? [] : (newRapportino.mezzi || []),
+        foto: isNonLavorato ? [] : (newRapportino.foto || []),
+        note: isNonLavorato 
+          ? `[Giorno Non Lavorato] ${newRapportino.note || 'Festivo, ferie o assenza di lavorazioni.'}`
+          : (newRapportino.note || ''),
+        personnelHours: isNonLavorato ? [] : (newRapportino.personnelHours || []),
+        mezziHours: isNonLavorato ? [] : (newRapportino.mezziHours || []),
+        materialiUsed: isNonLavorato ? [] : (newRapportino.materialiUsed || []),
       };
       await onAddRapportino(rapportino);
       setStep('list');
@@ -612,6 +655,10 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                                     <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-200 flex items-center gap-1 shrink-0">
                                       <Ban className="w-2.5 h-2.5" /> Annullato
                                     </span>
+                                  ) : r.isNonLavorato ? (
+                                    <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-300 flex items-center gap-1 shrink-0">
+                                      <Ban className="w-2.5 h-2.5" /> Non Lavorato
+                                    </span>
                                   ) : (
                                     <span className="px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1 shrink-0">
                                       <CheckCircle2 className="w-2.5 h-2.5" /> Valido
@@ -622,7 +669,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                                 {/* Emission Date and Time */}
                                 <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500 font-medium">
                                   <span className="flex items-center gap-1">
-                                    <Calendar className="w-3 h-3 text-slate-400" /> {r.date}
+                                    <Calendar className="w-3 h-3 text-slate-400" /> {formatItalianDate(r.date)}
                                   </span>
                                   <span className="flex items-center gap-1 font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-sm">
                                     <Clock className="w-3 h-3 text-amber-600" /> {r.ora || 'Orario N/D'}
@@ -688,7 +735,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                   <h3 className="text-xl font-bold">{selectedCantiere?.name}</h3>
                   <div className="flex flex-wrap items-center gap-3 mt-2 text-[11px] text-slate-400">
                     <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {newRapportino.date || 'Oggi'}
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {formatItalianDate(newRapportino.date) || 'Oggi'}
                     </span>
                     <span className="flex items-center gap-1 font-mono text-amber-400 font-bold">
                       <Clock className="w-3.5 h-3.5 text-amber-500" /> Emissione ore {currentTime}
@@ -722,8 +769,30 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
                   {formStep === 1 && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-                      <h4 className="text-lg font-bold text-slate-900">Personale Impiegato</h4>
-                      <p className="text-xs text-slate-500 leading-relaxed">Seleziona i colleghi presenti in cantiere oggi e specifica le ore lavorate.</p>
+                      {missingDateBannerText && (
+                        <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl flex items-start gap-3 shadow-sm">
+                          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                          <p className="text-sm font-bold leading-tight">{missingDateBannerText}</p>
+                        </div>
+                      )}
+                      
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                          <h4 className="text-lg font-bold text-slate-900">Personale Impiegato</h4>
+                          <p className="text-xs text-slate-500 leading-relaxed">Seleziona i colleghi presenti in cantiere oggi e specifica le ore lavorate.</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (window.confirm("Vuoi inviare questo rapportino come 'Non Lavorato'? L'invio sarà immediato e salterà i passaggi successivi.")) {
+                              handleSubmit(true);
+                            }
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors border border-slate-200"
+                        >
+                          <Ban className="w-4 h-4" /> Segna come Non Lavorato
+                        </button>
+                      </div>
+
                       <div className="space-y-3">
                         {personale.map(p => {
                           const selected = newRapportino.personale?.find(item => item.personaleId === p.id);
@@ -987,7 +1056,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                   </h3>
                   <div className="flex items-center gap-3 text-xs text-slate-500 font-medium pt-0.5">
                     <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {selectedHistoryRapportino.date}
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> {formatItalianDate(selectedHistoryRapportino.date)}
                     </span>
                     <span className="flex items-center gap-1 font-mono text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md font-bold">
                       <Clock className="w-3.5 h-3.5 text-amber-600" /> ore {selectedHistoryRapportino.ora || 'N/D'}

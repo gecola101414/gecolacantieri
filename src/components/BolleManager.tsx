@@ -39,11 +39,17 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   const [selectedType, setSelectedType] = useState<'all' | 'bolla' | 'fattura'>('all');
   const [selectedCantiereFilter, setSelectedCantiereFilter] = useState<string>('all');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
+  const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
   
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedDocDetails, setSelectedDocDetails] = useState<MaterialDocument | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<MaterialDocument | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Extract unique suppliers
+  const uniqueSuppliers = Array.from(new Set(documents.map(d => d.supplier).filter(Boolean))).sort();
 
   // Upload & Extraction state
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -551,7 +557,11 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       selectedStatusFilter === 'all' || 
       doc.status === selectedStatusFilter;
 
-    return matchesSearch && matchesType && matchesCantiere && matchesStatus;
+    const matchesSupplier = 
+      selectedSuppliers.length === 0 || 
+      selectedSuppliers.includes(doc.supplier);
+
+    return matchesSearch && matchesType && matchesCantiere && matchesStatus && matchesSupplier;
   });
 
   return (
@@ -641,7 +651,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
       {/* Filters Bar */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
@@ -656,6 +666,61 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               <button onClick={() => setSearchTerm('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                 <X className="w-3.5 h-3.5" />
               </button>
+            )}
+          </div>
+
+          {/* Supplier Multi-Select */}
+          <div className="relative">
+            <div 
+              onClick={() => setShowSupplierDropdown(!showSupplierDropdown)}
+              className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl px-4 py-3 text-xs outline-none font-bold text-slate-700 cursor-pointer flex justify-between items-center"
+            >
+              <span className="truncate">
+                {selectedSuppliers.length === 0 
+                  ? "Tutti i Fornitori" 
+                  : `${selectedSuppliers.length} selezionati`}
+              </span>
+              <ChevronDown className="w-4 h-4 text-slate-400" />
+            </div>
+            {showSupplierDropdown && (
+              <div className="absolute z-50 mt-2 w-full bg-white rounded-2xl border border-slate-200 shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                <div className="p-2 space-y-1">
+                  {uniqueSuppliers.length === 0 ? (
+                    <div className="px-3 py-2 text-xs text-slate-500 italic">Nessun fornitore</div>
+                  ) : (
+                    uniqueSuppliers.map(sup => (
+                      <label key={sup} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 rounded-xl cursor-pointer transition-colors">
+                        <input 
+                          type="checkbox"
+                          className="rounded text-amber-500 focus:ring-amber-500"
+                          checked={selectedSuppliers.includes(sup)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedSuppliers([...selectedSuppliers, sup]);
+                            } else {
+                              setSelectedSuppliers(selectedSuppliers.filter(s => s !== sup));
+                            }
+                          }}
+                        />
+                        <span className="text-xs font-medium text-slate-700 truncate" title={sup}>{sup}</span>
+                      </label>
+                    ))
+                  )}
+                  {selectedSuppliers.length > 0 && (
+                    <div className="pt-2 mt-2 border-t border-slate-100">
+                      <button 
+                        onClick={() => {
+                          setSelectedSuppliers([]);
+                          setShowSupplierDropdown(false);
+                        }}
+                        className="w-full px-3 py-2 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
+                      >
+                        Reset Filtro
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
@@ -778,10 +843,17 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       <td className="px-6 py-4.5">
                         <p className="text-xs font-bold text-slate-900">{doc.supplier}</p>
                         {doc.fileName && (
-                          <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5 truncate max-w-[150px]">
-                            <FileText className="w-3 h-3 text-amber-500 shrink-0" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPreviewDocument(doc);
+                            }}
+                            className="text-[10px] text-amber-600 hover:text-amber-700 font-bold flex items-center gap-1 mt-0.5 truncate max-w-[150px] transition-colors cursor-pointer"
+                            title="Visualizza documento originale"
+                          >
+                            <FileText className="w-3 h-3 shrink-0" />
                             {doc.fileName}
-                          </p>
+                          </button>
                         )}
                       </td>
 
@@ -1664,6 +1736,64 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               </div>
             </div>
           </motion.div>
+        </div>
+      )}
+
+      {/* MODAL 3: DOCUMENT PREVIEW MODAL */}
+      {previewDocument && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-[300] flex items-center justify-center p-2 sm:p-6" onClick={() => setPreviewDocument(null)}>
+          <div 
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-5xl h-full max-h-[90vh] flex flex-col relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
+              <div className="flex items-center gap-3">
+                <FileText className="w-5 h-5 text-amber-500" />
+                <div>
+                  <h4 className="font-bold text-slate-900">{previewDocument.fileName || 'Documento Originale'}</h4>
+                  <p className="text-[10px] text-slate-500">{previewDocument.supplier} - N. {previewDocument.number}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {previewDocument.pdfDataUrl && (
+                  <a
+                    href={previewDocument.pdfDataUrl}
+                    download={previewDocument.fileName || `Bolla_${previewDocument.number}.pdf`}
+                    className="p-2 text-slate-500 hover:bg-slate-200 rounded-xl transition-colors"
+                    title="Scarica documento"
+                  >
+                    <Download className="w-4 h-4" />
+                  </a>
+                )}
+                <button
+                  onClick={() => setPreviewDocument(null)}
+                  className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-200 rounded-xl transition-colors"
+                  title="Chiudi visualizzatore"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-auto bg-slate-100 flex items-center justify-center p-4">
+              {previewDocument.pdfDataUrl ? (
+                previewDocument.pdfDataUrl.startsWith('data:image/') ? (
+                  <img src={previewDocument.pdfDataUrl} alt="Document Preview" className="max-w-full max-h-full object-contain rounded-xl shadow-sm" />
+                ) : (
+                  <iframe 
+                    src={`${previewDocument.pdfDataUrl}#toolbar=0`} 
+                    className="w-full h-full rounded-xl shadow-sm border-0"
+                    title="PDF Viewer"
+                  />
+                )
+              ) : (
+                <div className="text-center text-slate-400">
+                  <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">Nessun file allegato a questo documento</p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

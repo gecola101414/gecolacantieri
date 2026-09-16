@@ -38,7 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <nav className="bg-slate-950/95 backdrop-blur-xl border-b border-white/10 sticky top-0 z-[100] w-full max-w-full overflow-x-hidden">
+    <nav className="bg-slate-950/95 backdrop-blur-xl border-b border-white/10 sticky top-0 z-[100] w-full max-w-full">
       <div className="w-full max-w-[1600px] mx-auto px-3 sm:px-6">
         <div className="flex items-center justify-between h-14 sm:h-16 lg:h-20 gap-2">
           

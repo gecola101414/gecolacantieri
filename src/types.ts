@@ -104,6 +104,8 @@ export interface Rapportino {
   ora?: string; // Orario di emissione es. "14:35:10"
   numeroProgressivo?: number; // Numero progressivo sequenziale per cantiere (1, 2, 3...)
   codiceRapportino?: string; // Es. "N° 1" o "RAP-01"
+  isNonLavorato?: boolean; // Se vero, il rapportino è segnato come "Non lavorato" (es. weekend o festivo)
+  submittedAt?: string; // Timestamp ISO di quando è stato caricato
   status?: 'valido' | 'annullato'; // Stato tracciabilità (default 'valido')
   annullatoIl?: string; // Data e ora annullamento
   annullatoDa?: string; // Nome utente che ha annullato

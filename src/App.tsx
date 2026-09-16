@@ -386,9 +386,9 @@ export default function App() {
             ) : (
               <motion.div
                 key="desktop"
-                initial={{ opacity: 0, scale: 0.99 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.99 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
                 className="p-4 sm:p-8"
               >
                 <AdminDashboard

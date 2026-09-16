@@ -412,13 +412,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             ) : (
               <div key="auth-tabs">
                 {/* Mode Selector Tabs */}
-                {!company && mode === 'register_admin' && (
-                  <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl text-[11px] text-emerald-400 font-medium mb-8 text-center">
-                    Crea il tuo nuovo server aziendale Cloud per iniziare.
-                  </div>
-                )}
-                
-                {loginStep === 'company_code' && (
+                {/* Mostra i tab per passare da login a registrazione sempre */}
+                {(loginStep === 'company_code' || mode === 'register_admin') && (
                   <div className="flex bg-slate-950/50 p-1 rounded-[20px] mb-8 border border-slate-800/50 ring-1 ring-white/5">
                     <button
                       type="button"
@@ -427,16 +422,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         mode === 'login' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
-                      Login Aziendale
+                      Entra nel Server
                     </button>
                     <button
                       type="button"
-                      onClick={() => setMode('register_admin')}
+                      onClick={() => {
+                        setMode('register_admin');
+                        setLoginStep('company_code');
+                      }}
                       className={`flex-1 py-3 rounded-[16px] text-xs font-bold transition-all duration-300 ${
                         mode === 'register_admin' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
-                      Crea Nuovo Server
+                      Nuova Azienda
                     </button>
                   </div>
                 )}
@@ -461,10 +459,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           >
                             <div className="flex items-center gap-1.5">
                               <KeyRound className="w-3.5 h-3.5" />
-                              <span>Codice da Cellulare</span>
+                              <span>Usa Codice Cellulare</span>
                             </div>
                             <span className={`text-[9px] uppercase tracking-wider font-black ${loginStep === 'transfer_code' ? 'text-slate-950/80' : 'text-emerald-400'}`}>
-                              ⚡ Accesso PC Rapido
+                              ⚡ Accesso Diretto
                             </span>
                           </button>
 
@@ -482,10 +480,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           >
                             <div className="flex items-center gap-1.5">
                               <Building2 className="w-3.5 h-3.5" />
-                              <span>Codice Azienda</span>
+                              <span>Codice Server</span>
                             </div>
                             <span className={`text-[9px] uppercase tracking-wider font-extrabold ${loginStep === 'company_code' ? 'text-slate-950/80' : 'text-slate-500'}`}>
-                              Password Classica
+                              Primo Accesso
                             </span>
                           </button>
                         </div>
@@ -512,19 +510,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         >
                           <div className="space-y-2 text-left">
                             <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest px-1">Codice Server Aziendale</label>
-                            <div className="relative group">
-                              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                            <div className="relative group flex items-center">
+                              <Building2 className="absolute left-4 z-10 w-4 h-4 text-slate-500 group-focus-within:text-amber-500 transition-colors" />
+                              <div className="absolute left-10 z-10 text-sm font-mono font-bold text-slate-500">
+                                CANT-
+                              </div>
                               <input
                                 type="text"
-                                value={inputCompanyCode}
-                                onChange={(e) => setInputCompanyCode(e.target.value)}
-                                placeholder="CANT-XXXX"
-                                className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 pl-12 text-sm text-white uppercase outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all placeholder:text-slate-700 font-mono"
+                                value={inputCompanyCode.replace(/^CANT-?/, '')}
+                                onChange={(e) => setInputCompanyCode('CANT-' + e.target.value.replace(/\D/g, ''))}
+                                placeholder="XXXX"
+                                className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl p-4 pl-[88px] text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all font-mono"
                                 required
                               />
                             </div>
                             <p className="text-[10px] text-slate-500 mt-2 px-1 leading-relaxed">
-                              Inserisci il codice fornito dal tuo amministratore per accedere al listino utenti.
+                              Inserisci il codice numerico fornito dal tuo amministratore per accedere all'azienda.
                             </p>
                           </div>
                           <div className="flex flex-col gap-3">
@@ -541,20 +542,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             </div>
                             <button
                               type="button"
-                              onClick={() => {
-                                setLoginError('');
-                                setLoginStep('transfer_code');
-                              }}
-                              className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-bold py-3.5 rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
-                            >
-                              <KeyRound className="w-4 h-4 text-emerald-400" /> Inserisci Codice dal Cellulare (6 caratteri)
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => setLoginStep('pairing_code')}
                               className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-medium py-3 rounded-2xl transition-all flex items-center justify-center gap-2 text-xs"
                             >
-                              <Smartphone className="w-4 h-4 text-amber-500" /> Usa Chiave Mobile (4 cifre)
+                              <Smartphone className="w-4 h-4 text-amber-500" /> Associa questo dispositivo (Chiave 4 cifre)
                             </button>
                           </div>
                         </motion.form>
