@@ -144,24 +144,39 @@ export interface StockItem {
 
 export type DocumentType = 'bolla' | 'fattura';
 
+export interface DocumentItem {
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  totalPrice: number;
+  destinationCantiereId?: string; // ID del cantiere di destinazione o 'centrale'
+  status?: 'in_attesa' | 'accettata' | 'rifiutata';
+  acceptedAt?: string;
+  acceptedBy?: string;
+}
+
+export type MaterialDocumentStatus = 'registrato' | 'annullato' | 'in_attesa_accettazione' | 'accettata' | 'parzialmente_accettata';
+
 export interface MaterialDocument {
   id: string;
   number: string;
   date: string;
   supplier: string;
   type: DocumentType;
-  items: {
-    materialeId: string;
-    materialeName: string;
-    quantity: number;
-    unit: string;
-    unitPrice: number;
-    totalPrice: number;
-  }[];
+  items: DocumentItem[];
   totalAmount: number;
   photoUrl?: string;
+  pdfDataUrl?: string;
+  fileName?: string;
   notes?: string;
-  status: 'registrato' | 'annullato';
+  acceptanceNote?: string; // Nota inviata al capocantiere per la verifica/accettazione
+  destinationCantiereId?: string; // Cantiere primario o 'misto' se spacchettato su più cantieri
+  status: MaterialDocumentStatus;
+  acceptedAt?: string;
+  acceptedBy?: string;
+  createdAt?: string;
 }
 
 export type MovementType = 'carico_magazzino' | 'trasferimento_cantiere' | 'scarico_rapportino' | 'reso_magazzino';
@@ -173,11 +188,16 @@ export interface StockMovement {
   quantity: number;
   type: MovementType;
   date: string;
-  fromId?: string; // 'centrale' o cantiereId
+  fromId?: string; // 'centrale', 'fornitore', o cantiereId
   toId?: string;   // 'centrale' o cantiereId
   costoUnitario?: number;
   rapportinoId?: string; // Se tipo 'scarico_rapportino'
   documentId?: string; // Link to MaterialDocument
-  photoUrl?: string; // Foto della bolla o materiale
+  documentNumber?: string; // N. Bolla / Fattura per facilità di consultazione
+  supplier?: string; // Fornitore della bolla
+  photoUrl?: string; // Foto o link documento
   status?: 'pending' | 'accepted' | 'rejected';
+  acceptanceNote?: string; // Nota di consegna o istruzioni per il capocantiere
+  acceptedAt?: string;
+  acceptedBy?: string;
 }

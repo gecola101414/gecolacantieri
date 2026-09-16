@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Building2, HardHat, Wrench, FileText, Users, PieChart, 
-  ChevronLeft, ChevronRight, Box, LogOut, Settings, DollarSign, List
+  ChevronLeft, ChevronRight, Box, LogOut, Settings, DollarSign, List, ReceiptText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserAccount, Company } from '../types';
@@ -32,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'personale', label: 'Personale', icon: HardHat },
     { id: 'mezzi', label: 'Mezzi', icon: Wrench },
     { id: 'magazzino', label: 'Magazzino', icon: Box },
+    { id: 'bolle', label: 'Bolle & DDT (PDF)', icon: ReceiptText },
     { id: 'materiali', label: 'Lista Materiali', icon: List },
     { id: 'rapportini', label: 'Rapportini', icon: FileText },
     { id: 'utenti', label: 'Gestione Utenti', icon: Users },

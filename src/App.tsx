@@ -245,6 +245,8 @@ export default function App() {
     saveMateriale: async (m: Materiale) => company && await firestoreService.saveMateriale(company.id, m),
     saveMovement: async (m: StockMovement) => company && await firestoreService.addMovement(company.id, m),
     saveDocument: async (d: MaterialDocument) => company && await firestoreService.saveMaterialDocument(company.id, d),
+    deleteDocument: async (docId: string) => company && await firestoreService.deleteMaterialDocument(company.id, docId),
+    acceptEntireDocument: async (docId: string) => company && await firestoreService.acceptEntireDocument(company.id, docId, currentUser?.name || 'Amministratore'),
     saveRapportino: async (r: Rapportino) => {
       if (!company) return;
       if (currentUser && !currentUser.active) {
@@ -408,6 +410,9 @@ export default function App() {
                   onAddMovement={cloudHandlers.saveMovement}
                   documents={documents}
                   onAddDocument={cloudHandlers.saveDocument}
+                  onDeleteDocument={cloudHandlers.deleteDocument}
+                  onAcceptDocument={cloudHandlers.acceptEntireDocument}
+                  onAcceptTransfer={cloudHandlers.acceptTransfer}
                   users={users}
                   onSaveUser={cloudHandlers.saveUser}
                   onDeleteUser={cloudHandlers.deleteUser}

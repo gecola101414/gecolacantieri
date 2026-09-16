@@ -445,7 +445,16 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                         <div key={m.id} className="bg-amber-50 border border-amber-200 p-5 rounded-[28px] shadow-sm">
                           <div className="flex items-center justify-between mb-3">
                             <div>
-                              <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest leading-none mb-1">Trasferimento</p>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-[9px] font-black text-amber-700 bg-amber-200/70 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                                  {m.documentNumber ? `Bolla N. ${m.documentNumber}` : 'Trasferimento'}
+                                </span>
+                                {m.supplier && (
+                                  <span className="text-[10px] font-bold text-slate-600 truncate max-w-[140px]">
+                                    {m.supplier}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-sm font-black text-slate-900">{m.materialeName}</p>
                             </div>
                             <div className="text-right">
@@ -453,6 +462,13 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                               <p className="text-[9px] font-bold text-slate-500 uppercase">Quantità</p>
                             </div>
                           </div>
+
+                          {m.acceptanceNote && (
+                            <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/80 mb-3 text-[11px] text-slate-700">
+                              <span className="font-bold text-amber-800">Nota di consegna: </span>
+                              {m.acceptanceNote}
+                            </div>
+                          )}
                           
                           <div className="flex items-center gap-2 mb-5">
                             <MapPin className="w-3 h-3 text-slate-400" />
@@ -469,8 +485,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                             {isSubmitting ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              <Check className="w-4 h-4" />
-                            )} Accetta Carico
+                              <Check className="w-4 h-4 text-emerald-400" />
+                            )} Accetta Fornitura nel Cantiere
                           </button>
                         </div>
                       ))}

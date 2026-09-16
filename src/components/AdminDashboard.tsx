@@ -3,7 +3,7 @@ import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, 
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw, ReceiptText
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
@@ -11,6 +11,7 @@ import { seedSimulationData } from '../lib/seeder';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 import { PhotoLightbox } from './PhotoLightbox';
+import { BolleManager } from './BolleManager';
 
 interface AdminDashboardProps {
   company: Company | null;
@@ -34,8 +35,11 @@ interface AdminDashboardProps {
   onAddMovement: (m: StockMovement) => void;
   documents: MaterialDocument[];
   onAddDocument: (d: MaterialDocument) => void;
+  onDeleteDocument?: (docId: string) => Promise<void>;
+  onAcceptDocument?: (docId: string) => Promise<void>;
+  onAcceptTransfer?: (moveId: string) => Promise<void>;
   currentUser: UserAccount;
-  activeTab: 'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita';
+  activeTab: string;
   setActiveTab: (tab: any) => void;
 }
 
@@ -61,6 +65,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onAddMovement,
   documents,
   onAddDocument,
+  onDeleteDocument,
+  onAcceptDocument,
+  onAcceptTransfer,
   currentUser,
   activeTab,
   setActiveTab,
@@ -854,10 +861,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <Box className="w-4 h-4" /> Nuovo Movimento
                     </button>
                     <button 
-                      onClick={() => setShowAddDocumentModal(true)} 
+                      onClick={() => setActiveTab('bolle')} 
                       className="bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-800 transition-all"
                     >
-                      <FileText className="w-4 h-4" /> Registra Bolla/Fattura
+                      <ReceiptText className="w-4 h-4 text-amber-500" /> Carica Bolla / DDT (PDF)
                     </button>
                   </div>
                 </div>
@@ -918,6 +925,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           ))
                         )}
                       </div>
+                      <button
+                        onClick={() => setActiveTab('bolle')}
+                        className="w-full mt-4 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <ReceiptText className="w-3.5 h-3.5 text-amber-600" />
+                        Registro Bolle, Carica PDF & Spacchetta →
+                      </button>
                     </div>
                   </div>
 
@@ -983,6 +997,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </div>
                   </div>
                 </div>
+              </motion.div>
+            )}
+
+            {/* BOLLE & DDT (PDF) TAB */}
+            {activeTab === 'bolle' && (
+              <motion.div 
+                key="bolle"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+              >
+                <BolleManager
+                  documents={documents}
+                  cantieri={cantieri}
+                  materiali={materiali}
+                  movements={movements}
+                  currentUser={currentUser}
+                  onSaveDocument={async (d) => onAddDocument(d)}
+                  onDeleteDocument={onDeleteDocument || (async () => {})}
+                  onAcceptDocument={onAcceptDocument || (async () => {})}
+                  onAcceptTransfer={onAcceptTransfer || (async () => {})}
+                  onAddMateriale={async (m) => onAddMateriale(m)}
+                />
               </motion.div>
             )}
 
@@ -1744,6 +1781,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
                     ))
                   )}
+                </div>
+              </div>
+
+              {/* Forniture & Bolle Consegnate in Cantiere */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <ReceiptText className="w-4 h-4 text-amber-500" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest">Forniture & Bolle Arrivate</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    {documents.filter(d => 
+                      d.destinationCantiereId === selectedCantiere.id || 
+                      d.items.some(i => i.destinationCantiereId === selectedCantiere.id)
+                    ).length} bolle registrate
+                  </span>
+                </div>
+
+                <div className="space-y-2">
+                  {(() => {
+                    const cantiereDocs = documents.filter(d => 
+                      d.destinationCantiereId === selectedCantiere.id || 
+                      d.items.some(i => i.destinationCantiereId === selectedCantiere.id)
+                    );
+
+                    if (cantiereDocs.length === 0) {
+                      return <p className="text-xs text-slate-400 italic p-4 bg-slate-50 rounded-2xl">Nessuna bolla o fornitura assegnata a questo cantiere.</p>;
+                    }
+
+                    return cantiereDocs.slice(0, 5).map(doc => {
+                      const cantiereItems = doc.items.filter(i => 
+                        i.destinationCantiereId === selectedCantiere.id || doc.destinationCantiereId === selectedCantiere.id
+                      );
+                      const cantiereItemsTotal = cantiereItems.reduce((acc, i) => acc + (i.totalPrice || (i.quantity * (i.unitPrice || 0))), 0);
+
+                      return (
+                        <div key={doc.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+                                {doc.type.toUpperCase()} N. {doc.number}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-medium">{doc.date}</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-900 mt-1">{doc.supplier}</p>
+                            <p className="text-[10px] text-slate-500">
+                              {cantiereItems.map(i => `${i.quantity} ${i.unit} ${i.materialeName}`).join(', ')}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs font-black text-slate-900">€{cantiereItemsTotal.toFixed(2)}</p>
+                            <span className={`inline-block mt-0.5 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                              doc.status === 'accettata' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                            }`}>
+                              {doc.status === 'accettata' ? 'Accettata' : 'In attesa'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 

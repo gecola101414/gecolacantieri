@@ -626,7 +626,7 @@ export const firestoreService = {
     }
   },
 
-  async acceptTransfer(companyId: string, moveId: string): Promise<void> {
+  async acceptTransfer(companyId: string, moveId: string, acceptedByName?: string): Promise<void> {
     const path = `companies/${companyId}/movements/${moveId}`;
     try {
       const moveSnap = await getDoc(doc(db, path));
@@ -634,35 +634,111 @@ export const firestoreService = {
       const move = moveSnap.data() as StockMovement;
       if (move.status !== 'pending' || !move.toId) return;
 
+      const nowIso = new Date().toISOString();
+
       // 1. Update Movement Status
-      await updateDoc(doc(db, path), { status: 'accepted' });
+      await updateDoc(doc(db, path), { 
+        status: 'accepted',
+        acceptedAt: nowIso,
+        acceptedBy: acceptedByName || 'Capocantiere'
+      });
 
       // 2. Carico su Cantiere di Destinazione
       const cantiere = await this.getCantiereById(companyId, move.toId);
       if (cantiere) {
         const stock = cantiere.stock || [];
         const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+        const totalAddedCost = (move.costoUnitario || 0) * move.quantity;
+
         if (itemIdx >= 0) {
           stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + move.quantity;
-          stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + ((move.costoUnitario || 0) * move.quantity);
+          stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + totalAddedCost;
         } else {
           stock.push({
             materialeId: move.materialeId,
             materialeName: move.materialeName,
             quantity: move.quantity,
             unit: 'u',
-            totalCost: (move.costoUnitario || 0) * move.quantity
+            totalCost: totalAddedCost
           });
         }
+
+        const newTotalMaterialCost = (cantiere.totalMaterialCost || 0) + totalAddedCost;
+
         await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
           stock: sanitizeData(stock),
-          totalMaterialCost: (cantiere.totalMaterialCost || 0) + ((move.costoUnitario || 0) * move.quantity)
+          totalMaterialCost: newTotalMaterialCost
         });
       }
-      console.log(`Transfer ${moveId} accepted and added to cantiere ${move.toId}`);
+
+      // 3. Update related MaterialDocument if present
+      if (move.documentId) {
+        await this.syncDocumentAcceptanceState(companyId, move.documentId);
+      }
+
+      console.log(`Transfer/Delivery ${moveId} accepted and added to cantiere ${move.toId}`);
     } catch (e) {
       console.error('Error accepting transfer:', e);
       throw e;
+    }
+  },
+
+  async syncDocumentAcceptanceState(companyId: string, documentId: string): Promise<void> {
+    const docRef = doc(db, 'companies', companyId, 'documents', documentId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) return;
+    const documentData = snap.data() as MaterialDocument;
+
+    // Check movements linked to this document
+    const movQuery = query(collection(db, `companies/${companyId}/movements`), where('documentId', '==', documentId));
+    const movSnap = await getDocs(movQuery);
+    const linkedMoves = movSnap.docs.map(d => d.data() as StockMovement);
+
+    if (linkedMoves.length === 0) return;
+
+    const allAccepted = linkedMoves.every(m => m.status === 'accepted');
+    const someAccepted = linkedMoves.some(m => m.status === 'accepted');
+
+    const updatedStatus = allAccepted ? 'accettata' : (someAccepted ? 'parzialmente_accettata' : 'in_attesa_accettazione');
+    await updateDoc(docRef, { 
+      status: updatedStatus,
+      acceptedAt: allAccepted ? new Date().toISOString() : documentData.acceptedAt || ''
+    });
+  },
+
+  async acceptEntireDocument(companyId: string, documentId: string, acceptedByName?: string): Promise<void> {
+    try {
+      const movQuery = query(
+        collection(db, `companies/${companyId}/movements`), 
+        where('documentId', '==', documentId),
+        where('status', '==', 'pending')
+      );
+      const movSnap = await getDocs(movQuery);
+      
+      for (const mDoc of movSnap.docs) {
+        await this.acceptTransfer(companyId, mDoc.id, acceptedByName || 'Amministratore');
+      }
+
+      await this.syncDocumentAcceptanceState(companyId, documentId);
+    } catch (e) {
+      console.error('Error accepting entire document:', e);
+      throw e;
+    }
+  },
+
+  async deleteMaterialDocument(companyId: string, documentId: string): Promise<void> {
+    const path = `companies/${companyId}/documents/${documentId}`;
+    try {
+      await deleteDoc(doc(db, 'companies', companyId, 'documents', documentId));
+      
+      // Also cleanup associated movements if still pending
+      const movQuery = query(collection(db, `companies/${companyId}/movements`), where('documentId', '==', documentId));
+      const movSnap = await getDocs(movQuery);
+      for (const d of movSnap.docs) {
+        await deleteDoc(doc(db, `companies/${companyId}/movements`, d.id));
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
@@ -705,19 +781,63 @@ export const firestoreService = {
     try {
       await setDoc(doc(db, 'companies', companyId, 'documents', docData.id), sanitizeData(docData));
       
-      // Create movements for each item
-      for (const item of docData.items) {
-        await this.addMovement(companyId, {
-          id: `mov-${docData.id}-${item.materialeId}`,
-          materialeId: item.materialeId,
+      // Create movements for each spacchettamento item
+      for (let idx = 0; idx < docData.items.length; idx++) {
+        const item = docData.items[idx];
+        const destination = item.destinationCantiereId || docData.destinationCantiereId || 'centrale';
+        const isCentral = destination === 'centrale';
+        const movId = `mov-${docData.id}-${item.materialeId || idx}-${idx}`;
+
+        const movData: StockMovement = {
+          id: movId,
+          materialeId: item.materialeId || `mat-${idx}`,
           materialeName: item.materialeName,
           quantity: item.quantity,
-          type: 'carico_magazzino',
+          type: isCentral ? 'carico_magazzino' : 'trasferimento_cantiere',
           date: docData.date,
-          toId: 'centrale',
+          fromId: isCentral ? 'centrale' : `Fornitore: ${docData.supplier}`,
+          toId: destination,
           costoUnitario: item.unitPrice,
-          documentId: docData.id
-        });
+          documentId: docData.id,
+          documentNumber: docData.number,
+          supplier: docData.supplier,
+          acceptanceNote: docData.acceptanceNote || '',
+          photoUrl: docData.photoUrl || '',
+          status: isCentral ? 'accepted' : (docData.status === 'accettata' ? 'accepted' : 'pending'),
+          acceptedAt: isCentral || docData.status === 'accettata' ? new Date().toISOString() : undefined,
+          acceptedBy: isCentral ? 'Sistema (Magazzino Centrale)' : (docData.status === 'accettata' ? 'Amministratore' : undefined)
+        };
+
+        await this.addMovement(companyId, movData);
+
+        // If directly accepted during creation for a cantiere
+        if (!isCentral && docData.status === 'accettata') {
+          // Immediately update cantiere stock and cost
+          const cantiere = await this.getCantiereById(companyId, destination);
+          if (cantiere) {
+            const stock = cantiere.stock || [];
+            const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
+            const totalAddedCost = item.quantity * item.unitPrice;
+
+            if (itemIdx >= 0) {
+              stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + item.quantity;
+              stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + totalAddedCost;
+            } else {
+              stock.push({
+                materialeId: item.materialeId || `mat-${idx}`,
+                materialeName: item.materialeName,
+                quantity: item.quantity,
+                unit: item.unit || 'u',
+                totalCost: totalAddedCost
+              });
+            }
+
+            await updateDoc(doc(db, `companies/${companyId}/cantieri`, destination), {
+              stock: sanitizeData(stock),
+              totalMaterialCost: (cantiere.totalMaterialCost || 0) + totalAddedCost
+            });
+          }
+        }
       }
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
