@@ -195,8 +195,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
         setUploadedPdfDataUrl(compressedDataUrl);
 
-        // Utilizziamo nuovamente l'Intelligenza Artificiale (Gemini) tramite il nostro server.
-        // L'OCR locale senza AI (come Tesseract) produce solo testo confusionario e non riesce a "capire" le tabelle o i totali.
+        // Call AI Multimodal Vision API on the server
         const res = await fetch('/api/analyze-bolla', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -248,7 +247,6 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         } else {
           throw new Error(json.error || 'Analisi visiva non riuscita');
         }
-
       } else {
         // PDF file handling
         if (file.size < 2000000) {
@@ -261,10 +259,53 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
         const rawText = await extractTextFromPdf(file);
         if (rawText && rawText.trim().length > 40) {
+          try {
+            // Try AI analysis first
+            const res = await fetch('/api/analyze-bolla', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: rawText, fileName: file.name }),
+            });
+            const json = await res.json();
+            if (json.success && json.data) {
+              const d = json.data;
+              const mappedItems = (d.items || []).map((it: any) => {
+                const qty = Number(it.quantity) || 1;
+                const uPrice = Number(it.unitPrice) || (it.totalPrice && qty ? Number((it.totalPrice / qty).toFixed(2)) : 0);
+                const tPrice = Number(it.totalPrice) || Number((qty * uPrice).toFixed(2));
+                return {
+                  code: it.code || undefined,
+                  materialeName: it.materialeName || '',
+                  quantity: qty,
+                  unit: it.unit || 'pz',
+                  unitPrice: uPrice,
+                  totalPrice: tPrice,
+                };
+              });
+
+              const parsed: ExtractedDocumentData = {
+                type: d.type === 'fattura' ? 'fattura' : 'bolla',
+                number: d.number || '',
+                date: d.date || new Date().toISOString().split('T')[0],
+                supplier: d.supplier || '',
+                destinationCantiere: d.destinationCantiere || '',
+                totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : mappedItems.reduce((s, i) => s + i.totalPrice, 0),
+                imponibile: typeof d.imponibile === 'number' ? d.imponibile : undefined,
+                summaryDescription: d.summaryDescription || '',
+                rawText: rawText,
+                confidence: { supplier: true, number: true, date: true, totalAmount: true, items: true },
+                items: mappedItems,
+              };
+              applyExtractedData(parsed, 'File PDF (con Intelligenza Artificiale)');
+              return;
+            }
+          } catch {
+            // Fallback to local regex parser
+          }
           const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawText, file.name);
           applyExtractedData(parsed, 'File PDF (Lettura Testo)');
         } else {
-          setExtractedNotice('Il PDF non contiene testo selezionabile (probabile scansione). Se possibile, carica o scatta direttamente la foto in JPG/PNG per l\'analisi visiva OCR.');
+          setExtractedNotice('Il PDF non contiene testo selezionabile (probabile scansione). Se possibile, carica o scatta direttamente la foto in JPG/PNG per l\'analisi Gemini Vision.');
         }
       }
     } catch (err: any) {
