@@ -167,6 +167,9 @@ export interface MaterialDocument {
   type: DocumentType;
   items: DocumentItem[];
   totalAmount: number;
+  imponibile?: number;
+  documentTotalOriginal?: number;
+  summaryDescription?: string; // Breve sintesi riassuntiva dei materiali
   photoUrl?: string;
   pdfDataUrl?: string;
   fileName?: string;

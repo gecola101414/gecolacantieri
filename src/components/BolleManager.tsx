@@ -50,6 +50,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   const [extractedNotice, setExtractedNotice] = useState<string | null>(null);
   const [uploadedPdfName, setUploadedPdfName] = useState<string | null>(null);
   const [uploadedPdfDataUrl, setUploadedPdfDataUrl] = useState<string | null>(null);
+  const [showRawTextInput, setShowRawTextInput] = useState(false);
+  const [rawTextInput, setRawTextInput] = useState('');
 
   // Form state for creating a new Bolla / Fattura
   const [docForm, setDocForm] = useState<{
@@ -60,6 +62,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     acceptanceNote: string;
     defaultDestination: string; // 'centrale' or cantiereId
     status: 'in_attesa_accettazione' | 'accettata';
+    parsedDocumentTotal?: number;
+    parsedImponibile?: number;
+    destinationHint?: string;
+    summaryDescription?: string;
     items: {
       materialeId: string;
       materialeName: string;
@@ -76,6 +82,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     acceptanceNote: 'Verificare integrità materiali ed esattezza quantità allo scarico.',
     defaultDestination: cantieri[0]?.id || 'centrale',
     status: 'in_attesa_accettazione',
+    summaryDescription: '',
     items: [
       {
         materialeId: '',
@@ -93,6 +100,66 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   const pendingAcceptanceCount = documents.filter(d => d.status === 'in_attesa_accettazione').length;
   const acceptedCount = documents.filter(d => d.status === 'accettata').length;
 
+  // Apply parsed document data to docForm
+  const applyExtractedData = (parsed: ExtractedDocumentData, sourceLabel: string) => {
+    // Match destination cantiere if specified in document
+    let matchedDestinationId = docForm.defaultDestination;
+    let matchedDestinationName = '';
+    if (parsed.destinationCantiere) {
+      const destLower = parsed.destinationCantiere.toLowerCase();
+      const foundCantiere = cantieri.find(c => 
+        destLower.includes(c.name.toLowerCase()) || 
+        c.name.toLowerCase().includes(destLower) ||
+        (c.address && (destLower.includes(c.address.toLowerCase()) || c.address.toLowerCase().includes(destLower)))
+      );
+      if (foundCantiere) {
+        matchedDestinationId = foundCantiere.id;
+        matchedDestinationName = foundCantiere.name;
+      }
+    }
+
+    // Map extracted items
+    const mappedItems = parsed.items.map((item, idx) => {
+      const found = materiali.find(m => 
+        m.name.toLowerCase().includes(item.materialeName.toLowerCase()) || 
+        item.materialeName.toLowerCase().includes(m.name.toLowerCase())
+      );
+
+      return {
+        materialeId: found ? found.id : `mat-ext-${Date.now()}-${idx}`,
+        materialeName: item.materialeName,
+        quantity: item.quantity,
+        unit: item.unit,
+        unitPrice: item.unitPrice,
+        destinationCantiereId: matchedDestinationId,
+      };
+    });
+
+    const totalItemsPrice = mappedItems.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0);
+
+    setDocForm(prev => ({
+      ...prev,
+      type: parsed.type,
+      number: parsed.number,
+      date: parsed.date,
+      supplier: parsed.supplier,
+      defaultDestination: matchedDestinationId,
+      destinationHint: parsed.destinationCantiere,
+      summaryDescription: parsed.summaryDescription || prev.summaryDescription,
+      parsedDocumentTotal: parsed.totalAmount || totalItemsPrice,
+      parsedImponibile: parsed.imponibile || totalItemsPrice,
+      items: mappedItems.length > 0 ? mappedItems : prev.items,
+    }));
+
+    const destInfo = matchedDestinationName 
+      ? ` Destinazione: "${matchedDestinationName}".` 
+      : (parsed.destinationCantiere ? ` Destinazione rilevata: "${parsed.destinationCantiere}".` : '');
+
+    setExtractedNotice(
+      `${sourceLabel} analizzato con successo! Riconosciuti: Fornitore (${parsed.supplier}), ${parsed.type.toUpperCase()} N. ${parsed.number}, Data ${parsed.date}, ${mappedItems.length} voci materiali.${destInfo} Totale Bolla: €${(parsed.totalAmount || totalItemsPrice).toFixed(2)}.`
+    );
+  };
+
   // Handle PDF file selection & instant recognition
   const handlePdfUpload = async (file: File) => {
     setIsExtracting(true);
@@ -100,7 +167,6 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     setUploadedPdfName(file.name);
 
     try {
-      // 1. Read Base64 DataUrl for preview if size is reasonable (< 1.5MB)
       if (file.size < 1500000) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -109,43 +175,28 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         reader.readAsDataURL(file);
       }
 
-      // 2. Client-side text extraction using native pdfjs-dist
       const rawText = await extractTextFromPdf(file);
       const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawText, file.name);
-
-      // 3. Map extracted items or create items
-      const mappedItems = parsed.items.map((item, idx) => {
-        // Find existing material in catalog
-        const found = materiali.find(m => 
-          m.name.toLowerCase().includes(item.materialeName.toLowerCase()) || 
-          item.materialeName.toLowerCase().includes(m.name.toLowerCase())
-        );
-
-        return {
-          materialeId: found ? found.id : `mat-ext-${Date.now()}-${idx}`,
-          materialeName: item.materialeName,
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice,
-          destinationCantiereId: docForm.defaultDestination,
-        };
-      });
-
-      setDocForm(prev => ({
-        ...prev,
-        type: parsed.type,
-        number: parsed.number,
-        date: parsed.date,
-        supplier: parsed.supplier,
-        items: mappedItems.length > 0 ? mappedItems : prev.items,
-      }));
-
-      setExtractedNotice(
-        `PDF analizzato con successo! Riconosciuti: Fornitore (${parsed.supplier}), ${parsed.type.toUpperCase()} N. ${parsed.number}, Data ${parsed.date}, ${mappedItems.length} righe materiali.`
-      );
+      applyExtractedData(parsed, 'File PDF');
     } catch (err) {
       console.error('Extraction error:', err);
       setExtractedNotice('Lettura automatica parziale. Puoi comunque verificare e completare i campi manualmente.');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // Handle direct text parse (e.g. pasted OCR text from Sardares or GP2)
+  const handleDirectTextParse = () => {
+    if (!rawTextInput.trim()) return;
+    setIsExtracting(true);
+    try {
+      const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawTextInput);
+      applyExtractedData(parsed, 'Testo incollato');
+      setShowRawTextInput(false);
+    } catch (err) {
+      console.error('Text extraction error:', err);
+      setExtractedNotice('Errore durante l\'analisi del testo.');
     } finally {
       setIsExtracting(false);
     }
@@ -223,13 +274,20 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       const isCentraleOnly = destinations.length === 1 && destinations[0] === 'centrale';
       const initialDocStatus = isCentraleOnly ? 'accettata' : docForm.status;
 
+      const finalTotal = docForm.parsedDocumentTotal && docForm.parsedDocumentTotal > 0 
+        ? docForm.parsedDocumentTotal 
+        : totalAmount;
+
       const newDoc: MaterialDocument = {
         id: `doc-${Date.now()}`,
         number: docForm.number.trim(),
         date: docForm.date,
         supplier: docForm.supplier.trim(),
         type: docForm.type,
-        totalAmount,
+        totalAmount: finalTotal,
+        imponibile: docForm.parsedImponibile || totalAmount,
+        documentTotalOriginal: docForm.parsedDocumentTotal,
+        summaryDescription: docForm.summaryDescription || docForm.items.map(i => `${i.materialeName} (${i.quantity} ${i.unit})`).join(', '),
         notes: `Caricata da ${currentUser.name}`,
         acceptanceNote: docForm.acceptanceNote,
         destinationCantiereId: primaryDestination,
@@ -260,6 +318,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         acceptanceNote: 'Verificare integrità materiali ed esattezza quantità allo scarico.',
         defaultDestination: cantieri[0]?.id || 'centrale',
         status: 'in_attesa_accettazione',
+        summaryDescription: '',
         items: [
           {
             materialeId: '',
@@ -274,6 +333,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       setUploadedPdfDataUrl(null);
       setUploadedPdfName(null);
       setExtractedNotice(null);
+      setRawTextInput('');
+      setShowRawTextInput(false);
     } catch (err) {
       console.error('Error saving document:', err);
       alert('Errore durante il salvataggio della bolla.');
@@ -554,20 +615,31 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         )}
                       </td>
 
-                      {/* Itemized Materials */}
-                      <td className="px-6 py-4.5 max-w-xs">
-                        <div className="space-y-1">
-                          {doc.items.slice(0, 2).map((item, idx) => (
-                            <p key={idx} className="text-xs text-slate-700 font-medium truncate">
-                              <span className="font-bold text-slate-900">{item.quantity} {item.unit}</span> - {item.materialeName}
+                      {/* Itemized Materials / Breve Descrizione */}
+                      <td className="px-6 py-4.5 max-w-sm">
+                        {doc.summaryDescription ? (
+                          <div className="space-y-1">
+                            <p className="text-xs text-slate-800 font-semibold line-clamp-2" title={doc.summaryDescription}>
+                              {doc.summaryDescription}
                             </p>
-                          ))}
-                          {doc.items.length > 2 && (
-                            <p className="text-[10px] text-amber-600 font-bold">
-                              + altri {doc.items.length - 2} materiali...
+                            <p className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+                              <span>{doc.items.length} voci materiali</span>
                             </p>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            {doc.items.slice(0, 2).map((item, idx) => (
+                              <p key={idx} className="text-xs text-slate-700 font-medium truncate">
+                                <span className="font-bold text-slate-900">{item.quantity} {item.unit}</span> - {item.materialeName}
+                              </p>
+                            ))}
+                            {doc.items.length > 2 && (
+                              <p className="text-[10px] text-amber-600 font-bold">
+                                + altri {doc.items.length - 2} materiali...
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       {/* Total Amount */}
@@ -575,6 +647,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         <p className="text-sm font-black text-slate-900">
                           €{doc.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
+                        <span className="text-[9px] font-bold text-slate-400">Totale Bolla</span>
                       </td>
 
                       {/* Acceptance Status */}
@@ -671,44 +744,111 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             </div>
 
             <form onSubmit={handleSaveNewDocument} className="space-y-8">
-              {/* Drag & Drop PDF Dropzone */}
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-50/70 p-6 sm:p-8 rounded-3xl transition-all cursor-pointer text-center group relative overflow-hidden"
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf,image/*"
-                  className="hidden"
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) handlePdfUpload(file);
-                  }}
-                />
-
-                {isExtracting ? (
-                  <div className="flex flex-col items-center justify-center py-4 space-y-3">
-                    <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-                    <p className="text-sm font-bold text-slate-800">Analisi e riconoscimento automatico in corso...</p>
-                    <p className="text-xs text-slate-500">Estrazione fornitore, n. bolla, data e righe materiali...</p>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center space-y-3">
-                    <div className="w-14 h-14 bg-white rounded-2xl shadow-md border border-amber-200 flex items-center justify-center group-hover:scale-110 transition-transform">
-                      <Sparkles className="w-7 h-7 text-amber-500" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-900">
-                        {uploadedPdfName ? `File selezionato: ${uploadedPdfName}` : 'Trascina qui il file PDF della Bolla / Fattura o clicca per sfogliare'}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Supporta PDF e scansioni. Il browser estrarrà i dati gratis e senza inviarli a server esterni.
-                      </p>
-                    </div>
-                  </div>
-                )}
+              {/* Document Input Options Bar */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700">Metodo di Inserimento Bolla:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowRawTextInput(false)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      !showRawTextInput ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Carica PDF / Scansione
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowRawTextInput(true)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      showRawTextInput ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    Incolla Testo DDT (OCR)
+                  </button>
+                </div>
               </div>
+
+              {/* Paste Raw OCR Text Area */}
+              {showRawTextInput ? (
+                <div className="bg-amber-50/50 border-2 border-dashed border-amber-300 rounded-3xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                      Incolla qui il testo della Bolla / DDT (es. Sardares, GP2)
+                    </p>
+                    <span className="text-[10px] text-slate-500">I dati principali e il totale vengono presi direttamente dal testo</span>
+                  </div>
+                  <textarea
+                    rows={6}
+                    value={rawTextInput}
+                    onChange={e => setRawTextInput(e.target.value)}
+                    placeholder="Incolla il testo del DDT o della fattura qui..."
+                    className="w-full bg-white border border-amber-200 rounded-2xl p-3.5 text-xs font-mono outline-none focus:border-amber-500"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowRawTextInput(false)}
+                      className="px-4 py-2 text-xs font-bold text-slate-500 hover:text-slate-800"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDirectTextParse}
+                      disabled={isExtracting || !rawTextInput.trim()}
+                      className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-2 shadow-md transition-all disabled:opacity-50"
+                    >
+                      {isExtracting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-4 h-4" />
+                      )}
+                      <span>Estrai Dati e Totale dalla Bolla</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Drag & Drop PDF Dropzone */
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-50/70 p-6 sm:p-8 rounded-3xl transition-all cursor-pointer text-center group relative overflow-hidden"
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/pdf,image/*"
+                    className="hidden"
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) handlePdfUpload(file);
+                    }}
+                  />
+
+                  {isExtracting ? (
+                    <div className="flex flex-col items-center justify-center py-4 space-y-3">
+                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                      <p className="text-sm font-bold text-slate-800">Analisi e riconoscimento automatico in corso...</p>
+                      <p className="text-xs text-slate-500">Estrazione fornitore, n. bolla, data, totale e righe materiali...</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center space-y-3">
+                      <div className="w-14 h-14 bg-white rounded-2xl shadow-md border border-amber-200 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Sparkles className="w-7 h-7 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-900">
+                          {uploadedPdfName ? `File selezionato: ${uploadedPdfName}` : 'Trascina qui il file PDF della Bolla / Fattura o clicca per sfogliare'}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Supporta PDF e scansioni. Riconosce automaticamente fornitore, data, numero, totale e materiali.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Extraction notice banner */}
               {extractedNotice && (
@@ -722,7 +862,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               )}
 
               {/* Document Header Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Tipo Documento *</label>
                   <select
@@ -740,7 +880,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="es. DDT 142/B"
+                    placeholder="es. BC04/2026/16957"
                     value={docForm.number}
                     onChange={e => setDocForm({ ...docForm, number: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs font-bold outline-none focus:border-amber-500"
@@ -763,12 +903,45 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="es. Italcementi S.p.A."
+                    placeholder="es. SARDARES S.p.A."
                     value={docForm.supplier}
                     onChange={e => setDocForm({ ...docForm, supplier: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs font-bold outline-none focus:border-amber-500"
                   />
                 </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
+                    Totale Bolla (€) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={docForm.parsedDocumentTotal !== undefined ? docForm.parsedDocumentTotal : ''}
+                    onChange={e => setDocForm({ ...docForm, parsedDocumentTotal: parseFloat(e.target.value) || 0 })}
+                    placeholder="Preso dalla bolla"
+                    className="w-full bg-amber-50/50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 outline-none focus:border-amber-500"
+                  />
+                  <span className="text-[9px] text-slate-400 block">Valore preso dalla bolla (non ricalcolato)</span>
+                </div>
+              </div>
+
+              {/* Breve Descrizione Riassuntiva dei Materiali */}
+              <div className="space-y-1.5 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Breve Descrizione Riassuntiva dei Materiali
+                  </label>
+                  <span className="text-[10px] text-slate-400">Generata automaticamente o modificabile</span>
+                </div>
+                <input
+                  type="text"
+                  value={docForm.summaryDescription || ''}
+                  onChange={e => setDocForm({ ...docForm, summaryDescription: e.target.value })}
+                  placeholder="Es. CEMENTO 32,5R 25kg (10 nr), SABBIA FINE LAVATA 0/2 (8 ql), GRANIGLIA 8-16 (7 ql)..."
+                  className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
+                />
               </div>
 
               {/* Master Destination / Spacchettamento Controls */}
@@ -971,13 +1144,33 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
               {/* Total & Submit Action Bar */}
               <div className="bg-slate-900 rounded-[32px] p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-6 text-white">
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Totale Complessivo Bolla</p>
-                  <p className="text-3xl font-black text-amber-500">
-                    €{docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {docForm.items.length} riga/e materiali spacchettati
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-baseline gap-4">
+                    <div>
+                      <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1">
+                        <Check className="w-3 h-3 text-emerald-400" /> Totale Bolla (Preso dal Documento)
+                      </p>
+                      <p className="text-3xl font-black text-white">
+                        €{(docForm.parsedDocumentTotal !== undefined && docForm.parsedDocumentTotal > 0
+                          ? docForm.parsedDocumentTotal
+                          : docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0)
+                        ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+
+                    <div className="pl-4 border-l border-slate-700">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                        Imponibile Somma Righe
+                      </p>
+                      <p className="text-xl font-bold text-amber-500">
+                        €{docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-400">
+                    {docForm.items.length} voce/i materiali • Valore ufficiale preso dalla bolla senza forzature
+                    {docForm.destinationHint ? ` • Consegna: ${docForm.destinationHint}` : ''}
                   </p>
                 </div>
 
@@ -1046,11 +1239,23 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               </button>
             </div>
 
+            {/* Breve Descrizione Riassuntiva dei Materiali */}
+            {(selectedDocDetails.summaryDescription || selectedDocDetails.items.length > 0) && (
+              <div className="bg-amber-50/70 border border-amber-200 p-4 sm:p-5 rounded-3xl space-y-1.5">
+                <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Breve Descrizione Riassuntiva dei Materiali
+                </p>
+                <p className="text-xs sm:text-sm text-slate-800 font-semibold leading-relaxed">
+                  {selectedDocDetails.summaryDescription || selectedDocDetails.items.map(i => `${i.materialeName} (${i.quantity} ${i.unit})`).join(', ')}
+                </p>
+              </div>
+            )}
+
             {/* Note per il Capocantiere */}
             {selectedDocDetails.acceptanceNote && (
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl space-y-1">
-                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5" /> Nota di Accettazione per il Cantiere
+              <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5 text-amber-500" /> Nota di Accettazione per il Cantiere
                 </p>
                 <p className="text-xs text-slate-800 font-medium">{selectedDocDetails.acceptanceNote}</p>
               </div>
@@ -1058,8 +1263,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
             {/* Spacchettamento Table */}
             <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                Dettaglio Spacchettamento Materiali ({selectedDocDetails.items.length} voci)
+              <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                <span>Elenco Completo di Tutti i Materiali ({selectedDocDetails.items.length} voci)</span>
+                <span className="text-[10px] text-slate-400 font-normal">Spacchettamento riga per riga</span>
               </h4>
               <div className="border border-slate-100 rounded-2xl overflow-hidden">
                 <table className="w-full text-left text-xs">
@@ -1118,12 +1324,22 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             )}
 
             {/* Acceptance Footer */}
-            <div className="bg-slate-900 rounded-3xl p-6 text-white flex items-center justify-between">
+            <div className="bg-slate-900 rounded-3xl p-6 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Valore Totale</p>
-                <p className="text-2xl font-black text-amber-500">
-                  €{selectedDocDetails.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <p className="text-[10px] font-bold text-amber-400 uppercase tracking-widest flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-400" /> Totale Bolla (Valore Ufficiale)
                 </p>
+                <div className="flex items-baseline gap-3">
+                  <p className="text-3xl font-black text-white">
+                    €{selectedDocDetails.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                  {selectedDocDetails.imponibile && selectedDocDetails.imponibile !== selectedDocDetails.totalAmount && (
+                    <span className="text-xs text-slate-400">
+                      (Imponibile: €{selectedDocDetails.imponibile.toFixed(2)})
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-0.5">Dato preso direttamente dalla bolla senza ricalcolo arbitrario</p>
               </div>
 
               <div className="flex gap-3">
