@@ -73,9 +73,6 @@ export default defineConfig(() => {
       aistudioMediaPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
-        workbox: {
-          maximumFileSizeToCacheInBytes: 5000000,
-        },
         devOptions: {
           enabled: true
         },
