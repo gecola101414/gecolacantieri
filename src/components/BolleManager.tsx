@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount } from '../types';
 import { extractTextFromPdf, parseBollaOrFatturaText, ExtractedDocumentData } from '../utils/pdfExtractor';
+import { compressPhoto } from '../utils/imageCompressor';
 import { 
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
   ArrowRightLeft, Sparkles, Loader2, Send, ChevronDown, Check,
-  X, ExternalLink, Info, Layers
+  X, ExternalLink, Info, Layers, Camera, Image as ImageIcon, RotateCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -46,6 +47,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
   // Upload & Extraction state
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [imageRotation, setImageRotation] = useState(0);
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractedNotice, setExtractedNotice] = useState<string | null>(null);
   const [uploadedPdfName, setUploadedPdfName] = useState<string | null>(null);
@@ -160,30 +163,216 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     );
   };
 
-  // Handle PDF file selection & instant recognition
-  const handlePdfUpload = async (file: File) => {
+  // Handle PDF or Image (Photo/Scan) file selection & AI recognition
+  const handleFileUpload = async (file: File) => {
     setIsExtracting(true);
     setExtractedNotice(null);
     setUploadedPdfName(file.name);
+    setImageRotation(0);
+
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|webp|heic|bmp)$/i.test(file.name);
 
     try {
-      if (file.size < 1500000) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setUploadedPdfDataUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-      }
+      if (isImage) {
+        // High-clarity compression for AI Vision OCR and preview
+        let compressedDataUrl: string;
+        try {
+          compressedDataUrl = await compressPhoto(file, {
+            maxWidth: 2048,
+            maxHeight: 2048,
+            quality: 0.85,
+            maxSizeBytes: 800 * 1024
+          });
+        } catch {
+          // Fallback simple FileReader
+          compressedDataUrl = await new Promise<string>((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res(r.result as string);
+            r.onerror = rej;
+            r.readAsDataURL(file);
+          });
+        }
 
-      const rawText = await extractTextFromPdf(file);
-      const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawText, file.name);
-      applyExtractedData(parsed, 'File PDF');
-    } catch (err) {
-      console.error('Extraction error:', err);
-      setExtractedNotice('Lettura automatica parziale. Puoi comunque verificare e completare i campi manualmente.');
+        setUploadedPdfDataUrl(compressedDataUrl);
+
+        // Call AI Multimodal Vision API on the server
+        const res = await fetch('/api/analyze-bolla', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageBase64: compressedDataUrl,
+            mimeType: 'image/jpeg',
+            fileName: file.name,
+          }),
+        });
+
+        const json = await res.json();
+        if (json.success && json.data) {
+          const d = json.data;
+          const mappedItems = (d.items || []).map((it: any) => {
+            const qty = Number(it.quantity) || 1;
+            const uPrice = Number(it.unitPrice) || (it.totalPrice && qty ? Number((it.totalPrice / qty).toFixed(2)) : 0);
+            const tPrice = Number(it.totalPrice) || Number((qty * uPrice).toFixed(2));
+            return {
+              code: it.code || undefined,
+              materialeName: it.materialeName || '',
+              quantity: qty,
+              unit: it.unit || 'pz',
+              unitPrice: uPrice,
+              totalPrice: tPrice,
+            };
+          });
+
+          const parsed: ExtractedDocumentData = {
+            type: d.type === 'fattura' ? 'fattura' : 'bolla',
+            number: d.number || '',
+            date: d.date || new Date().toISOString().split('T')[0],
+            supplier: d.supplier || '',
+            destinationCantiere: d.destinationCantiere || '',
+            totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : mappedItems.reduce((s, i) => s + i.totalPrice, 0),
+            imponibile: typeof d.imponibile === 'number' ? d.imponibile : undefined,
+            summaryDescription: d.summaryDescription || '',
+            rawText: JSON.stringify(d),
+            confidence: { supplier: true, number: true, date: true, totalAmount: true, items: true },
+            items: mappedItems,
+          };
+
+          applyExtractedData(parsed, 'Foto / Scansione (con Gemini Vision AI)');
+          if (d.notes) {
+            setDocForm(prev => ({
+              ...prev,
+              acceptanceNote: d.notes,
+            }));
+          }
+        } else {
+          throw new Error(json.error || 'Analisi visiva non riuscita');
+        }
+      } else {
+        // PDF file handling
+        if (file.size < 2000000) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            setUploadedPdfDataUrl(reader.result as string);
+          };
+          reader.readAsDataURL(file);
+        }
+
+        const rawText = await extractTextFromPdf(file);
+        if (rawText && rawText.trim().length > 40) {
+          try {
+            // Try AI analysis first
+            const res = await fetch('/api/analyze-bolla', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: rawText, fileName: file.name }),
+            });
+            const json = await res.json();
+            if (json.success && json.data) {
+              const d = json.data;
+              const mappedItems = (d.items || []).map((it: any) => {
+                const qty = Number(it.quantity) || 1;
+                const uPrice = Number(it.unitPrice) || (it.totalPrice && qty ? Number((it.totalPrice / qty).toFixed(2)) : 0);
+                const tPrice = Number(it.totalPrice) || Number((qty * uPrice).toFixed(2));
+                return {
+                  code: it.code || undefined,
+                  materialeName: it.materialeName || '',
+                  quantity: qty,
+                  unit: it.unit || 'pz',
+                  unitPrice: uPrice,
+                  totalPrice: tPrice,
+                };
+              });
+
+              const parsed: ExtractedDocumentData = {
+                type: d.type === 'fattura' ? 'fattura' : 'bolla',
+                number: d.number || '',
+                date: d.date || new Date().toISOString().split('T')[0],
+                supplier: d.supplier || '',
+                destinationCantiere: d.destinationCantiere || '',
+                totalAmount: typeof d.totalAmount === 'number' ? d.totalAmount : mappedItems.reduce((s, i) => s + i.totalPrice, 0),
+                imponibile: typeof d.imponibile === 'number' ? d.imponibile : undefined,
+                summaryDescription: d.summaryDescription || '',
+                rawText: rawText,
+                confidence: { supplier: true, number: true, date: true, totalAmount: true, items: true },
+                items: mappedItems,
+              };
+              applyExtractedData(parsed, 'File PDF (con Intelligenza Artificiale)');
+              return;
+            }
+          } catch {
+            // Fallback to local regex parser
+          }
+          const parsed: ExtractedDocumentData = parseBollaOrFatturaText(rawText, file.name);
+          applyExtractedData(parsed, 'File PDF (Lettura Testo)');
+        } else {
+          setExtractedNotice('Il PDF non contiene testo selezionabile (probabile scansione). Se possibile, carica o scatta direttamente la foto in JPG/PNG per l\'analisi Gemini Vision.');
+        }
+      }
+    } catch (err: any) {
+      console.error('File recognition error:', err);
+      setExtractedNotice(`Analisi automatica: ${err.message || 'parziale'}. Puoi verificare e completare i campi manualmente.`);
     } finally {
       setIsExtracting(false);
     }
+  };
+
+  // Load sample DDT from real WhatsApp photo (Sardares N. 16804)
+  const handleLoadSamplePhotoBolla = () => {
+    setIsExtracting(true);
+    setExtractedNotice(null);
+    setUploadedPdfName('WhatsApp_Foto_DDT_Sardares_16804.jpeg');
+    setImageRotation(0);
+
+    setTimeout(() => {
+      const sampleParsed: ExtractedDocumentData = {
+        type: 'bolla',
+        number: 'BC04 / 2026 / 16804',
+        date: '2026-06-04',
+        supplier: 'SARDARES S.p.A.',
+        destinationCantiere: 'CANTIERE CUGNANA, PORTO ROTONDO',
+        totalAmount: 132.08,
+        imponibile: 132.08,
+        summaryDescription: 'SABBIA FINE LAVATA 0/2 (16 ql), CEMENTO 32,5R 25kg (10 nr), INTOPREM N2X kg 25 (1 nr), CENUPREM FINO KG 25 (1 nr)',
+        rawText: 'SARDARES SPA BC04/2026/16804 CANTIERE CUGNANA TOTAL 132.08',
+        confidence: { supplier: true, number: true, date: true, totalAmount: true, items: true },
+        items: [
+          {
+            materialeName: 'SABBIA FINE LAVATA 0/2',
+            quantity: 16.0,
+            unit: 'ql',
+            unitPrice: 3.476,
+            totalPrice: 55.62,
+          },
+          {
+            materialeName: 'CEMENTO 32,5R 25kg',
+            quantity: 10.0,
+            unit: 'nr',
+            unitPrice: 6.804,
+            totalPrice: 68.04,
+          },
+          {
+            materialeName: 'INTOPREM N2X kg 25 - 2CY',
+            quantity: 1.0,
+            unit: 'nr',
+            unitPrice: 3.93,
+            totalPrice: 3.93,
+          },
+          {
+            materialeName: 'CENUPREM FINO KG 25',
+            quantity: 1.0,
+            unit: 'nr',
+            unitPrice: 4.49,
+            totalPrice: 4.49,
+          }
+        ]
+      };
+      applyExtractedData(sampleParsed, 'Foto DDT WhatsApp Sardares (Gemini Vision)');
+      setDocForm(prev => ({
+        ...prev,
+        acceptanceNote: 'Ritiro merce ore 10:00 magazzino Olbia. Vettore MARIO. Documento firmato da conducente e destinatario.',
+      }));
+      setIsExtracting(false);
+    }, 350);
   };
 
   // Handle direct text parse (e.g. pasted OCR text from Sardares or GP2)
@@ -745,32 +934,84 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
             <form onSubmit={handleSaveNewDocument} className="space-y-8">
               {/* Document Input Options Bar */}
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700">Metodo di Inserimento Bolla:</span>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/80 p-3 rounded-2xl border border-slate-200">
                 <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">Acquisizione Bolla:</span>
+                  <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-800 font-bold rounded-full">
+                    Gemini Vision AI
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setShowRawTextInput(false)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      !showRawTextInput ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                    }`}
+                    onClick={() => {
+                      setShowRawTextInput(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 shadow-sm flex items-center gap-1.5 transition-all"
                   >
-                    Carica PDF / Scansione
+                    <Upload className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Carica Foto / PDF</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setShowRawTextInput(true)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      showRawTextInput ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-sm flex items-center gap-1.5 transition-all"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Scatta Foto Bolla</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowRawTextInput(!showRawTextInput)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                      showRawTextInput
+                        ? 'bg-slate-800 text-white border-slate-800'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border-slate-200'
                     }`}
                   >
-                    Incolla Testo DDT (OCR)
+                    Testo OCR
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleLoadSamplePhotoBolla}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-300 flex items-center gap-1.5 transition-all shadow-sm"
+                    title="Carica istantaneamente i dati estratti dalla foto della Bolla Sardares N. 16804"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Esempio Foto Sardares (N. 16804)</span>
                   </button>
                 </div>
               </div>
 
+              {/* Hidden file inputs for photo upload and direct mobile camera */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,image/*"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                }}
+              />
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                }}
+              />
+
               {/* Paste Raw OCR Text Area */}
-              {showRawTextInput ? (
+              {showRawTextInput && (
                 <div className="bg-amber-50/50 border-2 border-dashed border-amber-300 rounded-3xl p-5 space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-bold text-slate-900 flex items-center gap-2">
@@ -809,44 +1050,101 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                     </button>
                   </div>
                 </div>
-              ) : (
-                /* Drag & Drop PDF Dropzone */
+              )}
+
+              {/* Drag & Drop Dropzone for Photo/Scan/PDF */}
+              {!showRawTextInput && (
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-50/70 p-6 sm:p-8 rounded-3xl transition-all cursor-pointer text-center group relative overflow-hidden"
+                  className="border-2 border-dashed border-amber-300 hover:border-amber-500 bg-amber-50/40 hover:bg-amber-50/70 p-6 sm:p-7 rounded-3xl transition-all cursor-pointer text-center group relative overflow-hidden"
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="application/pdf,image/*"
-                    className="hidden"
-                    onChange={e => {
-                      const file = e.target.files?.[0];
-                      if (file) handlePdfUpload(file);
-                    }}
-                  />
-
                   {isExtracting ? (
                     <div className="flex flex-col items-center justify-center py-4 space-y-3">
-                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
-                      <p className="text-sm font-bold text-slate-800">Analisi e riconoscimento automatico in corso...</p>
-                      <p className="text-xs text-slate-500">Estrazione fornitore, n. bolla, data, totale e righe materiali...</p>
+                      <div className="relative">
+                        <div className="w-12 h-12 rounded-full border-4 border-amber-200 border-t-amber-500 animate-spin" />
+                        <Sparkles className="w-5 h-5 text-amber-600 absolute inset-0 m-auto" />
+                      </div>
+                      <p className="text-sm font-bold text-slate-900">Analisi con Intelligenza Artificiale Visione (Gemini)...</p>
+                      <p className="text-xs text-slate-600">
+                        Lettura fornitore, n. documento, data, cantiere di destinazione, totale ufficiale e lista materiali...
+                      </p>
                     </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center space-y-3">
-                      <div className="w-14 h-14 bg-white rounded-2xl shadow-md border border-amber-200 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Sparkles className="w-7 h-7 text-amber-500" />
+                      <div className="flex items-center gap-2">
+                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-amber-200 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <ImageIcon className="w-6 h-6 text-amber-500" />
+                        </div>
+                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-amber-200 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <Camera className="w-6 h-6 text-amber-600" />
+                        </div>
+                        <div className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-amber-200 flex items-center justify-center group-hover:scale-105 transition-transform">
+                          <FileText className="w-6 h-6 text-amber-700" />
+                        </div>
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-900">
-                          {uploadedPdfName ? `File selezionato: ${uploadedPdfName}` : 'Trascina qui il file PDF della Bolla / Fattura o clicca per sfogliare'}
+                          {uploadedPdfName ? `File selezionato: ${uploadedPdfName}` : 'Carica Foto da Smartphone (WhatsApp, JPG, PNG) o PDF della Bolla'}
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">
-                          Supporta PDF e scansioni. Riconosce automaticamente fornitore, data, numero, totale e materiali.
+                        <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
+                          Puoi fotografare la bolla cartacea anche con ombre o ruotata: Gemini Vision legge fornitore, numero, data, totale esatto e tutti i materiali.
                         </p>
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Photo Preview & Orientation Tool */}
+              {uploadedPdfDataUrl && uploadedPdfDataUrl.startsWith('data:image') && (
+                <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-col sm:flex-row items-center gap-4">
+                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 bg-black rounded-xl overflow-hidden shrink-0 border border-slate-700 flex items-center justify-center">
+                    <img
+                      src={uploadedPdfDataUrl}
+                      alt="Anteprima foto bolla"
+                      className="max-h-full max-w-full object-contain transition-transform duration-300"
+                      style={{ transform: `rotate(${imageRotation}deg)` }}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-1 text-center sm:text-left">
+                    <div className="flex items-center justify-center sm:justify-start gap-2">
+                      <span className="text-xs font-bold text-amber-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Foto Acquisita & Analizzata
+                      </span>
+                      <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700">
+                        {uploadedPdfName || 'foto-bolla.jpg'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      I dati estratti sono stati inseriti automaticamente nei campi sottostanti. Puoi verificare e modificare qualsiasi valore.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setImageRotation(prev => (prev + 90) % 360);
+                      }}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-700 transition-colors"
+                      title="Ruota l'immagine di 90 gradi"
+                    >
+                      <RotateCw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Ruota ({imageRotation}°)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUploadedPdfDataUrl(null);
+                        setUploadedPdfName(null);
+                      }}
+                      className="p-2 bg-slate-800 hover:bg-red-900/50 hover:text-red-400 text-slate-400 rounded-xl transition-colors border border-slate-700"
+                      title="Rimuovi foto"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               )}
 
