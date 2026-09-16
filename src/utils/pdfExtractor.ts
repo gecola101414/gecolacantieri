@@ -277,7 +277,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
   // Line-by-line scanning using spatial lines
   const lines = rawText.split('\n');
   const lineRegex = new RegExp(
-    '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9]{4,15})\\s+)?([A-Za-z0-9\\s\\.\\/\\,\\-\\+\\%\\*\\x]{3,75}?)\\s+\\b(' +
+    '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+\\b(' +
     validUnits +
     ')\\b\\s+([0-9]+(?:[.,][0-9]{1,4})?)\\s+([0-9]+(?:[.,][0-9]{1,4})?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]{1,2})?))?',
     'i'
@@ -342,7 +342,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
   // Fallback: Layout 2 regex on whole text if line scanning matched nothing
   if (items.length === 0) {
     const layout2Regex = new RegExp(
-      '([A-Za-z0-9\\s\\.\\/\\,\\-]{3,50}?)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*\\b(' +
+      '(.{3,90}?)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*\\b(' +
       validUnits +
       ')\\b(?:\\s*€?\\s*([0-9]+(?:[.,][0-9]+)?))?',
       'gi'

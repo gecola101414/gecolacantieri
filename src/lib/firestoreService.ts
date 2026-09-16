@@ -427,9 +427,9 @@ export const firestoreService = {
       const data = snap.data();
       if (data.used) return null;
 
-      // Allow 15 minutes grace period to prevent device clock skew issues
+      // Relaxed time check for clock skew (allow 24h grace period)
       const expTime = new Date(data.expiresAt).getTime();
-      if (Date.now() > expTime + 5 * 60 * 1000) return null;
+      if (Date.now() > expTime + 24 * 60 * 60 * 1000) return null;
 
       // Mark used in root
       await updateDoc(doc(db, 'transferCodes', cleanCode), { used: true });
@@ -505,7 +505,8 @@ export const firestoreService = {
       const docSnap = await getDoc(doc(db, 'pairingCodes', code));
       if (!docSnap.exists()) return null;
       const data = docSnap.data();
-      if (new Date(data.expiresAt) < new Date()) {
+      const expTime = new Date(data.expiresAt).getTime();
+      if (Date.now() > expTime + 24 * 60 * 60 * 1000) {
         await deleteDoc(doc(db, 'pairingCodes', code));
         return null;
       }

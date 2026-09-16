@@ -201,7 +201,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         const codeData = await firestoreService.getTransferCode(company.id, codeStr);
         if (codeData && !codeData.used) {
           const expiresAt = new Date(codeData.expiresAt).getTime();
-          if (Date.now() <= expiresAt + 5 * 60 * 1000) {
+          if (Date.now() <= expiresAt + 24 * 60 * 60 * 1000) {
             if (selectedUser && codeData.userId !== selectedUser.id) {
               setLoginError('Questo codice non appartiene all\'utente selezionato.');
               setIsLoading(false);
