@@ -6,55 +6,53 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+export const app = express();
 
-  // Support high payload size for high-res photo uploads (photos from smartphones can be 5-15MB base64)
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Support high payload size for high-res photo uploads (photos from smartphones can be 5-15MB base64)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Shared Gemini client lazy initializer
-  let aiClient: GoogleGenAI | null = null;
-  function getGeminiClient(): GoogleGenAI {
-    if (!aiClient) {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error('GEMINI_API_KEY non configurata sul server.');
-      }
-      aiClient = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
-        },
-      });
+// Shared Gemini client lazy initializer
+let aiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY non configurata sul server.');
     }
-    return aiClient;
-  }
-
-  // Health endpoint
-  app.get('/api/health', (req, res) => {
-    res.json({
-      status: 'ok',
-      geminiConfigured: !!process.env.GEMINI_API_KEY,
-      timestamp: new Date().toISOString(),
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
     });
+  }
+  return aiClient;
+}
+
+// Health endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    timestamp: new Date().toISOString(),
   });
+});
 
-  // AI Multimodal OCR & Document Extraction for Bolle, DDT and Fatture
-  app.post('/api/analyze-bolla', async (req, res) => {
-    try {
-      const { imageBase64, mimeType = 'image/jpeg', text, fileName = 'documento' } = req.body;
+// AI Multimodal OCR & Document Extraction for Bolle, DDT and Fatture
+app.post('/api/analyze-bolla', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', text, fileName = 'documento' } = req.body;
 
-      if (!imageBase64 && !text) {
-        return res.status(400).json({ error: 'Nessuna immagine o testo fornito.' });
-      }
+    if (!imageBase64 && !text) {
+      return res.status(400).json({ error: 'Nessuna immagine o testo fornito.' });
+    }
 
-      const ai = getGeminiClient();
+    const ai = getGeminiClient();
 
-      const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
+    const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
 Il tuo compito è analizzare il testo estratto da un documento PDF (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
 
 REGOLE TASSATIVE PER L'ANALISI PDF MULTI-PAGINA:
@@ -89,84 +87,88 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
   "notes": "Eventuali annotazioni aggiuntive"
 }`;
 
-      let response;
+    let response;
 
-      if (imageBase64) {
-        // Strip data:image/...;base64, prefix if present
-        const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+    if (imageBase64) {
+      // Strip data:image/...;base64, prefix if present
+      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
 
-        response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents: {
-            parts: [
-              {
-                inlineData: {
-                  mimeType,
-                  data: cleanBase64,
-                },
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: cleanBase64,
               },
-              {
-                text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza il documento ed estrai il JSON completo.`,
-              },
-            ],
-          },
-          config: {
-            responseMimeType: 'application/json',
-            maxOutputTokens: 8192,
-          },
-        });
-      } else {
-        response = await ai.models.generateContent({
-          model: 'gemini-3.6-flash',
-          contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT/Fattura PDF:\n\n${text}`,
-          config: {
-            responseMimeType: 'application/json',
-            maxOutputTokens: 8192,
-          },
-        });
-      }
-
-      const responseText = response.text?.trim() || '{}';
-      const parsedData = JSON.parse(responseText);
-
-      // Force items to have net totalPrice as primary ground truth, and calculate net unitPrice as ratio
-      if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
-        let totalItemsSum = 0;
-        parsedData.items = parsedData.items.map((it: any) => {
-          const qty = Number(it.quantity) || 1;
-          let lineTot = Number(it.totalPrice) || 0;
-          if (lineTot <= 0 && Number(it.unitPrice) > 0) {
-            lineTot = qty * Number(it.unitPrice);
-          }
-          lineTot = parseFloat(lineTot.toFixed(2));
-          totalItemsSum += lineTot;
-          const netUnitPrice = qty > 0 ? parseFloat((lineTot / qty).toFixed(4)) : (Number(it.unitPrice) || 0);
-          return {
-            ...it,
-            quantity: qty,
-            unitPrice: netUnitPrice,
-            totalPrice: lineTot,
-          };
-        });
-
-        if (totalItemsSum > 0) {
-          parsedData.totalAmount = parseFloat(totalItemsSum.toFixed(2));
-          parsedData.imponibile = parseFloat(totalItemsSum.toFixed(2));
-        }
-      }
-
-      return res.json({
-        success: true,
-        data: parsedData,
+            },
+            {
+              text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza il documento ed estrai il JSON completo.`,
+            },
+          ],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 8192,
+        },
       });
-    } catch (err: any) {
-      console.error('API /api/analyze-bolla error:', err);
-      return res.status(500).json({
-        success: false,
-        error: err.message || 'Errore durante l\'analisi con intelligenza artificiale.',
+    } else {
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
+        contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT/Fattura PDF:\n\n${text}`,
+        config: {
+          responseMimeType: 'application/json',
+          maxOutputTokens: 8192,
+        },
       });
     }
-  });
+
+    const responseText = response.text?.trim() || '{}';
+    const parsedData = JSON.parse(responseText);
+
+    // Force items to have net totalPrice as primary ground truth, and calculate net unitPrice as ratio
+    if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
+      let totalItemsSum = 0;
+      parsedData.items = parsedData.items.map((it: any) => {
+        const qty = Number(it.quantity) || 1;
+        let lineTot = Number(it.totalPrice) || 0;
+        if (lineTot <= 0 && Number(it.unitPrice) > 0) {
+          lineTot = qty * Number(it.unitPrice);
+        }
+        lineTot = parseFloat(lineTot.toFixed(2));
+        totalItemsSum += lineTot;
+        const netUnitPrice = qty > 0 ? parseFloat((lineTot / qty).toFixed(4)) : (Number(it.unitPrice) || 0);
+        return {
+          ...it,
+          quantity: qty,
+          unitPrice: netUnitPrice,
+          totalPrice: lineTot,
+        };
+      });
+
+      if (totalItemsSum > 0) {
+        parsedData.totalAmount = parseFloat(totalItemsSum.toFixed(2));
+        parsedData.imponibile = parseFloat(totalItemsSum.toFixed(2));
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: parsedData,
+    });
+  } catch (err: any) {
+    console.error('API /api/analyze-bolla error:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Errore durante l\'analisi con intelligenza artificiale.',
+    });
+  }
+});
+
+// Standalone server launcher (Cloud Run / Local Dev)
+async function startServer() {
+  const PORT = 3000;
 
   // Vite middleware setup (development) vs Static files (production)
   if (process.env.NODE_ENV !== 'production') {
@@ -188,7 +190,9 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
   });
 }
 
-startServer().catch(err => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+if (!process.env.VERCEL && !process.env.VERCEL_ENV) {
+  startServer().catch(err => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}

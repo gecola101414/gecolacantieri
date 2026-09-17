@@ -746,31 +746,20 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         )}
                       </td>
 
-                      {/* Itemized Materials / Breve Descrizione */}
+                      {/* Itemized Materials */}
                       <td className="px-6 py-4.5 max-w-sm">
-                        {doc.summaryDescription ? (
-                          <div className="space-y-1">
-                            <p className="text-xs text-slate-800 font-semibold line-clamp-2" title={doc.summaryDescription}>
-                              {doc.summaryDescription}
+                        <div className="space-y-1">
+                          {doc.items.slice(0, 3).map((item, idx) => (
+                            <p key={idx} className="text-xs text-slate-700 font-medium truncate">
+                              <span className="font-bold text-slate-900">{item.quantity} {item.unit || 'pz'}</span> - {item.materialeName}
                             </p>
-                            <p className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
-                              <span>{doc.items.length} voci materiali</span>
+                          ))}
+                          {doc.items.length > 3 && (
+                            <p className="text-[10px] text-amber-600 font-bold">
+                              + altri {doc.items.length - 3} materiali...
                             </p>
-                          </div>
-                        ) : (
-                          <div className="space-y-1">
-                            {doc.items.slice(0, 2).map((item, idx) => (
-                              <p key={idx} className="text-xs text-slate-700 font-medium truncate">
-                                <span className="font-bold text-slate-900">{item.quantity} {item.unit}</span> - {item.materialeName}
-                              </p>
-                            ))}
-                            {doc.items.length > 2 && (
-                              <p className="text-[10px] text-amber-600 font-bold">
-                                + altri {doc.items.length - 2} materiali...
-                              </p>
-                            )}
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
 
                       {/* Total Amount */}
@@ -1025,23 +1014,6 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
               </div>
 
-              {/* Breve Descrizione Riassuntiva dei Materiali */}
-              <div className="space-y-1.5 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Breve Descrizione Riassuntiva dei Materiali
-                  </label>
-                  <span className="text-[10px] text-slate-400">Generata automaticamente o modificabile</span>
-                </div>
-                <input
-                  type="text"
-                  value={docForm.summaryDescription || ''}
-                  onChange={e => setDocForm({ ...docForm, summaryDescription: e.target.value })}
-                  placeholder="Es. CEMENTO 32,5R 25kg (10 nr), SABBIA FINE LAVATA 0/2 (8 ql), GRANIGLIA 8-16 (7 ql)..."
-                  className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
-                />
-              </div>
-
               {/* Master Destination / Spacchettamento Controls */}
               <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1098,9 +1070,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
                     return (
                       <div key={idx} className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                        {/* Material Name / Description */}
+                        {/* 1. Descrizione Materiale */}
                         <div className="md:col-span-3 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Materiale / Descrizione</label>
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">1. Descrizione</label>
                           <input
                             type="text"
                             required
@@ -1115,45 +1087,57 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           />
                         </div>
 
-                        {/* Quantity & Unit */}
+                        {/* 2. Unità di Misura (U.M.) */}
+                        <div className="md:col-span-1 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">2. U.M.</label>
+                          <input
+                            type="text"
+                            placeholder="U.M."
+                            value={item.unit}
+                            onChange={e => {
+                              const updated = [...docForm.items];
+                              updated[idx].unit = e.target.value;
+                              setDocForm({ ...docForm, items: updated });
+                            }}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-xs font-bold outline-none text-center"
+                          />
+                        </div>
+
+                        {/* 3. Quantità */}
                         <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Quantità</label>
-                          <div className="flex gap-1.5">
-                            <input
-                              type="number"
-                              step="0.01"
-                              required
-                              value={item.quantity}
-                              onChange={e => {
-                                const updated = [...docForm.items];
-                                const newQty = parseFloat(e.target.value) || 0;
-                                updated[idx].quantity = newQty;
-                                if (updated[idx].totalPrice > 0 && newQty > 0) {
-                                  updated[idx].unitPrice = parseFloat((updated[idx].totalPrice / newQty).toFixed(4));
-                                } else if (updated[idx].unitPrice > 0) {
-                                  updated[idx].totalPrice = parseFloat((newQty * updated[idx].unitPrice).toFixed(2));
-                                }
-                                setDocForm({ ...docForm, items: updated });
-                              }}
-                              className="w-2/3 bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-center"
-                            />
-                            <input
-                              type="text"
-                              placeholder="U.M."
-                              value={item.unit}
-                              onChange={e => {
-                                const updated = [...docForm.items];
-                                updated[idx].unit = e.target.value;
-                                setDocForm({ ...docForm, items: updated });
-                              }}
-                              className="w-1/3 bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-[11px] font-bold outline-none text-center"
-                            />
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">3. Quantità</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            required
+                            value={item.quantity}
+                            onChange={e => {
+                              const updated = [...docForm.items];
+                              const newQty = parseFloat(e.target.value) || 0;
+                              updated[idx].quantity = newQty;
+                              if (updated[idx].totalPrice > 0 && newQty > 0) {
+                                updated[idx].unitPrice = parseFloat((updated[idx].totalPrice / newQty).toFixed(4));
+                              } else if (updated[idx].unitPrice > 0) {
+                                updated[idx].totalPrice = parseFloat((newQty * updated[idx].unitPrice).toFixed(2));
+                              }
+                              setDocForm({ ...docForm, items: updated });
+                            }}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-center"
+                          />
+                        </div>
+
+                        {/* 4. Prezzo Unitario Calcolato (€) */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-500 uppercase">4. Prezzo Unit. Calcolato</label>
+                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-2 text-xs font-black text-slate-800 text-right">
+                            €{derivedUnitPrice.toFixed(2)}
+                            <span className="text-[8px] font-normal text-slate-400 block text-right">Tot / Q.tà</span>
                           </div>
                         </div>
 
-                        {/* Totale Netto Riga (€) - Primary Value */}
+                        {/* 5. Prezzo Totale Rilevato (€) */}
                         <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-600 uppercase">Totale Riga (€) *</label>
+                          <label className="text-[9px] font-bold text-amber-700 uppercase">5. Totale Rilevato (€) *</label>
                           <input
                             type="number"
                             step="0.01"
@@ -1166,22 +1150,13 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                               updated[idx].unitPrice = updated[idx].quantity > 0 ? parseFloat((newTot / updated[idx].quantity).toFixed(4)) : 0;
                               setDocForm({ ...docForm, items: updated });
                             }}
-                            className="w-full bg-amber-50/60 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 outline-none text-right"
+                            className="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 outline-none text-right"
                           />
                         </div>
 
-                        {/* Prezzo Unitario Netto (€) - Derived Ratio */}
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Unit. Netto (€)</label>
-                          <div className="bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 text-right">
-                            €{derivedUnitPrice.toFixed(2)}
-                            <span className="text-[9px] font-normal text-slate-400 block text-right">Tot / Q.tà</span>
-                          </div>
-                        </div>
-
-                        {/* Destination for this specific line */}
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Destinazione</label>
+                        {/* 6. Destinazione */}
+                        <div className="md:col-span-1 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase truncate block">6. Dest.</label>
                           <select
                             value={item.destinationCantiereId}
                             onChange={e => {
@@ -1189,9 +1164,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                               updated[idx].destinationCantiereId = e.target.value;
                               setDocForm({ ...docForm, items: updated });
                             }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold outline-none truncate"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-1 py-2 text-xs font-bold outline-none truncate"
                           >
-                            <option value="centrale">Magazzino</option>
+                            <option value="centrale">Mag.</option>
                             {cantieri.map(c => (
                               <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
@@ -1351,18 +1326,6 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               </button>
             </div>
 
-            {/* Breve Descrizione Riassuntiva dei Materiali */}
-            {(selectedDocDetails.summaryDescription || selectedDocDetails.items.length > 0) && (
-              <div className="bg-amber-50/70 border border-amber-200 p-4 sm:p-5 rounded-3xl space-y-1.5">
-                <p className="text-[10px] font-bold text-amber-800 uppercase tracking-widest flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-600" /> Breve Descrizione Riassuntiva dei Materiali
-                </p>
-                <p className="text-xs sm:text-sm text-slate-800 font-semibold leading-relaxed">
-                  {selectedDocDetails.summaryDescription || selectedDocDetails.items.map(i => `${i.materialeName} (${i.quantity} ${i.unit})`).join(', ')}
-                </p>
-              </div>
-            )}
-
             {/* Note per il Capocantiere */}
             {selectedDocDetails.acceptanceNote && (
               <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl space-y-1">
@@ -1383,11 +1346,12 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase">
                     <tr>
-                      <th className="px-4 py-3">Materiale</th>
-                      <th className="px-4 py-3">Quantità</th>
-                      <th className="px-4 py-3 text-right">Prezzo Unit. Netto</th>
+                      <th className="px-4 py-3">Descrizione Materiale</th>
+                      <th className="px-4 py-3 text-center">U.M.</th>
+                      <th className="px-4 py-3 text-center">Quantità</th>
+                      <th className="px-4 py-3 text-right">Prezzo Unit. Calcolato</th>
+                      <th className="px-4 py-3 text-right">Prezzo Totale Rilevato</th>
                       <th className="px-4 py-3">Destinazione</th>
-                      <th className="px-4 py-3 text-right">Totale Riga (Netto)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1401,18 +1365,19 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 font-bold text-slate-900">{item.materialeName}</td>
-                          <td className="px-4 py-3 font-semibold">{item.quantity} {item.unit}</td>
+                          <td className="px-4 py-3 text-center font-bold text-slate-500">{item.unit || 'pz'}</td>
+                          <td className="px-4 py-3 text-center font-bold text-slate-900">{item.quantity}</td>
                           <td className="px-4 py-3 text-right font-semibold text-slate-600">
                             €{unitNetPrice.toFixed(2)} / {item.unit || 'pz'}
+                          </td>
+                          <td className="px-4 py-3 font-black text-amber-700 text-right">
+                            €{rowTot.toFixed(2)}
                           </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 font-bold text-[10px] text-slate-700">
                               <Building2 className="w-3 h-3 text-amber-500" />
                               {item.destinationCantiereId === 'centrale' ? 'Magazzino' : cDest?.name || 'Cantiere'}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 font-black text-slate-900 text-right">
-                            €{rowTot.toFixed(2)}
                           </td>
                         </tr>
                       );
