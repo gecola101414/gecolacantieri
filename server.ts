@@ -55,14 +55,14 @@ async function startServer() {
       const ai = getGeminiClient();
 
       const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
-Il tuo compito è analizzare questa foto, scansione o documento di trasporto (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
+Il tuo compito è analizzare il testo estratto da un documento PDF (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
 
-ATTENZIONE FOTO DA SMARTPHONE / CANTIERE:
-- L'immagine potrebbe essere ruotata di 90° o 180°, oppure fotografata con ombre, riflessi o pieghe della carta.
-- Leggi attentamente tutte le sezioni: Intestazione fornitore (Cedente), Destinatario (Cessionario), Luogo di Destinazione / Cantiere di consegna, Numero e Data del DDT, Tabella articoli/materiali e Totale a piè di pagina.
-- ESTRAI IL TOTALE UFFICIALE: prendi il Totale Documento / Totale Merce / Totale DDT presente sulla bolla senza forzature o ricalcoli arbitrari. Se è visibile la somma delle righe o l'imponibile, riportali con precisione.
-- ESTRAI LA LISTA COMPLETA DEI MATERIALI: per ciascuna riga, estrai il nome preciso, quantità, unità di misura (es. ql, nr, m2, mc, kg, sacchi), prezzo unitario, sconti applicati se presenti, e l'importo totale della riga.
-- CREA UNA BREVE DESCRIZIONE RIASSUNTIVA: una frase sintetica ma completa con i materiali principali e le quantità (es: "SABBIA FINE LAVATA 0/2 (16 ql), CEMENTO 32,5R 25kg (10 nr), INTOPREM N2X kg 25 (1 nr), CENUPREM FINO KG 25 (1 nr)").
+REGOLE TASSATIVE PER L'ANALISI PDF MULTI-PAGINA:
+1. ESTRAI TUTTI GLI ARTICOLI / MATERIALI: Leggi attentamente tutte le pagine del documento. NON OMETTERE O SALTARE NESSUN ARTICOLO O RIGA, anche se il documento si sviluppa su 2, 3, 5 o più pagine con 50 o 100+ articoli. Includi ciascuna riga nel vettore "items".
+2. INTESTAZIONE E CANTIERI: Rileva con precisione il Fornitore (Cedente), Destinatario (Cessionario), Cantiere di consegna / Destinazione, Numero Documento e Data.
+3. TOTALE IVA ESCLUSA (IMPONIBILE): Calcola "totalAmount" e "imponibile" come ESATTAMENTE la somma degli importi totali di tutte le righe articoli estratte ("items").
+4. DETTAGLIO RIGHE: Per ciascuna riga estrai: codice articolo (se visibile), nome materiale completo, quantità, unità di misura (es: ql, nr, pz, m, kg, sacchi, m2, mc, set, rotoli), prezzo unitario e importo totale di riga.
+5. DESCRIZIONE RIASSUNTIVA: Genera una frase sintetica con i materiali principali ed i loro quantitativi.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
@@ -85,8 +85,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
       "totalPrice": 55.62
     }
   ],
-  "vettore": "Nome del vettore/autista o annotazioni di ritiro se visibili (es. MARIO, ritirato 10:00)",
-  "notes": "Eventuali annotazioni aggiuntive, causale trasporto, presenza firme"
+  "vettore": "Nome del vettore/autista o annotazioni di ritiro se visibili",
+  "notes": "Eventuali annotazioni aggiuntive"
 }`;
 
       let response;
@@ -106,26 +106,42 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
                 },
               },
               {
-                text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza l'immagine ed estrai il JSON.`,
+                text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza il documento ed estrai il JSON completo.`,
               },
             ],
           },
           config: {
             responseMimeType: 'application/json',
+            maxOutputTokens: 8192,
           },
         });
       } else {
         response = await ai.models.generateContent({
           model: 'gemini-3.6-flash',
-          contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT:\n\n${text}`,
+          contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT/Fattura PDF:\n\n${text}`,
           config: {
             responseMimeType: 'application/json',
+            maxOutputTokens: 8192,
           },
         });
       }
 
       const responseText = response.text?.trim() || '{}';
       const parsedData = JSON.parse(responseText);
+
+      // Force totalAmount and imponibile to be the exact sum of extracted items
+      if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
+        const calculatedSum = parsedData.items.reduce((s: number, it: any) => {
+          const qty = Number(it.quantity) || 1;
+          const price = Number(it.unitPrice) || 0;
+          const lineTot = typeof it.totalPrice === 'number' && it.totalPrice > 0 ? it.totalPrice : (qty * price);
+          return s + lineTot;
+        }, 0);
+        if (calculatedSum > 0) {
+          parsedData.totalAmount = parseFloat(calculatedSum.toFixed(2));
+          parsedData.imponibile = parseFloat(calculatedSum.toFixed(2));
+        }
+      }
 
       return res.json({
         success: true,

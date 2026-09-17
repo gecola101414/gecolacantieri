@@ -923,7 +923,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${d.type === 'bolla' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                   {d.type}
                                 </span>
-                                <span className="text-[9px] text-slate-400 font-bold">{d.date}</span>
+                                <span className="text-[9px] text-slate-400 font-bold">{formatItalianDate(d.date)}</span>
                               </div>
                               <p className="text-xs font-bold text-slate-900">{d.supplier}</p>
                               <div className="flex justify-between items-center mt-2">
@@ -966,7 +966,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <tbody className="divide-y divide-slate-50">
                           {movements.map(m => (
                             <tr key={m.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-8 py-4 text-xs font-medium text-slate-500">{m.date}</td>
+                              <td className="px-8 py-4 text-xs font-medium text-slate-500">{formatItalianDate(m.date)}</td>
                               <td className="px-8 py-4">
                                 <p className="text-sm font-bold text-slate-900">{m.materialeName}</p>
                                 <p className="text-[10px] text-slate-400 italic">
@@ -1838,7 +1838,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
                                 {doc.type.toUpperCase()} N. {doc.number}
                               </span>
-                              <span className="text-[10px] text-slate-400 font-medium">{doc.date}</span>
+                              <span className="text-[10px] text-slate-400 font-medium">{formatItalianDate(doc.date)}</span>
                             </div>
                             <p className="text-xs font-bold text-slate-900 mt-1">{doc.supplier}</p>
                             <p className="text-[10px] text-slate-500">
@@ -2637,7 +2637,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         photoUrl={adminLightboxPhoto}
         onClose={() => setAdminLightboxPhoto(null)}
         title={`Foto Rapportino - ${cantieri.find(c => c.id === selectedRapportino?.cantiereId)?.name || 'Cantiere'}`}
-        subtitle={`Data: ${selectedRapportino?.date || ''} • Inviato da ${users.find(u => u.id === selectedRapportino?.userId)?.name || 'Operatore'}`}
+        subtitle={`Data: ${formatItalianDate(selectedRapportino?.date)} • Inviato da ${users.find(u => u.id === selectedRapportino?.userId)?.name || 'Operatore'}`}
       />
     </div>
   );

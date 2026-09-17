@@ -270,34 +270,67 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
   }
 
   // 7. Detect Material Items / Line Rows ("Spacchettamento")
-  // Recognizes Italian construction measurement units: QL, Q.LI, Q, NR, PZ, KG, ML, MT, M, MC, M3, M2, MQ, LT, SACCHI, BANCALI
-  const validUnits = 'KG|NR|PZ|ML|MC|M3|M2|MQ|LT|L|QL|Q\\.?LI|Q|SACCHI|BANCALI|MT|M';
+  // Recognizes Italian construction measurement units: QL, Q.LI, Q, NR, PZ, KG, ML, MT, M, MC, M3, M2, MQ, LT, SACCHI, BANCALI, SET, ROTOLI, CONF, CF, PA, etc.
+  const validUnits = 'KG|NR|PZ|ML|MC|M3|M2|MQ|LT|L|QL|Q\\.?LI|Q|SACCHI|BANCALI|MT|M|SET|ROTOLI|ROT|CONF|CF|PA|PZ\\.|NR\\.|MQ\\.|MC\\.';
   const items: ExtractedDocumentData['items'] = [];
 
   // Line-by-line scanning using spatial lines
   const lines = rawText.split('\n');
-  const lineRegex = new RegExp(
+
+  // Pattern 1: [Optional Item Code] [Description] [Unit] [Qty] [Price] [Optional Discount] [Optional Total] [Optional VAT]
+  const lineRegex1 = new RegExp(
     '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+\\b(' +
     validUnits +
     ')\\b\\s+([0-9]+(?:[.,][0-9]{1,4})?)\\s+([0-9]+(?:[.,][0-9]{1,4})?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]{1,2})?))?',
     'i'
   );
 
+  // Pattern 2: [Optional Item Code] [Description] [Qty] [Unit] [Price] [Optional Discount] [Optional Total]
+  const lineRegex2 = new RegExp(
+    '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+([0-9]+(?:[.,][0-9]{1,4})?)\\s+\\b(' +
+    validUnits +
+    ')\\b\\s+([0-9]+(?:[.,][0-9]{1,4})?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]{1,2})?))?',
+    'i'
+  );
+
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (/^(totale|iva|imponibile|descrizione|quantita|natura|articolo|prezzo|condizioni|causale|trasporto|vettore)/i.test(trimmed)) continue;
+    if (/^(totale|iva|imponibile|descrizione|quantita|natura|articolo|prezzo|condizioni|causale|trasporto|vettore|spett|pag\\.|tipo|destinazione|indirizzo)/i.test(trimmed)) continue;
 
-    const m = trimmed.match(lineRegex);
+    let m = trimmed.match(lineRegex1);
+    let isPattern1 = true;
+    if (!m) {
+      m = trimmed.match(lineRegex2);
+      isPattern1 = false;
+    }
     if (!m) continue;
 
-    const code = m[2];
-    let desc = m[3].trim().replace(/\s+/g, ' ');
-    const unit = m[4].toLowerCase();
-    const qty = parseItalianNumber(m[5]);
-    const listPrice = parseItalianNumber(m[6]);
-    const col7 = m[7]; // Discount (e.g. -28) OR row total (e.g. 100,80)
-    const col8 = m[8]; // Row total (e.g. 68,04) OR IVA rate (e.g. 22)
+    let code: string | undefined;
+    let desc: string;
+    let unit: string;
+    let qty: number;
+    let listPrice: number;
+    let col7: string | undefined;
+    let col8: string | undefined;
+
+    if (isPattern1) {
+      code = m[2];
+      desc = m[3].trim().replace(/\s+/g, ' ');
+      unit = m[4].toLowerCase();
+      qty = parseItalianNumber(m[5]);
+      listPrice = parseItalianNumber(m[6]);
+      col7 = m[7];
+      col8 = m[8];
+    } else {
+      code = m[2];
+      desc = m[3].trim().replace(/\s+/g, ' ');
+      qty = parseItalianNumber(m[4]);
+      unit = m[5].toLowerCase();
+      listPrice = parseItalianNumber(m[6]);
+      col7 = m[7];
+      col8 = m[8];
+    }
 
     // Clean description: remove order refs like "Rif. BCV 14330 del 15.09.25"
     desc = desc.replace(/^.*?(?:del\s+[0-9]{2}[\.\/][0-9]{2}[\.\/][0-9]{2,4}\s*)/i, '').trim();
@@ -335,8 +368,6 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
         totalPrice: rowImporto,
       });
     }
-
-    if (items.length >= 35) break;
   }
 
   // Fallback: Layout 2 regex on whole text if line scanning matched nothing
@@ -371,8 +402,6 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
           totalPrice: tot,
         });
       }
-
-      if (items.length >= 15) break;
     }
   }
 
@@ -410,9 +439,9 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
   // Calculate sum of extracted items
   const itemsSum = parseFloat(items.reduce((acc, it) => acc + (it.totalPrice || it.quantity * it.unitPrice), 0).toFixed(2));
 
-  // In accord with user requirement:
-  // Use explicit printed total from the document if available; otherwise use the calculated sum of row totals
-  let totalAmount = printedDocumentTotal > 0 ? printedDocumentTotal : itemsSum;
+  // The value excl. VAT (imponibile / totale) must strictly be calculated by summing the detected line items
+  let totalAmount = itemsSum > 0 ? itemsSum : (printedDocumentTotal > 0 ? printedDocumentTotal : 0);
+  let finalImponibile = itemsSum > 0 ? itemsSum : (imponibile > 0 ? imponibile : printedDocumentTotal);
 
   // Generate a short, informative summary description of the materials
   const summaryDescription = items.map(it => `${it.materialeName} (${it.quantity} ${it.unit})`).join(', ');
@@ -424,10 +453,10 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     supplier,
     destinationCantiere,
     totalAmount,
-    imponibile: imponibile || itemsSum,
+    imponibile: finalImponibile,
     printedDocumentTotal: printedDocumentTotal > 0 ? printedDocumentTotal : undefined,
     summaryDescription,
-    rawText: rawText.slice(0, 3000),
+    rawText: rawText,
     items,
     confidence: {
       supplier: supplier !== 'Fornitore Materiali',
