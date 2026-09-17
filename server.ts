@@ -56,19 +56,21 @@ app.post('/api/analyze-bolla', async (req, res) => {
 Il tuo compito è analizzare il testo o l'immagine di un documento (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
 
 REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
-1. RILEVAZIONE DI OGNI COLONNA DI RIGA (ESTRAI SOLTANTO I DATI DIRETTI RILEVATI DALLA BOLLA/FATTURA, SENZA FARE NESSUNA OPERAZIONE NÉ DI SOMMA NÉ DI MOLTIPLICAZIONE):
-   - "code": Codice articolo se presente sul documento (es. "EEDSABBIA02").
-   - "materialeName": Descrizione completa del materiale.
-   - "unit": Unità di misura (es. "ql", "mc", "pz", "kg", "m").
-   - "quantity": Quantità riportata sul documento.
-   - "unitPrice": Prezzo unitario riportato sulla colonna del documento.
-   - "discount": Eventuale sconto / sconti di riga (es. "10%", "5%+3%", "15" o "" se assente).
-   - "totalPrice": L'IMPORTO TOTALE NETTO DI RIGA situato A DESTRA NELL'ULTIMA COLONNA PRIMA DELL'IVA.
-   ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori rilevati nelle colonne del documento.
+1. RILEVAZIONE DELLE COLONNE DI RIGA (ESTRAI SOLTANTO I DATI DIRETTI RILEVATI DALLA BOLLA/FATTURA, SENZA FARE NESSUNA OPERAZIONE NÉ DI SOMMA NÉ DI MOLTIPLICAZIONE):
+   - "code": CODICE / ITEMCODE articolo se presente sul documento (es. "EEDSABBIA02").
+   - "materialeName": DESCRIZIONE / DESCRIPTION completa del materiale.
+   - "unit": U.M. / UNIT di misura (es. "ql", "mc", "pz", "kg", "m").
+   - "quantity": QUANTITA' / QUANTITY riportata sul documento.
+   - "unitPrice": PREZZO / PRICE unitario riportato sulla colonna del documento.
+   - "discount": SCONTO / DISCOUNT di riga (es. "10%", "5%+3%", "15" o "" se assente).
+   - "totalPrice": IMP. NETTO / NET AMOUNT (l'importo totale netto di riga situato nell'ultima colonna prima dell'IVA).
+   - "vatRate": IVA / VAT (aliquota o importo IVA di riga es. "22%", "10%", "0%").
 
-2. TOTALE GENERALE DEL DOCUMENTO (TOTALE SENZA IVA / IMPONIBILE):
-   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (Totale Imponibile / Totale Netto) RILEVATO DALLA BOLLA O FATTURA (solitamente nel piè di pagina o nel riepilogo totali del documento).
-   - NON fare operazioni di somma delle righe per calcolare il totale. Il totale del documento dev'essere quello nativo riportato sulla bolla/fattura senza IVA.
+   ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori scritti nelle colonne del documento.
+
+2. TOTALE GENERALE DEL DOCUMENTO (TOTALE IMPONIBILE / TAX BASE / SENZA IVA):
+   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (come riportato nel riquadro 'TOTALE IMPONIBILE - TAX BASE', 'TOTALE SENZA IVA' o 'TAX FREE' in calce al documento, es. EUR 3.427,07).
+   - NON fare MAI operazioni di somma delle righe per calcolare il totale. Il totale del documento dev'essere esattamente quello stampato nel box del totale imponibile / senza IVA del documento.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
@@ -77,8 +79,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
   "number": "Numero documento",
   "date": "YYYY-MM-DD",
   "destinationCantiere": "Cantiere o indirizzo di destinazione",
-  "totalAmount": 132.08,
-  "imponibile": 132.08,
+  "totalAmount": 3427.07,
+  "imponibile": 3427.07,
   "summaryDescription": "Sintesi materiali",
   "items": [
     {
@@ -88,7 +90,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
       "unit": "ql",
       "unitPrice": 3.48,
       "discount": "10%",
-      "totalPrice": 55.62
+      "totalPrice": 55.62,
+      "vatRate": "22%"
     }
   ],
   "vettore": "Nome del vettore se visibile",

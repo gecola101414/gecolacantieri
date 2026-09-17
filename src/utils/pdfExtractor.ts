@@ -29,6 +29,7 @@ export interface ExtractedDocumentData {
     unitPrice: number;
     discount?: string;
     totalPrice: number;
+    vatRate?: string;
   }[];
   confidence: {
     supplier: boolean;

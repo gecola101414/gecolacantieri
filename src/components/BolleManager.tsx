@@ -80,6 +80,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       unitPrice: number;
       discount?: string;
       totalPrice: number;
+      vatRate?: string;
       destinationCantiereId: string;
     }[];
   }>({
@@ -101,6 +102,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         unitPrice: 95,
         discount: '',
         totalPrice: 950,
+        vatRate: '22%',
         destinationCantiereId: cantieri[0]?.id || 'centrale',
       }
     ],
@@ -129,7 +131,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       }
     }
 
-    // Map extracted items preserving all columns (observing Master Rule: direct reporting, no item math calculations)
+    // Map extracted items preserving all 8 columns (observing Master Rule: direct reporting, no item math calculations)
     const mappedItems = parsed.items.map((item, idx) => {
       const found = materiali.find(m => 
         m.name.toLowerCase().includes(item.materialeName.toLowerCase()) || 
@@ -140,6 +142,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       const uPrice = Number(item.unitPrice) || 0;
       const disc = item.discount ? String(item.discount).trim() : '';
       const tPrice = Number(item.totalPrice) || 0;
+      const vat = item.vatRate ? String(item.vatRate).trim() : '22%';
 
       return {
         code: item.code || '',
@@ -150,6 +153,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         unitPrice: uPrice,
         discount: disc,
         totalPrice: tPrice,
+        vatRate: vat,
         destinationCantiereId: matchedDestinationId,
       };
     });
@@ -375,6 +379,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           const uPrice = Number(item.unitPrice) || 0;
           const disc = item.discount ? String(item.discount).trim() : '';
           const tot = Number(item.totalPrice) || 0;
+          const vat = item.vatRate ? String(item.vatRate).trim() : '';
           return {
             code: item.code || '',
             materialeId: item.materialeId || `mat-${Date.now()}`,
@@ -384,6 +389,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             unitPrice: uPrice,
             discount: disc,
             totalPrice: tot,
+            vatRate: vat,
             destinationCantiereId: item.destinationCantiereId,
             status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
           };
@@ -1176,7 +1182,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
                         {/* 7. Totale Netto Riga (€) */}
                         <div className="md:col-span-1.5 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-700 uppercase text-right block">Tot. Riga (€)</label>
+                          <label className="text-[9px] font-bold text-amber-700 uppercase text-right block">Imp. Netto (€)</label>
                           <input
                             type="number"
                             step="any"
@@ -1190,7 +1196,23 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           />
                         </div>
 
-                        {/* 8. Destinazione */}
+                        {/* 8. Aliquota IVA (%) */}
+                        <div className="md:col-span-1 space-y-1">
+                          <label className="text-[9px] font-bold text-purple-600 uppercase text-center block">IVA</label>
+                          <input
+                            type="text"
+                            placeholder="22%"
+                            value={item.vatRate || ''}
+                            onChange={e => {
+                              const updated = [...docForm.items];
+                              updated[idx].vatRate = e.target.value;
+                              setDocForm({ ...docForm, items: updated });
+                            }}
+                            className="w-full bg-purple-50 border border-purple-200 rounded-xl px-1 py-1.5 text-xs font-bold text-purple-800 text-center outline-none focus:border-purple-500"
+                          />
+                        </div>
+
+                        {/* 9. Destinazione */}
                         <div className="md:col-span-1 space-y-1">
                           <label className="text-[9px] font-bold text-slate-400 uppercase truncate block">Dest.</label>
                           <select
@@ -1389,7 +1411,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       <th className="px-3 py-3 text-center">Q.tà</th>
                       <th className="px-3 py-3 text-right">Pr. Unit. (€)</th>
                       <th className="px-3 py-3 text-center">Sconto</th>
-                      <th className="px-3 py-3 text-right">Totale Netto (€)</th>
+                      <th className="px-3 py-3 text-right">Imp. Netto (€)</th>
+                      <th className="px-3 py-3 text-center">IVA</th>
                       <th className="px-3 py-3">Destinazione</th>
                     </tr>
                   </thead>
@@ -1419,6 +1442,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           </td>
                           <td className="px-3 py-3 font-black text-amber-700 text-right">
                             €{rowTot.toFixed(2)}
+                          </td>
+                          <td className="px-3 py-3 text-center font-bold text-purple-700">
+                            {item.vatRate || '-'}
                           </td>
                           <td className="px-3 py-3">
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 font-bold text-[10px] text-slate-700">
