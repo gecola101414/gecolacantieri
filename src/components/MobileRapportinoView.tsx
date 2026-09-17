@@ -292,7 +292,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (isNonLavorato: boolean = false) => {
+  const handleSubmit = async (isNonLavoratoParam: boolean | React.SyntheticEvent = false) => {
+    const isNonLavorato = isNonLavoratoParam === true;
     if (!currentUser.active) {
       alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
       return;
@@ -1022,7 +1023,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                       </button>
                     ) : (
                       <button 
-                        onClick={handleSubmit}
+                        onClick={() => handleSubmit(false)}
                         disabled={isSubmitting}
                         className="flex-1 bg-amber-500 text-slate-950 font-bold py-4 rounded-2xl text-xs shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
                       >

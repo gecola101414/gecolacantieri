@@ -52,9 +52,13 @@ function sanitizeData<T>(data: T, visited = new WeakSet()): T {
       .filter(item => item !== undefined) as any;
   }
 
-  // If not a plain object (e.g. Blob, File, Element, Window), do not deep-recurse
-  if (data.constructor && data.constructor.name !== 'Object') {
-    return data;
+  // If not a plain object (e.g. custom class instances, events, etc.), omit it
+  const isPlainObject =
+    Object.prototype.toString.call(data) === '[object Object]' &&
+    (!data.constructor || data.constructor.name === 'Object' || data.constructor.name === undefined);
+
+  if (!isPlainObject) {
+    return undefined as any;
   }
 
   const result: any = {};
