@@ -995,22 +995,14 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
-                    Totale Bolla (IVA Esclusa) (€) *
+                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-1">
+                    Totale Bolla (Somma Importi Netti) (€)
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={(docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0) || docForm.parsedDocumentTotal || 0).toFixed(2)}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0;
-                      setDocForm({ ...docForm, parsedDocumentTotal: val, parsedImponibile: val });
-                    }}
-                    placeholder="Calculated from items"
-                    className="w-full bg-amber-50/50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 outline-none focus:border-amber-500"
-                  />
-                  <span className="text-[9px] text-amber-700 font-semibold block">Calcolato sommando le voci materiali rilevate</span>
+                  <div className="w-full bg-amber-50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 flex items-center justify-between">
+                    <span>€{(docForm.items.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' && i.totalPrice >= 0 ? i.totalPrice : i.quantity * i.unitPrice), 0) || docForm.parsedDocumentTotal || 0).toFixed(2)}</span>
+                    <span className="text-[9px] bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full font-bold">Dato Sacro non Modificabile</span>
+                  </div>
+                  <span className="text-[9px] text-amber-800 font-semibold block">Somma esatta degli Importi Netti estratti dalla bolla/fattura</span>
                 </div>
               </div>
 
@@ -1070,93 +1062,50 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
                     return (
                       <div key={idx} className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                        {/* 1. Descrizione Materiale */}
+                        {/* 1. Descrizione Materiale (Rilevata) */}
                         <div className="md:col-span-3 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">1. Descrizione</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Nome materiale"
-                            value={item.materialeName}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].materialeName = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
-                          />
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">1. Descrizione Materiale</label>
+                          <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 truncate" title={item.materialeName}>
+                            {item.materialeName || 'Materiale'}
+                          </div>
                         </div>
 
                         {/* 2. Unità di Misura (U.M.) */}
                         <div className="md:col-span-1 space-y-1">
                           <label className="text-[9px] font-bold text-slate-400 uppercase">2. U.M.</label>
-                          <input
-                            type="text"
-                            placeholder="U.M."
-                            value={item.unit}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].unit = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-xs font-bold outline-none text-center"
-                          />
+                          <div className="bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-xs font-bold text-slate-700 text-center">
+                            {item.unit || 'pz'}
+                          </div>
                         </div>
 
-                        {/* 3. Quantità */}
+                        {/* 3. Quantità Rilevata (Dato Reale) */}
                         <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">3. Quantità</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            required
-                            value={item.quantity}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              const newQty = parseFloat(e.target.value) || 0;
-                              updated[idx].quantity = newQty;
-                              if (updated[idx].totalPrice > 0 && newQty > 0) {
-                                updated[idx].unitPrice = parseFloat((updated[idx].totalPrice / newQty).toFixed(4));
-                              } else if (updated[idx].unitPrice > 0) {
-                                updated[idx].totalPrice = parseFloat((newQty * updated[idx].unitPrice).toFixed(2));
-                              }
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-center"
-                          />
+                          <label className="text-[9px] font-bold text-slate-500 uppercase">3. Quantità Rilevata</label>
+                          <div className="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 text-center">
+                            {item.quantity}
+                          </div>
                         </div>
 
-                        {/* 4. Prezzo Unitario Calcolato (€) */}
+                        {/* 4. Prezzo Unitario Calcolato (Totale / Quantità) */}
                         <div className="md:col-span-2 space-y-1">
                           <label className="text-[9px] font-bold text-slate-500 uppercase">4. Prezzo Unit. Calcolato</label>
-                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-2 text-xs font-black text-slate-800 text-right">
+                          <div className="bg-slate-100 border border-slate-200 rounded-xl px-2 py-2 text-xs font-black text-slate-800 text-right">
                             €{derivedUnitPrice.toFixed(2)}
                             <span className="text-[8px] font-normal text-slate-400 block text-right">Tot / Q.tà</span>
                           </div>
                         </div>
 
-                        {/* 5. Prezzo Totale Rilevato (€) */}
+                        {/* 5. Prezzo Totale Rilevato (€ - Ultima Colonna Documento) */}
                         <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-700 uppercase">5. Totale Rilevato (€) *</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            required
-                            value={rowNetTotal}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              const newTot = parseFloat(e.target.value) || 0;
-                              updated[idx].totalPrice = newTot;
-                              updated[idx].unitPrice = updated[idx].quantity > 0 ? parseFloat((newTot / updated[idx].quantity).toFixed(4)) : 0;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-amber-50/80 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 outline-none text-right"
-                          />
+                          <label className="text-[9px] font-bold text-amber-700 uppercase">5. Totale Rilevato (€)</label>
+                          <div className="bg-amber-50 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 text-right">
+                            €{rowNetTotal.toFixed(2)}
+                          </div>
                         </div>
 
-                        {/* 6. Destinazione */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase truncate block">6. Dest.</label>
+                        {/* 6. Destinazione Cantiere (Assegnazione) */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-amber-600 uppercase truncate block">6. Destinazione</label>
                           <select
                             value={item.destinationCantiereId}
                             onChange={e => {
@@ -1164,25 +1113,13 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                               updated[idx].destinationCantiereId = e.target.value;
                               setDocForm({ ...docForm, items: updated });
                             }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-1 py-2 text-xs font-bold outline-none truncate"
+                            className="w-full bg-white border border-amber-300 rounded-xl px-2 py-2 text-xs font-bold text-slate-900 outline-none truncate"
                           >
-                            <option value="centrale">Mag.</option>
+                            <option value="centrale">Magazzino</option>
                             {cantieri.map(c => (
                               <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </select>
-                        </div>
-
-                        {/* Remove Row */}
-                        <div className="md:col-span-1 flex justify-center pt-3 md:pt-0">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItemRow(idx)}
-                            disabled={docForm.items.length <= 1}
-                            className="p-2 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
                       </div>
                     );

@@ -310,7 +310,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     let desc: string;
     let unit: string;
     let qty: number;
-    let listPrice: number;
+    let col6: string | undefined;
     let col7: string | undefined;
     let col8: string | undefined;
 
@@ -319,7 +319,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
       desc = m[3].trim().replace(/\s+/g, ' ');
       unit = m[4].toLowerCase();
       qty = parseItalianNumber(m[5]);
-      listPrice = parseItalianNumber(m[6]);
+      col6 = m[6];
       col7 = m[7];
       col8 = m[8];
     } else {
@@ -327,7 +327,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
       desc = m[3].trim().replace(/\s+/g, ' ');
       qty = parseItalianNumber(m[4]);
       unit = m[5].toLowerCase();
-      listPrice = parseItalianNumber(m[6]);
+      col6 = m[6];
       col7 = m[7];
       col8 = m[8];
     }
@@ -337,25 +337,27 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
 
     if (desc.length < 3) continue;
 
+    // Collect all numeric values present at the end of the line
+    const numList: number[] = [];
+    if (col6) numList.push(parseItalianNumber(col6));
+    if (col7) numList.push(parseItalianNumber(col7));
+    if (col8) numList.push(parseItalianNumber(col8));
+
     let rowImporto = 0;
 
-    if (col7 && col7.startsWith('-')) {
-      // Sconto esplicito stampato (es. -28)
-      if (col8 && parseItalianNumber(col8) > 0) {
-        rowImporto = parseItalianNumber(col8);
-      } else {
-        const discPercent = Math.abs(parseItalianNumber(col7));
-        rowImporto = parseFloat((qty * listPrice * (1 - discPercent / 100)).toFixed(2));
-      }
-    } else if (col7 && parseItalianNumber(col7) > 0) {
-      // In assenza di colonna sconto, col7 è il totale effettivo di riga (es. 100,80)
-      rowImporto = parseItalianNumber(col7);
-    } else {
-      rowImporto = parseFloat((qty * listPrice).toFixed(2));
+    if (numList.length >= 2) {
+      // The LAST number on the right of an Italian DDT/Invoice line is ALWAYS the Net Total Row Amount (after discounts)
+      // Ignore intermediate list prices or discount percentages!
+      rowImporto = Math.abs(numList[numList.length - 1]);
+    } else if (numList.length === 1) {
+      // If only one number is present, check if it's already the total or a unit price
+      const singleNum = Math.abs(numList[0]);
+      // If singleNum looks like a total or if qty === 1
+      rowImporto = singleNum;
     }
 
-    // Always derive the net unit price as rowImporto / qty
-    const finalUnitPrice = qty > 0 ? parseFloat((rowImporto / qty).toFixed(4)) : listPrice;
+    // Strictly calculate unit price as ratio: rowImporto / qty
+    const finalUnitPrice = qty > 0 ? parseFloat((rowImporto / qty).toFixed(4)) : 0;
 
     if (qty > 0 && rowImporto > 0) {
       items.push({
