@@ -41,6 +41,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+function parseItalianNumber(val: any): number {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (typeof val === 'string') {
+    let s = val.replace(/[€$\sEUR]/gi, '').trim();
+    if (!s) return 0;
+    if (s.includes(',') && s.includes('.')) {
+      if (s.indexOf('.') < s.indexOf(',')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    } else if (s.includes(',')) {
+      s = s.replace(',', '.');
+    }
+    const num = parseFloat(s);
+    return isNaN(num) ? 0 : num;
+  }
+  return 0;
+}
+
 // AI Multimodal OCR & Document Extraction for Bolle, DDT and Fatture
 app.post('/api/analyze-bolla', async (req, res) => {
   try {
@@ -61,7 +82,7 @@ REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
    - "materialeName": DESCRIZIONE / DESCRIPTION completa del materiale.
    - "unit": U.M. / UNIT di misura (es. "ql", "mc", "pz", "kg", "m").
    - "quantity": QUANTITA' / QUANTITY riportata sul documento.
-   - "unitPrice": PREZZO / PRICE unitario riportato sulla colonna del documento.
+   - "unitPrice": PREZZO / PRICE unitario di riga riportato sulla colonna del documento (es. 3.48 o 12.50). ATTENZIONE RIGOROSA: Rileva sempre il prezzo unitario esatto! Se il prezzo è scritto con la virgola (es. "3,48"), convertilo nel numero decimale 3.48. Non lasciare mai il prezzo unitario a 0 se è visibile!
    - "discount": SCONTO / DISCOUNT di riga (es. "10%", "5%+3%", "15" o "" se assente).
    - "totalPrice": IMP. NETTO / NET AMOUNT (l'importo totale netto di riga situato nell'ultima colonna prima dell'IVA).
    - "vatRate": IVA / VAT (aliquota o importo IVA di riga es. "22%", "10%", "0%").
@@ -69,7 +90,7 @@ REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
    ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori scritti nelle colonne del documento.
 
 2. TOTALE GENERALE DEL DOCUMENTO (TOTALE IMPONIBILE / TAX BASE / SENZA IVA):
-   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (come riportato nel riquadro 'TOTALE IMPONIBILE - TAX BASE', 'TOTALE SENZA IVA' o 'TAX FREE' in calce al documento, es. EUR 3.427,07).
+   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (come riportato nel riquadro 'TOTALE IMPONIBILE - TAX BASE', 'TOTALE SENZA IVA' o 'TAX FREE' in calce al documento, es. 3427.07).
    - NON fare MAI operazioni di somma delle righe per calcolare il totale. Il totale del documento dev'essere esattamente quello stampato nel box del totale imponibile / senza IVA del documento.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
@@ -141,10 +162,11 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
     // Map extracted items preserving all raw columns without altering unitPrice, discount, totalPrice or calculating sums
     if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
       parsedData.items = parsedData.items.map((it: any) => {
-        const qty = Number(it.quantity) || 0;
-        const uPrice = Number(it.unitPrice) || 0;
-        const lineTot = Number(it.totalPrice) || 0;
+        const qty = parseItalianNumber(it.quantity);
+        const uPrice = parseItalianNumber(it.unitPrice);
+        const lineTot = parseItalianNumber(it.totalPrice);
         const disc = it.discount ? String(it.discount).trim() : '';
+        const vat = it.vatRate ? String(it.vatRate).trim() : '';
         return {
           code: it.code ? String(it.code).trim() : '',
           materialeName: it.materialeName ? String(it.materialeName).trim() : 'Materiale',
@@ -153,8 +175,16 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
           unitPrice: uPrice,
           discount: disc,
           totalPrice: lineTot,
+          vatRate: vat,
         };
       });
+    }
+
+    if (parsedData.totalAmount !== undefined) {
+      parsedData.totalAmount = parseItalianNumber(parsedData.totalAmount);
+    }
+    if (parsedData.imponibile !== undefined) {
+      parsedData.imponibile = parseItalianNumber(parsedData.imponibile);
     }
 
     return res.json({

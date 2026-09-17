@@ -113,6 +113,28 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   const pendingAcceptanceCount = documents.filter(d => d.status === 'in_attesa_accettazione').length;
   const acceptedCount = documents.filter(d => d.status === 'accettata').length;
 
+  // Helper for safe number parsing from Italian strings/floats
+  const safeParseNum = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    if (typeof val === 'string') {
+      let s = val.replace(/[€$\sEUR]/gi, '').trim();
+      if (!s) return 0;
+      if (s.includes(',') && s.includes('.')) {
+        if (s.indexOf('.') < s.indexOf(',')) {
+          s = s.replace(/\./g, '').replace(',', '.');
+        } else {
+          s = s.replace(/,/g, '');
+        }
+      } else if (s.includes(',')) {
+        s = s.replace(',', '.');
+      }
+      const num = parseFloat(s);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  };
+
   // Apply parsed document data to docForm
   const applyExtractedData = (parsed: ExtractedDocumentData, sourceLabel: string) => {
     // Match destination cantiere if specified in document
@@ -138,10 +160,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         item.materialeName.toLowerCase().includes(m.name.toLowerCase())
       );
 
-      const qty = Number(item.quantity) || 0;
-      const uPrice = Number(item.unitPrice) || 0;
+      const qty = safeParseNum(item.quantity);
+      const uPrice = safeParseNum(item.unitPrice);
       const disc = item.discount ? String(item.discount).trim() : '';
-      const tPrice = Number(item.totalPrice) || 0;
+      const tPrice = safeParseNum(item.totalPrice);
       const vat = item.vatRate ? String(item.vatRate).trim() : '22%';
 
       return {
@@ -858,14 +880,14 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
       {/* MODAL 1: UPLOAD & EDIT BOLLE / FATTURE PDF */}
       {showUploadModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
           <motion.div
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[36px] shadow-2xl max-w-4xl w-full p-8 sm:p-10 border border-slate-200 overflow-y-auto max-h-[92vh] my-auto"
+            className="bg-white rounded-[36px] shadow-2xl max-w-[96vw] xl:max-w-7xl w-full p-6 sm:p-9 border border-slate-200 overflow-y-auto max-h-[94vh] my-auto"
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+            <div className="flex items-center justify-between mb-6 pb-4 border-b border-slate-100">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center">
                   <Upload className="w-6 h-6 text-amber-500" />
@@ -873,7 +895,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 <div>
                   <h3 className="text-xl font-black text-slate-900">Carica & Riconosci Bolla / Fattura</h3>
                   <p className="text-xs text-slate-500 font-medium mt-0.5">
-                    Riconoscimento nativo in browser: rileva fornitore, data, totali e spacchetta i materiali per cantiere.
+                    Riconoscimento fedele dal documento: rileva ogni colonna ed estrae il totale imponibile senza IVA.
                   </p>
                 </div>
               </div>
@@ -885,7 +907,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveNewDocument} className="space-y-8">
+            <form onSubmit={handleSaveNewDocument} className="space-y-6">
               {/* Document Input Options Bar */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200">
                 <div className="flex items-center gap-2">
@@ -1016,35 +1038,34 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                   />
                 </div>
 
+                {/* Read-Only Extracted Imponibile / Tax Free Total Display */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
-                    Totale Bolla / Fattura (Senza IVA) (€) *
+                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block">
+                    Totale Documento (Senza IVA)
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={docForm.parsedDocumentTotal !== undefined ? docForm.parsedDocumentTotal : 0}
-                    onChange={e => {
-                      const val = parseFloat(e.target.value) || 0;
-                      setDocForm({ ...docForm, parsedDocumentTotal: val, parsedImponibile: val });
-                    }}
-                    placeholder="Importo da bolla/fattura senza IVA"
-                    className="w-full bg-amber-50/50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 outline-none focus:border-amber-500"
-                  />
-                  <span className="text-[9px] text-amber-700 font-semibold block">Rilevato direttamente dal totale senza IVA del documento</span>
+                  <div className="bg-amber-100/90 border border-amber-300 rounded-2xl p-3 flex flex-col justify-center min-h-[46px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-black text-amber-950">
+                        €{(docForm.parsedDocumentTotal !== undefined ? docForm.parsedDocumentTotal : 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      <span className="text-[9px] font-extrabold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full border border-amber-400">
+                        TAX FREE / NO IVA
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[9px] text-amber-700 font-semibold block">Rilevato direttamente dal documento originale</span>
                 </div>
               </div>
 
               {/* Master Destination / Spacchettamento Controls */}
-              <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 space-y-4">
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center gap-2">
                       <Layers className="w-4 h-4 text-amber-500" /> Smistamento Predefinito
                     </h4>
                     <p className="text-[11px] text-slate-500">
-                      Puoi assegnare tutti i materiali a un cantiere o differenziare riga per riga.
+                      Puoi assegnare tutti i materiali a un cantiere o differenziare riga per riga la destinazione.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1052,7 +1073,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                     <select
                       value={docForm.defaultDestination}
                       onChange={e => handleMasterDestinationChange(e.target.value)}
-                      className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none focus:border-amber-500"
+                      className="bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-amber-500"
                     >
                       <option value="centrale">Magazzino Centrale</option>
                       {cantieri.map(c => (
@@ -1063,13 +1084,15 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
               </div>
 
-              {/* Spacchettamento Righe Materiali */}
+              {/* Spacchettamento Righe Materiali - Wide Horizontal Read-Only Data Table */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900">Spacchettamento Elementi della Bolla</h4>
-                    <p className="text-[11px] text-slate-400">
-                      Ogni colonna rilevata (compresi sconti e prezzi unitari) viene estratta fedelmente senza calcoli intermedi.
+                    <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <Layers className="w-4 h-4 text-amber-500" /> Colonne e Voci Rilevate dal Documento
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Tutti i dati rilevati (Codice, Descrizione, U.M., Q.tà, Prezzo Unitario, Sconto, Importo Netto e IVA) sono riportati in modalità lettura senza operazioni.
                     </p>
                   </div>
                   <button
@@ -1081,171 +1104,120 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-2.5">
-                  {docForm.items.map((item, idx) => {
-                    return (
-                      <div key={idx} className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
-                        {/* 1. Codice Articolo */}
-                        <div className="md:col-span-1.5 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Codice</label>
-                          <input
-                            type="text"
-                            value={item.code || ''}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].code = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            placeholder="Codice"
-                            className="w-full bg-slate-100/90 border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-mono font-bold text-slate-700 outline-none focus:border-amber-500 truncate"
-                          />
-                        </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl bg-white shadow-sm">
+                  <table className="w-full text-left border-collapse min-w-[980px]">
+                    <thead>
+                      <tr className="bg-slate-100/90 text-[10px] uppercase tracking-wider text-slate-600 font-bold border-b border-slate-200">
+                        <th className="px-3 py-3 w-28">Codice</th>
+                        <th className="px-3 py-3 min-w-[220px]">Descrizione Materiale</th>
+                        <th className="px-3 py-3 text-center w-16">U.M.</th>
+                        <th className="px-3 py-3 text-center w-20">Q.tà</th>
+                        <th className="px-3 py-3 text-right w-28">Pr. Unit. (€)</th>
+                        <th className="px-3 py-3 text-center w-24">Sconto</th>
+                        <th className="px-3 py-3 text-right w-32">Imp. Netto (€)</th>
+                        <th className="px-3 py-3 text-center w-20">IVA</th>
+                        <th className="px-3 py-3 min-w-[170px]">Destinazione Cantiere</th>
+                        <th className="px-3 py-3 text-center w-12"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {docForm.items.map((item, idx) => {
+                        const uPriceFormatted = (item.unitPrice || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+                        const lineTotFormatted = (item.totalPrice || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-                        {/* 2. Descrizione Materiale */}
-                        <div className="md:col-span-3 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">Descrizione</label>
-                          <input
-                            type="text"
-                            value={item.materialeName || ''}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].materialeName = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            placeholder="Descrizione materiale"
-                            className="w-full bg-slate-100/90 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-900 outline-none focus:border-amber-500 truncate"
-                          />
-                        </div>
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                            {/* 1. Codice */}
+                            <td className="px-3 py-3">
+                              <span className="font-mono font-bold text-slate-700 bg-slate-100 px-2 py-1 rounded-md text-[11px] block truncate">
+                                {item.code || '-'}
+                              </span>
+                            </td>
 
-                        {/* 3. Unità di Misura */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase text-center block">U.M.</label>
-                          <input
-                            type="text"
-                            value={item.unit || 'pz'}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].unit = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-slate-100/90 border border-slate-200 rounded-xl px-1 py-1.5 text-xs font-bold text-slate-600 text-center outline-none focus:border-amber-500"
-                          />
-                        </div>
+                            {/* 2. Descrizione Materiale */}
+                            <td className="px-3 py-3 font-bold text-slate-900 max-w-[280px]">
+                              <div className="line-clamp-2" title={item.materialeName}>
+                                {item.materialeName || 'Materiale'}
+                              </div>
+                            </td>
 
-                        {/* 4. Quantità */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase text-center block">Q.tà</label>
-                          <input
-                            type="number"
-                            step="any"
-                            value={item.quantity || 0}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].quantity = parseFloat(e.target.value) || 0;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-slate-100/90 border border-slate-200 rounded-xl px-1 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
-                          />
-                        </div>
+                            {/* 3. U.M. */}
+                            <td className="px-3 py-3 text-center font-semibold text-slate-600">
+                              <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                                {item.unit || 'pz'}
+                              </span>
+                            </td>
 
-                        {/* 5. Prezzo Unitario (€) */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase text-right block">Pr. Unit.</label>
-                          <input
-                            type="number"
-                            step="any"
-                            value={item.unitPrice || 0}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].unitPrice = parseFloat(e.target.value) || 0;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-slate-100/90 border border-slate-200 rounded-xl px-1 py-1.5 text-xs font-semibold text-slate-800 text-right outline-none focus:border-amber-500"
-                          />
-                        </div>
+                            {/* 4. Q.tà */}
+                            <td className="px-3 py-3 text-center font-black text-slate-900 text-sm">
+                              {item.quantity || 0}
+                            </td>
 
-                        {/* 6. Sconto (%) */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-emerald-600 uppercase text-center block">Sconto</label>
-                          <input
-                            type="text"
-                            placeholder="es. 10%"
-                            value={item.discount || ''}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].discount = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-emerald-50 border border-emerald-300 rounded-xl px-1 py-1.5 text-xs font-bold text-emerald-800 text-center outline-none focus:border-emerald-500"
-                          />
-                        </div>
+                            {/* 5. Prezzo Unitario (€) */}
+                            <td className="px-3 py-3 text-right font-semibold text-slate-800">
+                              €{uPriceFormatted}
+                            </td>
 
-                        {/* 7. Totale Netto Riga (€) */}
-                        <div className="md:col-span-1.5 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-700 uppercase text-right block">Imp. Netto (€)</label>
-                          <input
-                            type="number"
-                            step="any"
-                            value={item.totalPrice || 0}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].totalPrice = parseFloat(e.target.value) || 0;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-amber-100/80 border border-amber-300 rounded-xl px-1.5 py-1.5 text-xs font-black text-slate-950 text-right outline-none focus:border-amber-500"
-                          />
-                        </div>
+                            {/* 6. Sconto (%) */}
+                            <td className="px-3 py-3 text-center">
+                              {item.discount ? (
+                                <span className="inline-block bg-emerald-100 text-emerald-900 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300 text-[11px]">
+                                  {item.discount}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-medium">-</span>
+                              )}
+                            </td>
 
-                        {/* 8. Aliquota IVA (%) */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-purple-600 uppercase text-center block">IVA</label>
-                          <input
-                            type="text"
-                            placeholder="22%"
-                            value={item.vatRate || ''}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].vatRate = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-purple-50 border border-purple-200 rounded-xl px-1 py-1.5 text-xs font-bold text-purple-800 text-center outline-none focus:border-purple-500"
-                          />
-                        </div>
+                            {/* 7. Imp. Netto (€) - Read-only line total */}
+                            <td className="px-3 py-3 text-right">
+                              <span className="inline-block font-black text-amber-950 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-300 text-xs">
+                                €{lineTotFormatted}
+                              </span>
+                            </td>
 
-                        {/* 9. Destinazione */}
-                        <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase truncate block">Dest.</label>
-                          <select
-                            value={item.destinationCantiereId}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].destinationCantiereId = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-1 py-1.5 text-xs font-bold outline-none truncate focus:border-amber-500"
-                          >
-                            <option value="centrale">Mag.</option>
-                            {cantieri.map(c => (
-                              <option key={c.id} value={c.id}>{c.name}</option>
-                            ))}
-                          </select>
-                        </div>
+                            {/* 8. Aliquota IVA (%) */}
+                            <td className="px-3 py-3 text-center">
+                              <span className="bg-purple-50 text-purple-700 font-bold px-2 py-0.5 rounded border border-purple-200 text-[11px]">
+                                {item.vatRate || '22%'}
+                              </span>
+                            </td>
 
-                        {/* Remove Row */}
-                        <div className="md:col-span-1 flex justify-center pt-2 md:pt-0">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItemRow(idx)}
-                            disabled={docForm.items.length <= 1}
-                            className="p-1.5 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
-                            title="Rimuovi riga"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                            {/* 9. Destinazione Cantiere */}
+                            <td className="px-3 py-3">
+                              <select
+                                value={item.destinationCantiereId}
+                                onChange={e => {
+                                  const updated = [...docForm.items];
+                                  updated[idx].destinationCantiereId = e.target.value;
+                                  setDocForm({ ...docForm, items: updated });
+                                }}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold outline-none focus:border-amber-500 text-slate-800"
+                              >
+                                <option value="centrale">Magazzino Centrale</option>
+                                {cantieri.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Remove Row Button */}
+                            <td className="px-3 py-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItemRow(idx)}
+                                disabled={docForm.items.length <= 1}
+                                className="p-1.5 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
+                                title="Rimuovi riga"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
