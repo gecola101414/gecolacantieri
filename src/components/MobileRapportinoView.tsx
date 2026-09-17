@@ -331,6 +331,16 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
         materialiUsed: isNonLavorato ? [] : (newRapportino.materialiUsed || []),
       };
       await onAddRapportino(rapportino);
+      setNewRapportino({
+        personale: [],
+        materiali: [],
+        materialiUsed: [],
+        mezzi: [],
+        personnelHours: [],
+        mezziHours: [],
+        foto: [],
+        note: '',
+      });
       setStep('list');
       const numFoto = (rapportino.foto || []).length;
       alert(`Rapportino N° ${nextProg} inviato con successo alle ore ${emissioneOra}!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);

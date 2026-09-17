@@ -27,33 +27,47 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {}, // No Firebase Auth used yet as per user custom flow
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const msg = error instanceof Error ? error.message : String(error);
+  console.error(`[Firestore Error - ${operationType} on ${path}]:`, msg);
+  throw new Error(msg);
 }
 
-function sanitizeData<T>(data: T): T {
+function sanitizeData<T>(data: T, visited = new WeakSet()): T {
   if (data === null || data === undefined) return data;
+  if (typeof data !== 'object') return data;
+
+  // Prevent infinite call stack from circular references
+  if (visited.has(data as object)) {
+    return undefined as any;
+  }
+  visited.add(data as object);
+
+  if (data instanceof Date) {
+    return data.toISOString() as any;
+  }
+
   if (Array.isArray(data)) {
-    return data.map(item => sanitizeData(item)) as any;
+    return data
+      .map(item => sanitizeData(item, visited))
+      .filter(item => item !== undefined) as any;
   }
-  if (typeof data === 'object') {
-    const result = { ...data } as any;
-    Object.keys(result).forEach(key => {
-      if (result[key] === undefined) {
-        delete result[key];
-      } else {
-        result[key] = sanitizeData(result[key]);
+
+  // If not a plain object (e.g. Blob, File, Element, Window), do not deep-recurse
+  if (data.constructor && data.constructor.name !== 'Object') {
+    return data;
+  }
+
+  const result: any = {};
+  for (const key of Object.keys(data)) {
+    const val = (data as any)[key];
+    if (val !== undefined && typeof val !== 'function') {
+      const cleaned = sanitizeData(val, visited);
+      if (cleaned !== undefined) {
+        result[key] = cleaned;
       }
-    });
-    return result;
+    }
   }
-  return data;
+  return result;
 }
 
 export const firestoreService = {
