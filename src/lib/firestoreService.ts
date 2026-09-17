@@ -213,10 +213,15 @@ export const firestoreService = {
     try {
       // Security check: verify user is active before persisting rapportino
       if (r.userId) {
-        const user = await this.getUserById(companyId, r.userId);
-        if (user && user.active === false) {
-          console.warn(`[SECURITY] Blocked rapportino submission: user ${r.userId} is deactivated.`);
-          throw new Error('Account utente disattivato dall\'amministratore. Invio bloccato.');
+        try {
+          const user = await this.getUserById(companyId, r.userId);
+          if (user && user.active === false) {
+            console.warn(`[SECURITY] Blocked rapportino submission: user ${r.userId} is deactivated.`);
+            throw new Error('Account utente disattivato dall\'amministratore. Invio bloccato.');
+          }
+        } catch (err: any) {
+          if (err?.message?.includes('disattivato')) throw err;
+          // Non-blocking if getUserById fails due to offline/permission glitch
         }
       }
 
@@ -234,70 +239,87 @@ export const firestoreService = {
 
       // Ensure sequential progressive number per cantiere
       if (!r.numeroProgressivo || r.numeroProgressivo <= 0) {
-        const existingRap = await this.getRapportini(companyId);
-        const cantiereRap = existingRap.filter(ex => ex.cantiereId === r.cantiereId && ex.id !== r.id);
-        const maxNum = cantiereRap.reduce((max, cur) => Math.max(max, cur.numeroProgressivo || 0), 0);
-        r.numeroProgressivo = Math.max(maxNum, cantiereRap.length) + 1;
-        r.codiceRapportino = `N° ${r.numeroProgressivo}`;
+        try {
+          const existingRap = await this.getRapportini(companyId);
+          const cantiereRap = existingRap.filter(ex => ex.cantiereId === r.cantiereId && ex.id !== r.id);
+          const maxNum = cantiereRap.reduce((max, cur) => Math.max(max, Number(cur.numeroProgressivo) || 0), 0);
+          r.numeroProgressivo = Math.max(maxNum, cantiereRap.length) + 1;
+          r.codiceRapportino = `N° ${r.numeroProgressivo}`;
+        } catch {
+          r.numeroProgressivo = 1;
+          r.codiceRapportino = `N° 1`;
+        }
       }
 
       const sanitizedR = sanitizeData(r);
       await setDoc(doc(db, 'companies', companyId, 'rapportini', r.id), sanitizedR);
       
-      // Update Cantiere Data (Stock and Hours)
-      const cantiere = await this.getCantiereById(companyId, r.cantiereId);
-      if (cantiere) {
-        const stock = cantiere.stock || [];
-        let addedMaterialCost = 0;
-        
-        // 1. Update Stock from used materials
-        if (r.materialiUsed && r.materialiUsed.length > 0) {
-          for (const mu of r.materialiUsed) {
-            const itemIdx = stock.findIndex(i => i.materialeId === mu.materialeId);
-            if (itemIdx >= 0) {
-              const currentQty = stock[itemIdx].quantity || 0;
-              const currentTotalCost = stock[itemIdx].totalCost || 0;
-              const unitCost = currentQty > 0 ? currentTotalCost / currentQty : 0;
-              
-              stock[itemIdx].quantity = currentQty - mu.quantity;
-              stock[itemIdx].totalCost = currentTotalCost - (unitCost * mu.quantity);
-              addedMaterialCost += unitCost * mu.quantity;
-              
-              // Log movement
-              await this.addMovement(companyId, {
-                id: `mov-${r.id}-${mu.materialeId}`,
-                materialeId: mu.materialeId,
-                materialeName: stock[itemIdx].materialeName,
-                quantity: mu.quantity,
-                type: 'scarico_rapportino',
-                date: r.date,
-                fromId: r.cantiereId,
-                rapportinoId: r.id
-              });
+      // Update Cantiere Data (Stock and Hours) safely
+      if (r.cantiereId) {
+        try {
+          const cantiere = await this.getCantiereById(companyId, r.cantiereId);
+          if (cantiere) {
+            const stock = Array.isArray(cantiere.stock) ? [...cantiere.stock] : [];
+            let addedMaterialCost = 0;
+            
+            // 1. Update Stock from used materials
+            if (r.materialiUsed && r.materialiUsed.length > 0) {
+              for (const mu of r.materialiUsed) {
+                const itemIdx = stock.findIndex(i => i.materialeId === mu.materialeId);
+                if (itemIdx >= 0) {
+                  const currentQty = Number(stock[itemIdx].quantity) || 0;
+                  const currentTotalCost = Number(stock[itemIdx].totalCost) || 0;
+                  const muQty = Number(mu.quantity) || 0;
+                  const unitCost = currentQty > 0 ? currentTotalCost / currentQty : 0;
+                  const safeUnitCost = isNaN(unitCost) ? 0 : unitCost;
+                  
+                  stock[itemIdx].quantity = Math.max(0, currentQty - muQty);
+                  stock[itemIdx].totalCost = Math.max(0, currentTotalCost - (safeUnitCost * muQty));
+                  addedMaterialCost += safeUnitCost * muQty;
+                  
+                  // Log movement
+                  await this.addMovement(companyId, {
+                    id: `mov-${r.id}-${mu.materialeId}`,
+                    materialeId: mu.materialeId,
+                    materialeName: stock[itemIdx].materialeName || 'Materiale',
+                    quantity: muQty,
+                    type: 'scarico_rapportino',
+                    date: r.date,
+                    fromId: r.cantiereId,
+                    rapportinoId: r.id
+                  });
+                }
+              }
             }
-          }
-        }
 
-        // 2. Update Work Hours & Personnel Cost
-        let addedPersonnelCost = 0;
-        const personnelHours = r.personnelHours || [];
-        const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (ph.hours || 0), 0);
-        
-        // Get all personnel to find rates
-        const allPersonale = await this.getPersonale(companyId);
-        for (const ph of personnelHours) {
-          const p = allPersonale.find(pers => pers.id === ph.personnelId);
-          if (p) {
-            addedPersonnelCost += (ph.hours || 0) * (p.hourlyRate || 0);
+            // 2. Update Work Hours & Personnel Cost
+            let addedPersonnelCost = 0;
+            const personnelHours = r.personnelHours || [];
+            const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (Number(ph.hours) || 0), 0);
+            
+            // Get all personnel to find rates
+            const allPersonale = await this.getPersonale(companyId);
+            for (const ph of personnelHours) {
+              const p = allPersonale.find(pers => pers.id === ph.personnelId);
+              if (p) {
+                addedPersonnelCost += (Number(ph.hours) || 0) * (Number(p.hourlyRate) || 0);
+              }
+            }
+            
+            const prevMaterialCost = Number(cantiere.totalMaterialCost) || 0;
+            const prevWorkHours = Number(cantiere.totalWorkHours) || 0;
+            const prevPersonnelCost = Number(cantiere.totalPersonnelCost) || 0;
+
+            await updateDoc(doc(db, 'companies', companyId, 'cantieri', r.cantiereId), {
+              stock: sanitizeData(stock),
+              totalMaterialCost: prevMaterialCost + (isNaN(addedMaterialCost) ? 0 : addedMaterialCost),
+              totalWorkHours: prevWorkHours + (isNaN(rapportinoHours) ? 0 : rapportinoHours),
+              totalPersonnelCost: prevPersonnelCost + (isNaN(addedPersonnelCost) ? 0 : addedPersonnelCost)
+            });
           }
+        } catch (cantiereErr) {
+          console.warn('Non-fatal error updating cantiere stats during rapportino save:', cantiereErr);
         }
-        
-        await updateDoc(doc(db, `companies/${companyId}/cantieri`, r.cantiereId), {
-          stock: sanitizeData(stock),
-          totalMaterialCost: (cantiere.totalMaterialCost || 0) + addedMaterialCost,
-          totalWorkHours: (cantiere.totalWorkHours || 0) + rapportinoHours,
-          totalPersonnelCost: (cantiere.totalPersonnelCost || 0) + addedPersonnelCost
-        });
       }
       console.log(`Rapportino ${r.id} saved successfully.`);
     } catch (e) {
@@ -309,7 +331,7 @@ export const firestoreService = {
   async cancelRapportino(companyId: string, rapportinoId: string, cancelledBy: string, motivo: string): Promise<void> {
     const path = `companies/${companyId}/rapportini/${rapportinoId}`;
     try {
-      const snap = await getDoc(doc(db, path));
+      const snap = await getDoc(doc(db, 'companies', companyId, 'rapportini', rapportinoId));
       if (!snap.exists()) return;
       const rap = snap.data() as Rapportino;
       if (rap.status === 'annullato') return; // Already cancelled
@@ -317,7 +339,7 @@ export const firestoreService = {
       const now = new Date();
       const annullatoIl = `${now.toLocaleDateString('it-IT')} ${now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
 
-      await updateDoc(doc(db, path), {
+      await updateDoc(doc(db, 'companies', companyId, 'rapportini', rapportinoId), {
         status: 'annullato',
         annullatoIl,
         annullatoDa: cancelledBy,
@@ -325,22 +347,31 @@ export const firestoreService = {
       });
 
       // Rollback hours from cantiere
-      const cantiere = await this.getCantiereById(companyId, rap.cantiereId);
-      if (cantiere) {
-        const personnelHours = rap.personnelHours || [];
-        const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (ph.hours || 0), 0);
-        const allPersonale = await this.getPersonale(companyId);
-        let removedPersonnelCost = 0;
-        for (const ph of personnelHours) {
-          const p = allPersonale.find(pers => pers.id === ph.personnelId);
-          if (p) {
-            removedPersonnelCost += (ph.hours || 0) * (p.hourlyRate || 0);
+      if (rap.cantiereId) {
+        try {
+          const cantiere = await this.getCantiereById(companyId, rap.cantiereId);
+          if (cantiere) {
+            const personnelHours = rap.personnelHours || [];
+            const rapportinoHours = personnelHours.reduce((acc, ph) => acc + (Number(ph.hours) || 0), 0);
+            const allPersonale = await this.getPersonale(companyId);
+            let removedPersonnelCost = 0;
+            for (const ph of personnelHours) {
+              const p = allPersonale.find(pers => pers.id === ph.personnelId);
+              if (p) {
+                removedPersonnelCost += (Number(ph.hours) || 0) * (Number(p.hourlyRate) || 0);
+              }
+            }
+            const prevWorkHours = Number(cantiere.totalWorkHours) || 0;
+            const prevPersonnelCost = Number(cantiere.totalPersonnelCost) || 0;
+
+            await updateDoc(doc(db, 'companies', companyId, 'cantieri', rap.cantiereId), {
+              totalWorkHours: Math.max(0, prevWorkHours - (isNaN(rapportinoHours) ? 0 : rapportinoHours)),
+              totalPersonnelCost: Math.max(0, prevPersonnelCost - (isNaN(removedPersonnelCost) ? 0 : removedPersonnelCost))
+            });
           }
+        } catch (rollbackErr) {
+          console.warn('Non-fatal error rolling back cantiere stats on cancel:', rollbackErr);
         }
-        await updateDoc(doc(db, `companies/${companyId}/cantieri`, rap.cantiereId), {
-          totalWorkHours: Math.max(0, (cantiere.totalWorkHours || 0) - rapportinoHours),
-          totalPersonnelCost: Math.max(0, (cantiere.totalPersonnelCost || 0) - removedPersonnelCost)
-        });
       }
       console.log(`Rapportino ${rapportinoId} successfully cancelled with audit trail.`);
     } catch (e) {

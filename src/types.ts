@@ -151,8 +151,9 @@ export interface DocumentItem {
   materialeName: string;
   quantity: number;
   unit: string;
-  unitPrice: number;
-  totalPrice: number;
+  unitPrice: number; // Prezzo unitario rilevato in bolla
+  discount?: string; // Sconto rilevato in bolla (es. "20%" o "-15%")
+  totalPrice: number; // Totale netto riga rilevato (dall'ultima colonna della bolla)
   destinationCantiereId?: string; // ID del cantiere di destinazione o 'centrale'
   status?: 'in_attesa' | 'accettata' | 'rifiutata';
   acceptedAt?: string;

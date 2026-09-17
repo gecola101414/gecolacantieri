@@ -27,6 +27,7 @@ export interface ExtractedDocumentData {
     quantity: number;
     unit: string;
     unitPrice: number;
+    discount?: string;
     totalPrice: number;
   }[];
   confidence: {
@@ -344,28 +345,36 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     if (col8) numList.push(parseItalianNumber(col8));
 
     let rowImporto = 0;
+    let extractedUnitPrice = 0;
+    let extractedDiscount = '';
 
-    if (numList.length >= 2) {
-      // The LAST number on the right of an Italian DDT/Invoice line is ALWAYS the Net Total Row Amount (after discounts)
-      // Ignore intermediate list prices or discount percentages!
+    if (numList.length >= 3) {
+      // col6: Unit Price, col7: Discount, col8: Net Total (rightmost column)
+      extractedUnitPrice = Math.abs(numList[0]);
+      let rawDisc = col7 ? col7.trim() : '';
+      if (rawDisc && !rawDisc.includes('%') && !isNaN(Number(rawDisc)) && Number(rawDisc) > 0 && Number(rawDisc) <= 100) {
+        rawDisc = `${rawDisc}%`;
+      }
+      extractedDiscount = rawDisc;
       rowImporto = Math.abs(numList[numList.length - 1]);
+    } else if (numList.length === 2) {
+      // col6: Unit Price, col7: Net Total (rightmost column)
+      extractedUnitPrice = Math.abs(numList[0]);
+      rowImporto = Math.abs(numList[1]);
     } else if (numList.length === 1) {
-      // If only one number is present, check if it's already the total or a unit price
-      const singleNum = Math.abs(numList[0]);
-      // If singleNum looks like a total or if qty === 1
-      rowImporto = singleNum;
+      // Single number at right -> row total
+      rowImporto = Math.abs(numList[0]);
+      extractedUnitPrice = (qty === 1 || qty === 0) ? rowImporto : 0;
     }
 
-    // Strictly calculate unit price as ratio: rowImporto / qty
-    const finalUnitPrice = qty > 0 ? parseFloat((rowImporto / qty).toFixed(4)) : 0;
-
-    if (qty > 0 && rowImporto > 0) {
+    if (qty > 0 || rowImporto > 0) {
       items.push({
         code,
         materialeName: desc,
         quantity: qty,
         unit,
-        unitPrice: finalUnitPrice,
+        unitPrice: extractedUnitPrice,
+        discount: extractedDiscount,
         totalPrice: rowImporto,
       });
     }

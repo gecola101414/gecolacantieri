@@ -1829,7 +1829,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       const cantiereItems = doc.items.filter(i => 
                         i.destinationCantiereId === selectedCantiere.id || doc.destinationCantiereId === selectedCantiere.id
                       );
-                      const cantiereItemsTotal = cantiereItems.reduce((acc, i) => acc + (i.totalPrice || (i.quantity * (i.unitPrice || 0))), 0);
+                      const cantiereItemsTotal = cantiereItems.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' ? i.totalPrice : (i.quantity * (i.unitPrice || 0))), 0);
 
                       return (
                         <div key={doc.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
@@ -2409,7 +2409,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div>
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Totale Documento</p>
                   <p className="text-3xl font-black text-amber-500">
-                    €{newDocument.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                    €{newDocument.items.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' ? i.totalPrice : (i.quantity * (i.unitPrice || 0))), 0).toLocaleString(undefined, {minimumFractionDigits: 2})}
                   </p>
                 </div>
                 <div className="flex gap-4">

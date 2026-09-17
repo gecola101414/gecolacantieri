@@ -77,6 +77,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       quantity: number;
       unit: string;
       unitPrice: number;
+      discount?: string;
       totalPrice: number;
       destinationCantiereId: string;
     }[];
@@ -96,6 +97,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         quantity: 10,
         unit: 'mc',
         unitPrice: 95,
+        discount: '',
         totalPrice: 950,
         destinationCantiereId: cantieri[0]?.id || 'centrale',
       }
@@ -125,31 +127,31 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       }
     }
 
-    // Map extracted items
+    // Map extracted items (observing Master Rule: direct reporting, no item calculations)
     const mappedItems = parsed.items.map((item, idx) => {
       const found = materiali.find(m => 
         m.name.toLowerCase().includes(item.materialeName.toLowerCase()) || 
         item.materialeName.toLowerCase().includes(m.name.toLowerCase())
       );
 
-      const qty = Number(item.quantity) || 1;
-      const tPrice = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
-        ? Number(item.totalPrice) 
-        : parseFloat((qty * (item.unitPrice || 0)).toFixed(2));
-      const uPrice = qty > 0 ? parseFloat((tPrice / qty).toFixed(4)) : (item.unitPrice || 0);
+      const qty = Number(item.quantity) || 0;
+      const uPrice = Number(item.unitPrice) || 0;
+      const disc = item.discount ? String(item.discount).trim() : '';
+      const tPrice = Number(item.totalPrice) || 0;
 
       return {
         materialeId: found ? found.id : `mat-ext-${Date.now()}-${idx}`,
         materialeName: item.materialeName,
         quantity: qty,
-        unit: item.unit,
+        unit: item.unit || 'pz',
         unitPrice: uPrice,
+        discount: disc,
         totalPrice: tPrice,
         destinationCantiereId: matchedDestinationId,
       };
     });
 
-    const totalItemsPrice = parseFloat(mappedItems.reduce((acc, i) => acc + i.totalPrice, 0).toFixed(2));
+    const totalItemsPrice = parseFloat(mappedItems.reduce((acc, i) => acc + (i.totalPrice || 0), 0).toFixed(2));
 
     setDocForm(prev => ({
       ...prev,
@@ -211,17 +213,17 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           if (json.success && json.data) {
             const d = json.data;
             const mappedItems = (d.items || []).map((it: any) => {
-              const qty = Number(it.quantity) || 1;
-              const tPrice = typeof it.totalPrice === 'number' && it.totalPrice >= 0 
-                ? Number(it.totalPrice) 
-                : Number((qty * Number(it.unitPrice || 0)).toFixed(2));
-              const uPrice = qty > 0 ? Number((tPrice / qty).toFixed(4)) : Number(it.unitPrice || 0);
+              const qty = Number(it.quantity) || 0;
+              const uPrice = Number(it.unitPrice) || 0;
+              const disc = it.discount ? String(it.discount).trim() : '';
+              const tPrice = Number(it.totalPrice) || 0;
               return {
                 code: it.code || undefined,
                 materialeName: it.materialeName || '',
                 quantity: qty,
                 unit: it.unit || 'pz',
                 unitPrice: uPrice,
+                discount: disc,
                 totalPrice: tPrice,
               };
             });
@@ -272,6 +274,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           quantity: 1,
           unit: 'pz',
           unitPrice: 0,
+          discount: '',
           totalPrice: 0,
           destinationCantiereId: prev.defaultDestination,
         }
@@ -322,11 +325,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         }
       }
 
-      // Calculate total amount (IVA Esclusa) strictly from the sum of line items
-      const totalAmount = parseFloat(docForm.items.reduce((acc, i) => {
-        const lineTot = typeof i.totalPrice === 'number' && i.totalPrice >= 0 ? i.totalPrice : (i.quantity * i.unitPrice);
-        return acc + lineTot;
-      }, 0).toFixed(2));
+      // Calculate total amount (IVA Esclusa) strictly from the sum of line items' total net prices
+      const totalAmount = parseFloat(docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
 
       // Check if all items go to same cantiere or are split
       const destinations: string[] = Array.from(new Set(docForm.items.map(i => i.destinationCantiereId || 'centrale')));
@@ -356,17 +356,17 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         status: initialDocStatus,
         createdAt: new Date().toISOString(),
         items: docForm.items.map(item => {
-          const qty = item.quantity || 1;
-          const tot = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
-            ? item.totalPrice 
-            : parseFloat((qty * (item.unitPrice || 0)).toFixed(2));
-          const uPrice = qty > 0 ? parseFloat((tot / qty).toFixed(4)) : (item.unitPrice || 0);
+          const qty = Number(item.quantity) || 0;
+          const uPrice = Number(item.unitPrice) || 0;
+          const disc = item.discount ? String(item.discount).trim() : '';
+          const tot = Number(item.totalPrice) || 0;
           return {
             materialeId: item.materialeId || `mat-${Date.now()}`,
             materialeName: item.materialeName.trim(),
-            quantity: item.quantity,
+            quantity: qty,
             unit: item.unit,
             unitPrice: uPrice,
+            discount: disc,
             totalPrice: tot,
             destinationCantiereId: item.destinationCantiereId,
             status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
@@ -995,14 +995,22 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-1">
-                    Totale Bolla (Somma Importi Netti) (€)
+                  <label className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">
+                    Totale Bolla (IVA Esclusa) (€) *
                   </label>
-                  <div className="w-full bg-amber-50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 flex items-center justify-between">
-                    <span>€{(docForm.items.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' && i.totalPrice >= 0 ? i.totalPrice : i.quantity * i.unitPrice), 0) || docForm.parsedDocumentTotal || 0).toFixed(2)}</span>
-                    <span className="text-[9px] bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full font-bold">Dato Sacro non Modificabile</span>
-                  </div>
-                  <span className="text-[9px] text-amber-800 font-semibold block">Somma esatta degli Importi Netti estratti dalla bolla/fattura</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={(docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0) || docForm.parsedDocumentTotal || 0).toFixed(2)}
+                    onChange={e => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setDocForm({ ...docForm, parsedDocumentTotal: val, parsedImponibile: val });
+                    }}
+                    placeholder="Calculated from items"
+                    className="w-full bg-amber-50/50 border border-amber-300 rounded-2xl p-3.5 text-xs font-black text-slate-900 outline-none focus:border-amber-500"
+                  />
+                  <span className="text-[9px] text-amber-700 font-semibold block">Calcolato sommando le voci materiali rilevate</span>
                 </div>
               </div>
 
@@ -1053,59 +1061,51 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
                 <div className="space-y-2.5">
                   {docForm.items.map((item, idx) => {
-                    const rowNetTotal = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
-                      ? item.totalPrice 
-                      : parseFloat((item.quantity * item.unitPrice).toFixed(2));
-                    const derivedUnitPrice = item.quantity > 0 
-                      ? parseFloat((rowNetTotal / item.quantity).toFixed(4)) 
-                      : item.unitPrice;
-
                     return (
-                      <div key={idx} className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                        {/* 1. Descrizione Materiale (Rilevata) */}
-                        <div className="md:col-span-3 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">1. Descrizione Materiale</label>
-                          <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 truncate" title={item.materialeName}>
+                      <div key={idx} className="bg-slate-50/80 p-3.5 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-2.5 items-center">
+                        {/* 1. Codice Articolo */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">1. Codice</label>
+                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-mono font-bold text-slate-700 truncate">
+                            {item.code || '-'}
+                          </div>
+                        </div>
+
+                        {/* 2. Descrizione Materiale */}
+                        <div className="md:col-span-4 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">2. Descrizione</label>
+                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 truncate">
                             {item.materialeName || 'Materiale'}
                           </div>
                         </div>
 
-                        {/* 2. Unità di Misura (U.M.) */}
+                        {/* 3. Unità di Misura */}
                         <div className="md:col-span-1 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-400 uppercase">2. U.M.</label>
-                          <div className="bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-xs font-bold text-slate-700 text-center">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase text-center block">3. U.M.</label>
+                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-1 py-2 text-xs font-bold text-slate-600 text-center">
                             {item.unit || 'pz'}
                           </div>
                         </div>
 
-                        {/* 3. Quantità Rilevata (Dato Reale) */}
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 uppercase">3. Quantità Rilevata</label>
-                          <div className="bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 text-center">
-                            {item.quantity}
+                        {/* 4. Quantità */}
+                        <div className="md:col-span-1 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase text-center block">4. Q.tà</label>
+                          <div className="bg-slate-100/90 border border-slate-200 rounded-xl px-1 py-2 text-xs font-black text-slate-900 text-center">
+                            {item.quantity || 0}
                           </div>
                         </div>
 
-                        {/* 4. Prezzo Unitario Calcolato (Totale / Quantità) */}
+                        {/* 5. Totale Netto (Ultima Colonna prima dell'IVA) */}
                         <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 uppercase">4. Prezzo Unit. Calcolato</label>
-                          <div className="bg-slate-100 border border-slate-200 rounded-xl px-2 py-2 text-xs font-black text-slate-800 text-right">
-                            €{derivedUnitPrice.toFixed(2)}
-                            <span className="text-[8px] font-normal text-slate-400 block text-right">Tot / Q.tà</span>
+                          <label className="text-[9px] font-bold text-amber-700 uppercase text-right block">5. Totale (€) *</label>
+                          <div className="bg-amber-100/80 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-950 text-right">
+                            €{(item.totalPrice || 0).toFixed(2)}
                           </div>
                         </div>
 
-                        {/* 5. Prezzo Totale Rilevato (€ - Ultima Colonna Documento) */}
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-700 uppercase">5. Totale Rilevato (€)</label>
-                          <div className="bg-amber-50 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 text-right">
-                            €{rowNetTotal.toFixed(2)}
-                          </div>
-                        </div>
-
-                        {/* 6. Destinazione Cantiere (Assegnazione) */}
-                        <div className="md:col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold text-amber-600 uppercase truncate block">6. Destinazione</label>
+                        {/* 6. Destinazione */}
+                        <div className="md:col-span-1 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase truncate block">6. Dest.</label>
                           <select
                             value={item.destinationCantiereId}
                             onChange={e => {
@@ -1113,13 +1113,25 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                               updated[idx].destinationCantiereId = e.target.value;
                               setDocForm({ ...docForm, items: updated });
                             }}
-                            className="w-full bg-white border border-amber-300 rounded-xl px-2 py-2 text-xs font-bold text-slate-900 outline-none truncate"
+                            className="w-full bg-white border border-slate-200 rounded-xl px-1 py-2 text-xs font-bold outline-none truncate focus:border-amber-500"
                           >
-                            <option value="centrale">Magazzino</option>
+                            <option value="centrale">Mag.</option>
                             {cantieri.map(c => (
                               <option key={c.id} value={c.id}>{c.name}</option>
                             ))}
                           </select>
+                        </div>
+
+                        {/* Remove Row */}
+                        <div className="md:col-span-1 flex justify-center pt-2 md:pt-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItemRow(idx)}
+                            disabled={docForm.items.length <= 1}
+                            className="p-1.5 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
                     );
@@ -1187,7 +1199,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         <Check className="w-3 h-3 text-emerald-400" /> Totale Bolla (Somma Voci - IVA Esclusa)
                       </p>
                       <p className="text-3xl font-black text-white">
-                        €{docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        €{docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </p>
                     </div>
                   </div>
@@ -1283,30 +1295,25 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase">
                     <tr>
+                      <th className="px-4 py-3">Codice</th>
                       <th className="px-4 py-3">Descrizione Materiale</th>
                       <th className="px-4 py-3 text-center">U.M.</th>
                       <th className="px-4 py-3 text-center">Quantità</th>
-                      <th className="px-4 py-3 text-right">Prezzo Unit. Calcolato</th>
-                      <th className="px-4 py-3 text-right">Prezzo Totale Rilevato</th>
+                      <th className="px-4 py-3 text-right">Totale Netto (€)</th>
                       <th className="px-4 py-3">Destinazione</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {selectedDocDetails.items.map((item, idx) => {
                       const cDest = cantieri.find(c => c.id === item.destinationCantiereId);
-                      const rowTot = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
-                        ? item.totalPrice 
-                        : (item.quantity * item.unitPrice);
-                      const unitNetPrice = item.quantity > 0 ? (rowTot / item.quantity) : item.unitPrice;
+                      const rowTot = Number(item.totalPrice) || 0;
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3 font-mono font-bold text-slate-500">{item.code || '-'}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">{item.materialeName}</td>
                           <td className="px-4 py-3 text-center font-bold text-slate-500">{item.unit || 'pz'}</td>
                           <td className="px-4 py-3 text-center font-bold text-slate-900">{item.quantity}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-slate-600">
-                            €{unitNetPrice.toFixed(2)} / {item.unit || 'pz'}
-                          </td>
                           <td className="px-4 py-3 font-black text-amber-700 text-right">
                             €{rowTot.toFixed(2)}
                           </td>

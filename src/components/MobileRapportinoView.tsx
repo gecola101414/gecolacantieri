@@ -334,9 +334,19 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       setStep('list');
       const numFoto = (rapportino.foto || []).length;
       alert(`Rapportino N° ${nextProg} inviato con successo alle ore ${emissioneOra}!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error submitting rapportino:', err);
-      alert('Errore nell\'invio del rapportino. Controlla la connessione e riprova.');
+      let detail = 'Controlla la connessione internet e riprova.';
+      if (err?.message) {
+        detail = err.message;
+        try {
+          const parsed = JSON.parse(err.message);
+          if (parsed?.error) detail = parsed.error;
+        } catch {
+          // not JSON
+        }
+      }
+      alert(`Errore nell'invio del rapportino:\n\n${detail}`);
     } finally {
       setIsSubmitting(false);
     }

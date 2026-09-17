@@ -41,78 +41,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Helper for resilient Gemini API calls with automatic retry and model fallback
-async function generateContentWithRetry(ai: GoogleGenAI, params: any) {
-  const modelsToTry = ['gemini-3.6-flash', 'gemini-2.5-flash'];
-  let lastError: any = null;
-
-  for (const model of modelsToTry) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          ...params,
-          model,
-        });
-        return response;
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Gemini API call failed with model ${model} (attempt ${attempt + 1}):`, err?.message || err);
-        const status = err?.status || err?.code;
-        if (status === 503 || status === 429 || status === 500 || (err?.message && err.message.includes('503'))) {
-          await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          continue;
-        } else {
-          break;
-        }
-      }
-    }
-  }
-  throw lastError;
-}
-
-// Helper to safely parse potentially truncated JSON responses
-function parseJsonSafely(rawStr: string): any {
-  let cleaned = rawStr.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
-  }
-
-  try {
-    return JSON.parse(cleaned);
-  } catch (firstErr) {
-    console.warn('JSON parsing failed, attempting repair of truncated JSON stream...', firstErr);
-
-    // Try finding the last completed object in items array
-    const lastObjectEnd = cleaned.lastIndexOf('}');
-    if (lastObjectEnd > 0) {
-      let snippet = cleaned.substring(0, lastObjectEnd + 1);
-      
-      // Close open arrays and objects if missing
-      if (!snippet.endsWith(']}')) {
-        if (!snippet.endsWith(']')) snippet += ']';
-        if (!snippet.endsWith('}')) snippet += '}';
-      }
-
-      try {
-        return JSON.parse(snippet);
-      } catch (e2) {
-        // Try trimming to last comma before last object
-        const lastComma = snippet.lastIndexOf('},');
-        if (lastComma > 0) {
-          const cutSnippet = snippet.substring(0, lastComma + 1) + ']}';
-          try {
-            return JSON.parse(cutSnippet);
-          } catch (e3) {
-            // Fallthrough
-          }
-        }
-      }
-    }
-
-    throw firstErr;
-  }
-}
-
 // AI Multimodal OCR & Document Extraction for Bolle, DDT and Fatture
 app.post('/api/analyze-bolla', async (req, res) => {
   try {
@@ -125,41 +53,44 @@ app.post('/api/analyze-bolla', async (req, res) => {
     const ai = getGeminiClient();
 
     const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
-Il tuo compito è analizzare il testo estratto da un documento PDF (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
+Il tuo compito è analizzare il testo o l'immagine di un documento (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
 
-REGOLE TASSATIVE PER L'ANALISI PDF MULTI-PAGINA:
-1. ESTRAI TUTTI GLI ARTICOLI / MATERIALI: Leggi attentamente tutte le pagine del documento. NON OMETTERE O SALTARE NESSUN ARTICOLO O RIGA, anche se il documento si sviluppa su 2, 3, 5 o più pagine con 50 o 100+ articoli. Includi ciascuna riga nel vettore "items".
-2. INTESTAZIONE E CANTIERI: Rileva con precisione il Fornitore (Cedente), Destinatario (Cessionario), Cantiere di consegna / Destinazione, Numero Documento e Data.
-3. TOTALE IVA ESCLUSA (IMPONIBILE): Calcola "totalAmount" e "imponibile" come ESATTAMENTE la somma degli importi totali di tutte le righe articoli estratte ("items").
-4. REGOLA TASSATIVA ED ESCLUSIVA SUI PREZZI E QUANTITÀ:
-   - PER "totalPrice", DEVI LEGGERE ESCLUSIVAMENTE L'IMPORTO FINALE NETTO DELLA RIGA (situato nell'ULTIMA COLONNA A DESTRA della riga del documento, ad es. "Importo Netto", "Totale Riga", "Importo Finale").
-   - NON GUARDARE E NON LEGGERE MAI IL PREZZO DI LISTINO O IL PREZZO UNITARIO INIZIALE stampato a sinistra della colonna sconti!
-   - NON MOLTIPLICARE MAI "Quantità * Prezzo Listino"! Se sul documento c'è un prezzo di listino di 9.45 e uno sconto del 20%, il prezzo finale netto nella colonna di destra sarà ad esempio 113.40. Prendi SEMPRE e SOLTANTO il valore dell'ULTIMA COLONNA A DESTRA per "totalPrice".
-   - "unitPrice" NON DEVE ESSERE LETTO DAL DOCUMENTO. L'applicazione lo calcolerà automaticamente dividendo totalPrice / quantity.
+REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA (CONCENTRAZIONE ESCLUSIVA SUI TOTALI PRIMA DELL'IVA):
+1. ESTRAI TUTTI GLI ARTICOLI / MATERIALI: Leggi attentamente tutte le pagine del documento senza omettere nessuna riga.
+2. INTESTAZIONE E CANTIERI: Rileva con precisione Fornitore, Numero Documento, Data e Cantiere di destinazione.
+3. RILEVAZIONE DELLE COLONNE DI RIGA (ESTRAI SOLTANTO QUESTI DATI DIRETTI DALLA BOLLA, NESSUN CALCOLO):
+   - "code": Codice articolo se presente sul documento (es. "EEDSABBIA02").
+   - "materialeName": Descrizione completa del materiale.
+   - "unit": Unità di misura (es. "ql", "mc", "pz", "kg", "m").
+   - "quantity": Quantità riportata sul documento.
+   - "totalPrice": L'IMPORTO TOTALE NETTO DI RIGA situato A DESTRA NELL'ULTIMA COLONNA PRIMA DELL'IVA (es. "Importo Netto", "Totale Riga", "Importo").
+   ATTENZIONE TASSATIVA:
+   - "totalPrice" DEVE PRENDERE ESCLUSIVAMENTE IL PREZZO TOTALE CHE SI TROVA NELL'ULTIMA COLONNA A DESTRA PRIMA DELL'IVA!
+   - NON confondere l'importo totale di riga con il prezzo unitario. I prezzi unitari si trovano dopo la quantità, mentre i PREZZI TOTALI DI RIGA si trovano sempre a destra prima dell'IVA.
+4. UNICO CALCOLO CONSENTITO:
+   - "totalAmount" e "imponibile": sommare tutti i "totalPrice" di riga dell'ultima colonna per ottenere il totale generale del documento (IVA esclusa).
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
-  "supplier": "Nome completo del fornitore (es. SARDARES S.p.A., ITALCEMENTI, BETONVAL)",
+  "supplier": "Nome completo del fornitore",
   "type": "bolla" | "fattura" | "ddt",
-  "number": "Numero identificativo completo del documento (es. BC04/2026/16804, DDT 124/26)",
-  "date": "Data del documento nel formato AAAA-MM-GG (YYYY-MM-DD)",
-  "destinationCantiere": "Cantiere o indirizzo di destinazione specificato nella bolla (es. CANTIERE CUGNANA, PORTO ROTONDO)",
+  "number": "Numero documento",
+  "date": "YYYY-MM-DD",
+  "destinationCantiere": "Cantiere o indirizzo di destinazione",
   "totalAmount": 132.08,
   "imponibile": 132.08,
-  "summaryDescription": "Breve frase riassuntiva dei materiali consegnati con quantità",
+  "summaryDescription": "Sintesi materiali",
   "items": [
     {
-      "code": "codice articolo se presente (es. EEDSABBIA02)",
-      "materialeName": "Nome completo e chiaro del materiale (es. SABBIA FINE LAVATA 0/2)",
+      "code": "codice articolo (es. EEDSABBIA02)",
+      "materialeName": "Descrizione materiale (es. SABBIA FINE LAVATA 0/2)",
       "quantity": 16.0,
       "unit": "ql",
-      "unitPrice": 4.40,
-      "discount": "-21%",
       "totalPrice": 55.62
     }
   ],
-  "vettore": "Nome del vettore/autista o annotazioni di ritiro se visibili",
-  "notes": "Eventuali annotazioni aggiuntive"
+  "vettore": "Nome del vettore se visibile",
+  "notes": "Eventuali annotazioni"
 }`;
 
     let response;
@@ -168,7 +99,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
       // Strip data:image/...;base64, prefix if present
       const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
 
-      response = await generateContentWithRetry(ai, {
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
         contents: {
           parts: [
             {
@@ -188,7 +120,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
         },
       });
     } else {
-      response = await generateContentWithRetry(ai, {
+      response = await ai.models.generateContent({
+        model: 'gemini-3.6-flash',
         contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT/Fattura PDF:\n\n${text}`,
         config: {
           responseMimeType: 'application/json',
@@ -198,25 +131,21 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
     }
 
     const responseText = response.text?.trim() || '{}';
-    const parsedData = parseJsonSafely(responseText);
+    const parsedData = JSON.parse(responseText);
 
-    // Force items to have net totalPrice as primary ground truth, and calculate net unitPrice as ratio
+    // Master rule: preserve exact code, description, unit, quantity and rightmost column totalPrice from bolla. Sum totalPrices for document total.
     if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
       let totalItemsSum = 0;
       parsedData.items = parsedData.items.map((it: any) => {
-        const qty = Number(it.quantity) || 1;
-        let lineTot = Number(it.totalPrice) || 0;
-        if (lineTot <= 0 && Number(it.unitPrice) > 0) {
-          lineTot = qty * Number(it.unitPrice);
-        }
-        lineTot = parseFloat(lineTot.toFixed(2));
+        const qty = Number(it.quantity) || 0;
+        const lineTot = Number(it.totalPrice) || 0;
         totalItemsSum += lineTot;
-        const netUnitPrice = qty > 0 ? parseFloat((lineTot / qty).toFixed(4)) : (Number(it.unitPrice) || 0);
         return {
-          ...it,
+          code: it.code ? String(it.code).trim() : '',
+          materialeName: it.materialeName ? String(it.materialeName).trim() : 'Materiale',
           quantity: qty,
-          unitPrice: netUnitPrice,
-          totalPrice: lineTot,
+          unit: it.unit ? String(it.unit).trim() : 'pz',
+          totalPrice: parseFloat(lineTot.toFixed(2)),
         };
       });
 
