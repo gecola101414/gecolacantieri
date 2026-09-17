@@ -338,25 +338,24 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     if (desc.length < 3) continue;
 
     let rowImporto = 0;
-    let finalUnitPrice = listPrice;
 
     if (col7 && col7.startsWith('-')) {
       // Sconto esplicito stampato (es. -28)
       if (col8 && parseItalianNumber(col8) > 0) {
         rowImporto = parseItalianNumber(col8);
-        finalUnitPrice = parseFloat((rowImporto / (qty || 1)).toFixed(3));
       } else {
         const discPercent = Math.abs(parseItalianNumber(col7));
         rowImporto = parseFloat((qty * listPrice * (1 - discPercent / 100)).toFixed(2));
-        finalUnitPrice = parseFloat((listPrice * (1 - discPercent / 100)).toFixed(3));
       }
     } else if (col7 && parseItalianNumber(col7) > 0) {
       // In assenza di colonna sconto, col7 è il totale effettivo di riga (es. 100,80)
       rowImporto = parseItalianNumber(col7);
-      finalUnitPrice = listPrice;
     } else {
       rowImporto = parseFloat((qty * listPrice).toFixed(2));
     }
+
+    // Always derive the net unit price as rowImporto / qty
+    const finalUnitPrice = qty > 0 ? parseFloat((rowImporto / qty).toFixed(4)) : listPrice;
 
     if (qty > 0 && rowImporto > 0) {
       items.push({

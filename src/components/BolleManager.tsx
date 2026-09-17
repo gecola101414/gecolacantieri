@@ -77,6 +77,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       quantity: number;
       unit: string;
       unitPrice: number;
+      totalPrice: number;
       destinationCantiereId: string;
     }[];
   }>({
@@ -95,6 +96,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         quantity: 10,
         unit: 'mc',
         unitPrice: 95,
+        totalPrice: 950,
         destinationCantiereId: cantieri[0]?.id || 'centrale',
       }
     ],
@@ -130,17 +132,24 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         item.materialeName.toLowerCase().includes(m.name.toLowerCase())
       );
 
+      const qty = Number(item.quantity) || 1;
+      const tPrice = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
+        ? Number(item.totalPrice) 
+        : parseFloat((qty * (item.unitPrice || 0)).toFixed(2));
+      const uPrice = qty > 0 ? parseFloat((tPrice / qty).toFixed(4)) : (item.unitPrice || 0);
+
       return {
         materialeId: found ? found.id : `mat-ext-${Date.now()}-${idx}`,
         materialeName: item.materialeName,
-        quantity: item.quantity,
+        quantity: qty,
         unit: item.unit,
-        unitPrice: item.unitPrice,
+        unitPrice: uPrice,
+        totalPrice: tPrice,
         destinationCantiereId: matchedDestinationId,
       };
     });
 
-    const totalItemsPrice = parseFloat(mappedItems.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toFixed(2));
+    const totalItemsPrice = parseFloat(mappedItems.reduce((acc, i) => acc + i.totalPrice, 0).toFixed(2));
 
     setDocForm(prev => ({
       ...prev,
@@ -203,8 +212,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             const d = json.data;
             const mappedItems = (d.items || []).map((it: any) => {
               const qty = Number(it.quantity) || 1;
-              const uPrice = Number(it.unitPrice) || (it.totalPrice && qty ? Number((it.totalPrice / qty).toFixed(2)) : 0);
-              const tPrice = Number(it.totalPrice) || Number((qty * uPrice).toFixed(2));
+              const tPrice = typeof it.totalPrice === 'number' && it.totalPrice >= 0 
+                ? Number(it.totalPrice) 
+                : Number((qty * Number(it.unitPrice || 0)).toFixed(2));
+              const uPrice = qty > 0 ? Number((tPrice / qty).toFixed(4)) : Number(it.unitPrice || 0);
               return {
                 code: it.code || undefined,
                 materialeName: it.materialeName || '',
@@ -261,6 +272,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           quantity: 1,
           unit: 'pz',
           unitPrice: 0,
+          totalPrice: 0,
           destinationCantiereId: prev.defaultDestination,
         }
       ]
@@ -311,7 +323,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       }
 
       // Calculate total amount (IVA Esclusa) strictly from the sum of line items
-      const totalAmount = parseFloat(docForm.items.reduce((acc, i) => acc + (i.quantity * i.unitPrice), 0).toFixed(2));
+      const totalAmount = parseFloat(docForm.items.reduce((acc, i) => {
+        const lineTot = typeof i.totalPrice === 'number' && i.totalPrice >= 0 ? i.totalPrice : (i.quantity * i.unitPrice);
+        return acc + lineTot;
+      }, 0).toFixed(2));
 
       // Check if all items go to same cantiere or are split
       const destinations: string[] = Array.from(new Set(docForm.items.map(i => i.destinationCantiereId || 'centrale')));
@@ -340,16 +355,23 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         fileName: uploadedPdfName || undefined,
         status: initialDocStatus,
         createdAt: new Date().toISOString(),
-        items: docForm.items.map(item => ({
-          materialeId: item.materialeId || `mat-${Date.now()}`,
-          materialeName: item.materialeName.trim(),
-          quantity: item.quantity,
-          unit: item.unit,
-          unitPrice: item.unitPrice,
-          totalPrice: item.quantity * item.unitPrice,
-          destinationCantiereId: item.destinationCantiereId,
-          status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
-        }))
+        items: docForm.items.map(item => {
+          const qty = item.quantity || 1;
+          const tot = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
+            ? item.totalPrice 
+            : parseFloat((qty * (item.unitPrice || 0)).toFixed(2));
+          const uPrice = qty > 0 ? parseFloat((tot / qty).toFixed(4)) : (item.unitPrice || 0);
+          return {
+            materialeId: item.materialeId || `mat-${Date.now()}`,
+            materialeName: item.materialeName.trim(),
+            quantity: item.quantity,
+            unit: item.unit,
+            unitPrice: uPrice,
+            totalPrice: tot,
+            destinationCantiereId: item.destinationCantiereId,
+            status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
+          };
+        })
       };
 
       await onSaveDocument(newDoc);
@@ -1066,104 +1088,130 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
 
                 <div className="space-y-2.5">
-                  {docForm.items.map((item, idx) => (
-                    <div key={idx} className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                      {/* Material Name / Description */}
-                      <div className="md:col-span-4 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Materiale / Descrizione</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="Nome materiale"
-                          value={item.materialeName}
-                          onChange={e => {
-                            const updated = [...docForm.items];
-                            updated[idx].materialeName = e.target.value;
-                            setDocForm({ ...docForm, items: updated });
-                          }}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
-                        />
-                      </div>
+                  {docForm.items.map((item, idx) => {
+                    const rowNetTotal = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
+                      ? item.totalPrice 
+                      : parseFloat((item.quantity * item.unitPrice).toFixed(2));
+                    const derivedUnitPrice = item.quantity > 0 
+                      ? parseFloat((rowNetTotal / item.quantity).toFixed(4)) 
+                      : item.unitPrice;
 
-                      {/* Quantity & Unit */}
-                      <div className="md:col-span-2 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Quantità</label>
-                        <div className="flex gap-1.5">
+                    return (
+                      <div key={idx} className="bg-slate-50/80 p-4 rounded-2xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                        {/* Material Name / Description */}
+                        <div className="md:col-span-3 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">Materiale / Descrizione</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Nome materiale"
+                            value={item.materialeName}
+                            onChange={e => {
+                              const updated = [...docForm.items];
+                              updated[idx].materialeName = e.target.value;
+                              setDocForm({ ...docForm, items: updated });
+                            }}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold outline-none"
+                          />
+                        </div>
+
+                        {/* Quantity & Unit */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">Quantità</label>
+                          <div className="flex gap-1.5">
+                            <input
+                              type="number"
+                              step="0.01"
+                              required
+                              value={item.quantity}
+                              onChange={e => {
+                                const updated = [...docForm.items];
+                                const newQty = parseFloat(e.target.value) || 0;
+                                updated[idx].quantity = newQty;
+                                if (updated[idx].totalPrice > 0 && newQty > 0) {
+                                  updated[idx].unitPrice = parseFloat((updated[idx].totalPrice / newQty).toFixed(4));
+                                } else if (updated[idx].unitPrice > 0) {
+                                  updated[idx].totalPrice = parseFloat((newQty * updated[idx].unitPrice).toFixed(2));
+                                }
+                                setDocForm({ ...docForm, items: updated });
+                              }}
+                              className="w-2/3 bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-center"
+                            />
+                            <input
+                              type="text"
+                              placeholder="U.M."
+                              value={item.unit}
+                              onChange={e => {
+                                const updated = [...docForm.items];
+                                updated[idx].unit = e.target.value;
+                                setDocForm({ ...docForm, items: updated });
+                              }}
+                              className="w-1/3 bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-[11px] font-bold outline-none text-center"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Totale Netto Riga (€) - Primary Value */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-amber-600 uppercase">Totale Riga (€) *</label>
                           <input
                             type="number"
                             step="0.01"
                             required
-                            value={item.quantity}
+                            value={rowNetTotal}
                             onChange={e => {
                               const updated = [...docForm.items];
-                              updated[idx].quantity = parseFloat(e.target.value) || 0;
+                              const newTot = parseFloat(e.target.value) || 0;
+                              updated[idx].totalPrice = newTot;
+                              updated[idx].unitPrice = updated[idx].quantity > 0 ? parseFloat((newTot / updated[idx].quantity).toFixed(4)) : 0;
                               setDocForm({ ...docForm, items: updated });
                             }}
-                            className="w-2/3 bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-center"
-                          />
-                          <input
-                            type="text"
-                            placeholder="U.M."
-                            value={item.unit}
-                            onChange={e => {
-                              const updated = [...docForm.items];
-                              updated[idx].unit = e.target.value;
-                              setDocForm({ ...docForm, items: updated });
-                            }}
-                            className="w-1/3 bg-white border border-slate-200 rounded-xl px-1.5 py-2 text-[11px] font-bold outline-none text-center"
+                            className="w-full bg-amber-50/60 border border-amber-300 rounded-xl px-2.5 py-2 text-xs font-black text-slate-900 outline-none text-right"
                           />
                         </div>
-                      </div>
 
-                      {/* Unit Price */}
-                      <div className="md:col-span-2 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Prezzo Unit. (€)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          value={item.unitPrice}
-                          onChange={e => {
-                            const updated = [...docForm.items];
-                            updated[idx].unitPrice = parseFloat(e.target.value) || 0;
-                            setDocForm({ ...docForm, items: updated });
-                          }}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none text-right"
-                        />
-                      </div>
+                        {/* Prezzo Unitario Netto (€) - Derived Ratio */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">Unit. Netto (€)</label>
+                          <div className="bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 text-right">
+                            €{derivedUnitPrice.toFixed(2)}
+                            <span className="text-[9px] font-normal text-slate-400 block text-right">Tot / Q.tà</span>
+                          </div>
+                        </div>
 
-                      {/* Destination for this specific line */}
-                      <div className="md:col-span-3 space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase">Destinazione Cantiere</label>
-                        <select
-                          value={item.destinationCantiereId}
-                          onChange={e => {
-                            const updated = [...docForm.items];
-                            updated[idx].destinationCantiereId = e.target.value;
-                            setDocForm({ ...docForm, items: updated });
-                          }}
-                          className="w-full bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold outline-none truncate"
-                        >
-                          <option value="centrale">Magazzino Centrale</option>
-                          {cantieri.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
+                        {/* Destination for this specific line */}
+                        <div className="md:col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold text-slate-400 uppercase">Destinazione</label>
+                          <select
+                            value={item.destinationCantiereId}
+                            onChange={e => {
+                              const updated = [...docForm.items];
+                              updated[idx].destinationCantiereId = e.target.value;
+                              setDocForm({ ...docForm, items: updated });
+                            }}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-2 py-2 text-xs font-bold outline-none truncate"
+                          >
+                            <option value="centrale">Magazzino</option>
+                            {cantieri.map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
 
-                      {/* Remove Row */}
-                      <div className="md:col-span-1 flex justify-center pt-3 md:pt-0">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItemRow(idx)}
-                          disabled={docForm.items.length <= 1}
-                          className="p-2 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {/* Remove Row */}
+                        <div className="md:col-span-1 flex justify-center pt-3 md:pt-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItemRow(idx)}
+                            disabled={docForm.items.length <= 1}
+                            className="p-2 text-slate-300 hover:text-red-500 disabled:opacity-30 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1337,27 +1385,34 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                     <tr>
                       <th className="px-4 py-3">Materiale</th>
                       <th className="px-4 py-3">Quantità</th>
-                      <th className="px-4 py-3">Prezzo Unit.</th>
+                      <th className="px-4 py-3 text-right">Prezzo Unit. Netto</th>
                       <th className="px-4 py-3">Destinazione</th>
-                      <th className="px-4 py-3 text-right">Totale</th>
+                      <th className="px-4 py-3 text-right">Totale Riga (Netto)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {selectedDocDetails.items.map((item, idx) => {
                       const cDest = cantieri.find(c => c.id === item.destinationCantiereId);
+                      const rowTot = typeof item.totalPrice === 'number' && item.totalPrice >= 0 
+                        ? item.totalPrice 
+                        : (item.quantity * item.unitPrice);
+                      const unitNetPrice = item.quantity > 0 ? (rowTot / item.quantity) : item.unitPrice;
+
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 font-bold text-slate-900">{item.materialeName}</td>
                           <td className="px-4 py-3 font-semibold">{item.quantity} {item.unit}</td>
-                          <td className="px-4 py-3 text-slate-500">€{item.unitPrice.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-slate-600">
+                            €{unitNetPrice.toFixed(2)} / {item.unit || 'pz'}
+                          </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 font-bold text-[10px] text-slate-700">
                               <Building2 className="w-3 h-3 text-amber-500" />
-                              {item.destinationCantiereId === 'centrale' ? 'Magazzino Centrale' : cDest?.name || 'Cantiere'}
+                              {item.destinationCantiereId === 'centrale' ? 'Magazzino' : cDest?.name || 'Cantiere'}
                             </span>
                           </td>
                           <td className="px-4 py-3 font-black text-slate-900 text-right">
-                            €{item.totalPrice.toFixed(2)}
+                            €{rowTot.toFixed(2)}
                           </td>
                         </tr>
                       );

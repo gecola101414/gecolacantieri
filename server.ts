@@ -61,7 +61,7 @@ REGOLE TASSATIVE PER L'ANALISI PDF MULTI-PAGINA:
 1. ESTRAI TUTTI GLI ARTICOLI / MATERIALI: Leggi attentamente tutte le pagine del documento. NON OMETTERE O SALTARE NESSUN ARTICOLO O RIGA, anche se il documento si sviluppa su 2, 3, 5 o più pagine con 50 o 100+ articoli. Includi ciascuna riga nel vettore "items".
 2. INTESTAZIONE E CANTIERI: Rileva con precisione il Fornitore (Cedente), Destinatario (Cessionario), Cantiere di consegna / Destinazione, Numero Documento e Data.
 3. TOTALE IVA ESCLUSA (IMPONIBILE): Calcola "totalAmount" e "imponibile" come ESATTAMENTE la somma degli importi totali di tutte le righe articoli estratte ("items").
-4. DETTAGLIO RIGHE: Per ciascuna riga estrai: codice articolo (se visibile), nome materiale completo, quantità, unità di misura (es: ql, nr, pz, m, kg, sacchi, m2, mc, set, rotoli), prezzo unitario e importo totale di riga.
+4. DETTAGLIO RIGHE E PREZZI: Per ciascuna riga estrai l'IMPORTO TOTALE NETTO DI RIGA ('totalPrice') riportato sul documento (al netto di sconti). Il PREZZO UNITARIO ('unitPrice') deve essere SEMPRE ricavato dividendo l'importo totale netto per la quantità (unitPrice = totalPrice / quantity) affinché rifletta il valore netto unitario effettivo.
 5. DESCRIZIONE RIASSUNTIVA: Genera una frase sintetica con i materiali principali ed i loro quantitativi.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
@@ -129,17 +129,29 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
       const responseText = response.text?.trim() || '{}';
       const parsedData = JSON.parse(responseText);
 
-      // Force totalAmount and imponibile to be the exact sum of extracted items
+      // Force items to have net totalPrice as primary ground truth, and calculate net unitPrice as ratio
       if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
-        const calculatedSum = parsedData.items.reduce((s: number, it: any) => {
+        let totalItemsSum = 0;
+        parsedData.items = parsedData.items.map((it: any) => {
           const qty = Number(it.quantity) || 1;
-          const price = Number(it.unitPrice) || 0;
-          const lineTot = typeof it.totalPrice === 'number' && it.totalPrice > 0 ? it.totalPrice : (qty * price);
-          return s + lineTot;
-        }, 0);
-        if (calculatedSum > 0) {
-          parsedData.totalAmount = parseFloat(calculatedSum.toFixed(2));
-          parsedData.imponibile = parseFloat(calculatedSum.toFixed(2));
+          let lineTot = Number(it.totalPrice) || 0;
+          if (lineTot <= 0 && Number(it.unitPrice) > 0) {
+            lineTot = qty * Number(it.unitPrice);
+          }
+          lineTot = parseFloat(lineTot.toFixed(2));
+          totalItemsSum += lineTot;
+          const netUnitPrice = qty > 0 ? parseFloat((lineTot / qty).toFixed(4)) : (Number(it.unitPrice) || 0);
+          return {
+            ...it,
+            quantity: qty,
+            unitPrice: netUnitPrice,
+            totalPrice: lineTot,
+          };
+        });
+
+        if (totalItemsSum > 0) {
+          parsedData.totalAmount = parseFloat(totalItemsSum.toFixed(2));
+          parsedData.imponibile = parseFloat(totalItemsSum.toFixed(2));
         }
       }
 
