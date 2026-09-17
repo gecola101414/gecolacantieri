@@ -446,12 +446,12 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     });
   }
 
-  // Calculate sum of extracted items
-  const itemsSum = parseFloat(items.reduce((acc, it) => acc + (it.totalPrice || it.quantity * it.unitPrice), 0).toFixed(2));
+  // Calculate sum of extracted items as fallback
+  const itemsSum = parseFloat(items.reduce((acc, it) => acc + (it.totalPrice || 0), 0).toFixed(2));
 
-  // The value excl. VAT (imponibile / totale) must strictly be calculated by summing the detected line items
-  let totalAmount = itemsSum > 0 ? itemsSum : (printedDocumentTotal > 0 ? printedDocumentTotal : 0);
-  let finalImponibile = itemsSum > 0 ? itemsSum : (imponibile > 0 ? imponibile : printedDocumentTotal);
+  // The value excl. VAT (imponibile / totale) must be taken directly from the document's printed net total without VAT
+  let totalAmount = printedDocumentTotal > 0 ? printedDocumentTotal : (imponibile > 0 ? imponibile : itemsSum);
+  let finalImponibile = imponibile > 0 ? imponibile : (printedDocumentTotal > 0 ? printedDocumentTotal : itemsSum);
 
   // Generate a short, informative summary description of the materials
   const summaryDescription = items.map(it => `${it.materialeName} (${it.quantity} ${it.unit})`).join(', ');

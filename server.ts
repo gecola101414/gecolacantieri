@@ -55,20 +55,20 @@ app.post('/api/analyze-bolla', async (req, res) => {
     const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
 Il tuo compito è analizzare il testo o l'immagine di un documento (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
 
-REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA (CONCENTRAZIONE ESCLUSIVA SUI TOTALI PRIMA DELL'IVA):
-1. ESTRAI TUTTI GLI ARTICOLI / MATERIALI: Leggi attentamente tutte le pagine del documento senza omettere nessuna riga.
-2. INTESTAZIONE E CANTIERI: Rileva con precisione Fornitore, Numero Documento, Data e Cantiere di destinazione.
-3. RILEVAZIONE DELLE COLONNE DI RIGA (ESTRAI SOLTANTO QUESTI DATI DIRETTI DALLA BOLLA, NESSUN CALCOLO):
+REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
+1. RILEVAZIONE DI OGNI COLONNA DI RIGA (ESTRAI SOLTANTO I DATI DIRETTI RILEVATI DALLA BOLLA/FATTURA, SENZA FARE NESSUNA OPERAZIONE NÉ DI SOMMA NÉ DI MOLTIPLICAZIONE):
    - "code": Codice articolo se presente sul documento (es. "EEDSABBIA02").
    - "materialeName": Descrizione completa del materiale.
    - "unit": Unità di misura (es. "ql", "mc", "pz", "kg", "m").
    - "quantity": Quantità riportata sul documento.
-   - "totalPrice": L'IMPORTO TOTALE NETTO DI RIGA situato A DESTRA NELL'ULTIMA COLONNA PRIMA DELL'IVA (es. "Importo Netto", "Totale Riga", "Importo").
-   ATTENZIONE TASSATIVA:
-   - "totalPrice" DEVE PRENDERE ESCLUSIVAMENTE IL PREZZO TOTALE CHE SI TROVA NELL'ULTIMA COLONNA A DESTRA PRIMA DELL'IVA!
-   - NON confondere l'importo totale di riga con il prezzo unitario. I prezzi unitari si trovano dopo la quantità, mentre i PREZZI TOTALI DI RIGA si trovano sempre a destra prima dell'IVA.
-4. UNICO CALCOLO CONSENTITO:
-   - "totalAmount" e "imponibile": sommare tutti i "totalPrice" di riga dell'ultima colonna per ottenere il totale generale del documento (IVA esclusa).
+   - "unitPrice": Prezzo unitario riportato sulla colonna del documento.
+   - "discount": Eventuale sconto / sconti di riga (es. "10%", "5%+3%", "15" o "" se assente).
+   - "totalPrice": L'IMPORTO TOTALE NETTO DI RIGA situato A DESTRA NELL'ULTIMA COLONNA PRIMA DELL'IVA.
+   ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori rilevati nelle colonne del documento.
+
+2. TOTALE GENERALE DEL DOCUMENTO (TOTALE SENZA IVA / IMPONIBILE):
+   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (Totale Imponibile / Totale Netto) RILEVATO DALLA BOLLA O FATTURA (solitamente nel piè di pagina o nel riepilogo totali del documento).
+   - NON fare operazioni di somma delle righe per calcolare il totale. Il totale del documento dev'essere quello nativo riportato sulla bolla/fattura senza IVA.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
@@ -86,6 +86,8 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
       "materialeName": "Descrizione materiale (es. SABBIA FINE LAVATA 0/2)",
       "quantity": 16.0,
       "unit": "ql",
+      "unitPrice": 3.48,
+      "discount": "10%",
       "totalPrice": 55.62
     }
   ],
@@ -133,26 +135,23 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
     const responseText = response.text?.trim() || '{}';
     const parsedData = JSON.parse(responseText);
 
-    // Master rule: preserve exact code, description, unit, quantity and rightmost column totalPrice from bolla. Sum totalPrices for document total.
+    // Map extracted items preserving all raw columns without altering unitPrice, discount, totalPrice or calculating sums
     if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
-      let totalItemsSum = 0;
       parsedData.items = parsedData.items.map((it: any) => {
         const qty = Number(it.quantity) || 0;
+        const uPrice = Number(it.unitPrice) || 0;
         const lineTot = Number(it.totalPrice) || 0;
-        totalItemsSum += lineTot;
+        const disc = it.discount ? String(it.discount).trim() : '';
         return {
           code: it.code ? String(it.code).trim() : '',
           materialeName: it.materialeName ? String(it.materialeName).trim() : 'Materiale',
           quantity: qty,
           unit: it.unit ? String(it.unit).trim() : 'pz',
-          totalPrice: parseFloat(lineTot.toFixed(2)),
+          unitPrice: uPrice,
+          discount: disc,
+          totalPrice: lineTot,
         };
       });
-
-      if (totalItemsSum > 0) {
-        parsedData.totalAmount = parseFloat(totalItemsSum.toFixed(2));
-        parsedData.imponibile = parseFloat(totalItemsSum.toFixed(2));
-      }
     }
 
     return res.json({

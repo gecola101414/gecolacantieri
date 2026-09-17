@@ -147,6 +147,7 @@ export interface StockItem {
 export type DocumentType = 'bolla' | 'fattura';
 
 export interface DocumentItem {
+  code?: string;
   materialeId: string;
   materialeName: string;
   quantity: number;

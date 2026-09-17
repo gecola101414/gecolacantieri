@@ -1,6 +1,11 @@
 {
-  "name": "Gecola Cantieri",
-  "description": "Piattaforma cloud per il collegamento tra server aziendale e collaboratori sui cantieri. Gestione presenze, mezzi, rapportini e logistica materiali con accettazione carichi e archiviazione fotografica.",
-  "requestFramePermissions": ["camera", "geolocation"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "name": "CantieriCloud Pro_1",
+  "description": "Piattaforma professionale cloud per la contabilità cantieri, gestione mezzi, personale, SAL, acconti e rapportini giornalieri per capicantieri e operai.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
