@@ -1,4 +1,79 @@
-export type UserRole = 'admin' | 'dirigente' | 'operativo';
+export type UserRole = 
+  | 'admin' 
+  | 'dirigente' 
+  | 'capo_cantiere' 
+  | 'geometra_contabile' 
+  | 'amministrativo_contabile' 
+  | 'operativo';
+
+export interface UserPermissions {
+  rapportini: boolean;     // Capacità di creare/vedere/compilare rapportini per i cantieri
+  documentale: boolean;    // Capacità di gestire/consultare bolle, DDT e documenti tecnici
+  chatta: boolean;         // Accesso alla chat di cantiere e invio scatti/messaggi
+  amministrativo: boolean; // Accesso alla contabilità, prezzi, SAL e fatturazione
+  tecnico: boolean;        // Accesso e interventi sul modulo tecnico
+  canEdit: boolean;        // Se false (es. Dirigente), l'utente è in SOLA LETTURA (visiona tutto, non modifica nulla)
+}
+
+export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
+  admin: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: true,
+    tecnico: true,
+    canEdit: true,
+  },
+  dirigente: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: true,
+    tecnico: true,
+    canEdit: false, // Può visionare TUTTO ma non può modificare nulla
+  },
+  capo_cantiere: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: false,
+    tecnico: true,
+    canEdit: true,
+  },
+  geometra_contabile: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: true,
+    tecnico: true,
+    canEdit: true,
+  },
+  amministrativo_contabile: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: true,
+    tecnico: false,
+    canEdit: true,
+  },
+  operativo: {
+    rapportini: true,
+    documentale: false,
+    chatta: true,
+    amministrativo: false,
+    tecnico: false,
+    canEdit: true,
+  },
+};
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  admin: 'Amministratore Server',
+  dirigente: 'Dirigente (Supervisione Sola Lettura)',
+  capo_cantiere: 'Capo Cantiere',
+  geometra_contabile: 'Geometra Contabile',
+  amministrativo_contabile: 'Amministrativo Contabile',
+  operativo: 'Operatore / Operaio',
+};
 
 export interface Company {
   id: string;
@@ -16,6 +91,7 @@ export interface UserAccount {
   username: string;
   password: string; // password iniziale '1234' o personalizzata
   role: UserRole;
+  permissions?: UserPermissions; // Permessi specifici assegnati dal responsabile del server
   mustChangePassword: boolean;
   cantiereId?: string; // Optional assignment for site operatives
   phone: string;

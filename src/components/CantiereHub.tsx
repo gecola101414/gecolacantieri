@@ -81,6 +81,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   onOpenPhotoLightbox,
   initialTab = 'materiali',
 }) => {
+  const isReadOnly = currentUser.role === 'dirigente' || currentUser.permissions?.canEdit === false;
+
   const [activeTab, setActiveTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>(initialTab);
 
   // Chat State
@@ -447,6 +449,11 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 }`}>
                   {cantiere.status === 'in_corso' ? 'In Corso' : cantiere.status}
                 </span>
+                {isReadOnly && (
+                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0 bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1">
+                    <Eye className="w-3 h-3 text-amber-400" /> Sola Lettura
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
                 <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
@@ -455,8 +462,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
             </div>
           </div>
 
-          {/* New Rapportino Quick Button (visible on top bar) */}
-          {onCreateRapportinoForCantiere && (
+          {/* New Rapportino Quick Button (visible on top bar if not read-only) */}
+          {!isReadOnly && onCreateRapportinoForCantiere && (
             <button
               onClick={() => onCreateRapportinoForCantiere(cantiere)}
               className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-lg shrink-0 transition-all"
@@ -1105,6 +1112,11 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                     </button>
                   </div>
                 </div>
+              ) : isReadOnly ? (
+                <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl text-center text-xs font-medium text-amber-300 flex items-center justify-center gap-2">
+                  <Eye className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Account Dirigente (Sola Lettura): puoi consultare chat e foto di cantiere.</span>
+                </div>
               ) : (
                 // Text & Mic Input Bar
                 <form onSubmit={handleSendTextMessage} className="flex items-center gap-2">
@@ -1158,13 +1170,15 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 <h3 className="text-xl font-black text-white mt-0.5">{cantiereDocs.length} Documenti Archiviati</h3>
                 <p className="text-xs text-slate-400 mt-1">Planimetrie, computi, relazioni tecniche, PSC e schede materiali.</p>
               </div>
-              <button
-                onClick={() => setShowUploadModal(true)}
-                className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all"
-              >
-                <UploadCloud className="w-4 h-4 stroke-[2.5]" />
-                Carica Documento Tecnico
-              </button>
+              {!isReadOnly && (
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all"
+                >
+                  <UploadCloud className="w-4 h-4 stroke-[2.5]" />
+                  Carica Documento Tecnico
+                </button>
+              )}
             </div>
 
             {/* Category Filter Pills */}

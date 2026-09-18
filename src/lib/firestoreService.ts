@@ -35,6 +35,14 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 function sanitizeData<T>(data: T, visited = new WeakSet()): T {
   if (data === null || data === undefined) return data;
+
+  if (typeof data === 'number') {
+    if (isNaN(data) || !isFinite(data)) {
+      return 0 as any;
+    }
+    return data;
+  }
+
   if (typeof data !== 'object') return data;
 
   // Prevent infinite call stack from circular references
@@ -899,7 +907,40 @@ export const firestoreService = {
   async saveMaterialDocument(companyId: string, docData: MaterialDocument): Promise<void> {
     const path = `companies/${companyId}/documents/${docData.id}`;
     try {
-      await setDoc(doc(db, 'companies', companyId, 'documents', docData.id), sanitizeData(docData));
+      let finalDoc: MaterialDocument = { ...docData };
+
+      // Safe Base64 PDF/Image handling to prevent 1MB Firestore document size limit crash
+      if (finalDoc.pdfDataUrl && typeof finalDoc.pdfDataUrl === 'string' && finalDoc.pdfDataUrl.startsWith('data:')) {
+        try {
+          // Attempt upload to Firebase Storage
+          const fileRef = ref(storage, `companies/${companyId}/documents/${docData.id}_${docData.fileName || 'document.pdf'}`);
+          const base64Parts = finalDoc.pdfDataUrl.split(',');
+          if (base64Parts.length > 1) {
+            const mimeMatch = base64Parts[0].match(/:(.*?);/);
+            const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+            const bstr = atob(base64Parts[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+              u8arr[n] = bstr.charCodeAt(n);
+            }
+            const blob = new Blob([u8arr], { type: mime });
+            await uploadBytes(fileRef, blob);
+            const downloadUrl = await getDownloadURL(fileRef);
+            finalDoc.pdfDataUrl = downloadUrl;
+          }
+        } catch (storageErr) {
+          console.warn('Firebase Storage upload unavailable or failed, checking Base64 payload length:', storageErr);
+          // If base64 string exceeds 300KB, strip it from the document payload to guarantee Firestore size < 1MB
+          if (finalDoc.pdfDataUrl.length > 300000) {
+            console.warn('pdfDataUrl exceeds 300KB and storage upload failed. Omitting raw Base64 string to prevent 1MB Firestore size limit error.');
+            delete finalDoc.pdfDataUrl;
+          }
+        }
+      }
+
+      const cleanDoc = sanitizeData(finalDoc);
+      await setDoc(doc(db, 'companies', companyId, 'documents', docData.id), cleanDoc);
       
       // Create movements for each spacchettamento item
       for (let idx = 0; idx < docData.items.length; idx++) {

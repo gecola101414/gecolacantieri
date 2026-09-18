@@ -221,7 +221,11 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       tPrice = parseFloat((uPrice * (1 - discountPercent / 100)).toFixed(2));
     }
 
-    return { unitPrice: uPrice, discount: disc, totalPrice: tPrice };
+    return { 
+      unitPrice: isNaN(uPrice) || !isFinite(uPrice) ? 0 : uPrice, 
+      discount: disc, 
+      totalPrice: isNaN(tPrice) || !isFinite(tPrice) ? 0 : tPrice 
+    };
   };
 
   // Apply parsed document data to docForm
@@ -602,9 +606,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       setUploadedPdfDataUrl(null);
       setUploadedPdfName(null);
       setExtractedNotice(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error saving document:', err);
-      alert('Errore durante il salvataggio della bolla.');
+      alert(`Errore durante il salvataggio della bolla: ${err?.message || err}`);
     } finally {
       setIsSubmitting(false);
     }

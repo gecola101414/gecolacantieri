@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -167,12 +167,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     status: 'in_corso',
   });
 
-  const [newUser, setNewUser] = useState<Partial<UserAccount>>({
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [newUser, setNewUser] = useState<{
+    id?: string;
+    name: string;
+    username: string;
+    role: UserRole;
+    phone: string;
+    cantiereId: string;
+    permissions: UserPermissions;
+  }>({
     name: '',
     username: '',
-    role: 'operativo',
+    role: 'capo_cantiere',
     phone: '',
     cantiereId: '',
+    permissions: { ...DEFAULT_ROLE_PERMISSIONS.capo_cantiere }
   });
 
   const [newPers, setNewPers] = useState<Partial<Personale>>({
@@ -215,21 +225,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUser.name || !newUser.username) return;
+    const targetRole: UserRole = newUser.role || 'capo_cantiere';
+    const defaultPerms = DEFAULT_ROLE_PERMISSIONS[targetRole] || DEFAULT_ROLE_PERMISSIONS.capo_cantiere;
+
     const u: UserAccount = {
-      id: 'usr-' + Date.now(),
+      id: editingUser ? editingUser.id : ('usr-' + Date.now()),
       companyCode: company ? company.code : 'CANT-0000',
       name: newUser.name,
       username: newUser.username,
-      password: '1234',
-      role: newUser.role as any || 'operativo',
-      mustChangePassword: true,
-      cantiereId: newUser.cantiereId || '',
+      password: editingUser ? editingUser.password : '1234',
+      role: targetRole,
+      permissions: newUser.permissions || defaultPerms,
+      mustChangePassword: editingUser ? editingUser.mustChangePassword : true,
+      cantiereId: newUser.cantiereId || editingUser?.cantiereId || '',
       phone: newUser.phone || '',
-      active: true,
+      active: editingUser ? editingUser.active : true,
+      deviceId: editingUser?.deviceId,
+      pairingCode: editingUser?.pairingCode,
+      pairingCodeExpiresAt: editingUser?.pairingCodeExpiresAt,
+      cantieriAccreditati: editingUser?.cantieriAccreditati || [],
     };
     onSaveUser(u);
     setShowAddUserModal(false);
-    setNewUser({ name: '', username: '', role: 'operativo', phone: '' });
+    setEditingUser(null);
+    setNewUser({
+      name: '',
+      username: '',
+      role: 'capo_cantiere',
+      phone: '',
+      cantiereId: '',
+      permissions: { ...DEFAULT_ROLE_PERMISSIONS.capo_cantiere }
+    });
+  };
+
+  const handleStartEditUser = (u: UserAccount) => {
+    setEditingUser(u);
+    const userRole = u.role || 'capo_cantiere';
+    const userPerms = u.permissions || DEFAULT_ROLE_PERMISSIONS[userRole] || DEFAULT_ROLE_PERMISSIONS.operativo;
+    setNewUser({
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      role: userRole,
+      phone: u.phone || '',
+      cantiereId: u.cantiereId || '',
+      permissions: { ...userPerms }
+    });
+    setShowAddUserModal(true);
   };
 
   const handleCreatePersonale = (e: React.FormEvent) => {
@@ -1389,151 +1431,320 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 key="utenti"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="space-y-8"
+                className="space-y-6 w-full max-w-full overflow-x-hidden"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-2xl font-bold text-slate-900">Sicurezza & Accessi</h3>
-                    <p className="text-xs font-medium text-slate-500 mt-1">Gestisci chi può accedere al tuo server cloud aziendale.</p>
+                    <h3 className="text-xl sm:text-2xl font-black text-slate-900">Sicurezza & Permessi Server</h3>
+                    <p className="text-xs font-medium text-slate-500 mt-1">Gestisci ruoli, autorizzazioni per cantiere e dispositivi collegati.</p>
                   </div>
-                  <button onClick={() => setShowAddUserModal(true)} className="bg-slate-950 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-xl flex items-center gap-2 hover:bg-slate-900 transition-all">
-                    <Plus className="w-4 h-4" /> Nuovo Account
+                  <button 
+                    onClick={() => {
+                      setEditingUser(null);
+                      setNewUser({
+                        name: '',
+                        username: '',
+                        role: 'capo_cantiere',
+                        phone: '',
+                        cantiereId: '',
+                        permissions: { ...DEFAULT_ROLE_PERMISSIONS.capo_cantiere }
+                      });
+                      setShowAddUserModal(true);
+                    }} 
+                    className="bg-slate-950 text-white px-5 py-3 rounded-2xl text-xs font-bold shadow-xl flex items-center justify-center gap-2 hover:bg-slate-900 transition-all active:scale-95"
+                  >
+                    <Plus className="w-4 h-4 text-amber-400 stroke-[3]" /> Nuovo Account
                   </button>
                 </div>
 
-                <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+                {/* DESKTOP TABLE VIEW */}
+                <div className="hidden lg:block bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-left">
                       <thead>
                         <tr className="bg-slate-50/50 border-b border-slate-100">
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Utente</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ruolo</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accesso Cantieri</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cellulare Aziendale</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stato Cloud</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Azioni</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Utente</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ruolo & Permessi</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accesso Cantieri</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cellulare</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stato</th>
+                          <th className="px-6 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Azioni</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {users.map(u => (
-                          <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-8 py-5">
-                              <div className="flex items-center gap-4">
-                                <div className={`w-10 h-10 rounded-xl font-bold flex items-center justify-center transition-all ${
-                                  u.active ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20' : 'bg-slate-100 text-slate-400 opacity-50'
-                                }`}>
-                                  {u.name.charAt(0)}
+                        {users.map(u => {
+                          const userRoleLabel = ROLE_LABELS[u.role] || u.role;
+                          const perms = u.permissions || DEFAULT_ROLE_PERMISSIONS[u.role] || DEFAULT_ROLE_PERMISSIONS.operativo;
+
+                          return (
+                            <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="px-6 py-5">
+                                <div className="flex items-center gap-3.5">
+                                  <div className={`w-10 h-10 rounded-xl font-black flex items-center justify-center transition-all shrink-0 ${
+                                    u.active ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'bg-slate-100 text-slate-400'
+                                  }`}>
+                                    {u.name.charAt(0)}
+                                  </div>
+                                  <div>
+                                    <p className={`text-sm font-bold ${u.active ? 'text-slate-900' : 'text-slate-400 italic'}`}>{u.name}</p>
+                                    <p className="text-[10px] font-mono text-slate-500">{u.username}</p>
+                                  </div>
                                 </div>
-                                <div>
-                                  <p className={`text-sm font-bold ${u.active ? 'text-slate-900' : 'text-slate-400 italic'}`}>{u.name}</p>
-                                  <p className="text-[10px] font-mono text-slate-500">{u.username}</p>
+                              </td>
+
+                              <td className="px-6 py-5">
+                                <div className="space-y-1">
+                                  <span className={`inline-block text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-tight ${
+                                    u.role === 'admin' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
+                                    u.role === 'dirigente' ? 'bg-purple-100 text-purple-900 border border-purple-200' :
+                                    u.role === 'capo_cantiere' ? 'bg-blue-100 text-blue-900 border border-blue-200' :
+                                    'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {userRoleLabel}
+                                  </span>
+
+                                  <div className="flex flex-wrap gap-1 max-w-[240px] pt-0.5">
+                                    {perms.rapportini && <span className="text-[8px] font-bold bg-amber-50 text-amber-800 border border-amber-200/60 px-1.5 py-0.2 rounded">📋 Rapportini</span>}
+                                    {perms.documentale && <span className="text-[8px] font-bold bg-blue-50 text-blue-800 border border-blue-200/60 px-1.5 py-0.2 rounded">📦 Doc & Bolle</span>}
+                                    {perms.chatta && <span className="text-[8px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200/60 px-1.5 py-0.2 rounded">💬 Chat</span>}
+                                    {perms.amministrativo && <span className="text-[8px] font-bold bg-purple-50 text-purple-800 border border-purple-200/60 px-1.5 py-0.2 rounded">💶 Amministr.</span>}
+                                    {perms.tecnico && <span className="text-[8px] font-bold bg-slate-100 text-slate-800 border border-slate-200 px-1.5 py-0.2 rounded">🛠️ Tecnico</span>}
+                                    {!perms.canEdit && <span className="text-[8px] font-black bg-amber-500/20 text-amber-900 border border-amber-500/40 px-1.5 py-0.2 rounded">👁️ Sola Lettura</span>}
+                                  </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-8 py-5">
-                              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-tighter ${
-                                u.role === 'admin' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
-                                } ${!u.active && 'opacity-50'}`}>
-                                {u.role}
-                              </span>
-                            </td>
-                            <td className="px-8 py-5">
-                              <div className="flex flex-wrap gap-1 max-w-[200px]">
-                                {u.role === 'admin' ? (
-                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest italic">Tutti i cantieri</span>
-                                ) : (
-                                  <>
-                                    {(u.cantieriAccreditati || []).length > 0 ? (
-                                      <div className="flex flex-wrap gap-1">
-                                        {(u.cantieriAccreditati || []).map(cid => {
-                                          const c = cantieri.find(ct => ct.id === cid);
-                                          return (
-                                            <span key={cid} className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200">
-                                              {c?.name.split(' ')[0] || 'N/A'}
-                                            </span>
-                                          );
-                                        })}
-                                      </div>
-                                    ) : (
-                                      <span className="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Nessuno</span>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-8 py-5">
-                              {u.deviceId ? (
-                                <div className="flex items-center gap-1.5">
-                                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full" title={`Device ID: ${u.deviceId}`}>
+                              </td>
+
+                              <td className="px-6 py-5">
+                                <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                  {u.role === 'admin' || u.role === 'dirigente' ? (
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider italic">Tutti i cantieri</span>
+                                  ) : (
+                                    <>
+                                      {(u.cantieriAccreditati || []).length > 0 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {(u.cantieriAccreditati || []).map(cid => {
+                                            const c = cantieri.find(ct => ct.id === cid);
+                                            return (
+                                              <span key={cid} className="text-[9px] font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200">
+                                                {c?.name.split(' ')[0] || 'N/A'}
+                                              </span>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-rose-500 uppercase tracking-widest">Nessuno</span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-6 py-5">
+                                {u.deviceId ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
                                     <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Collegato
                                   </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-full">
+                                    <Smartphone className="w-3.5 h-3.5 text-slate-300" /> Non associato
+                                  </span>
+                                )}
+                              </td>
+
+                              <td className="px-6 py-5">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => onSaveUser({ ...u, active: !u.active })}
+                                    className={`w-9 h-5 rounded-full transition-all relative ${u.active ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                                  >
+                                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${u.active ? 'left-4.5' : 'left-0.5'}`}></div>
+                                  </button>
+                                  <span className={`text-[10px] font-bold uppercase ${u.active ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                    {u.active ? 'Attivo' : 'Spento'}
+                                  </span>
                                 </div>
-                              ) : (
-                                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-400 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-full">
-                                  <Smartphone className="w-3.5 h-3.5 text-slate-300" /> Non associato
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-8 py-5">
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => onSaveUser({ ...u, active: !u.active })}
-                                  className={`w-10 h-6 rounded-full transition-all relative ${u.active ? 'bg-emerald-500' : 'bg-slate-200'}`}
-                                >
-                                  <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${u.active ? 'left-5' : 'left-1'}`}></div>
-                                </button>
-                                <span className={`text-[10px] font-bold uppercase ${u.active ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                  {u.active ? 'Attivo' : 'Spento'}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-5 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                <button 
-                                  onClick={() => handleGeneratePairingCode(u)}
-                                  className="p-2 hover:bg-amber-50 border border-transparent hover:border-amber-200 rounded-xl transition-all group" 
-                                  title="Collega Cellulare con Chiave a 4 Cifre"
-                                >
-                                  <KeyRound className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
-                                </button>
-                                {u.role !== 'admin' && (
-                                  <button 
-                                    onClick={() => setUserToAccredit(u)}
-                                    className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
-                                    title="Gestisci Accesso Cantieri"
+                              </td>
+
+                              <td className="px-6 py-5 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleStartEditUser(u)}
+                                    className="p-2 hover:bg-amber-50 border border-transparent hover:border-amber-200 rounded-xl transition-all group"
+                                    title="Modifica Ruolo & Permessi"
                                   >
-                                    <Building2 className="w-4 h-4 text-slate-400 group-hover:text-emerald-500" />
+                                    <Edit3 className="w-4 h-4 text-amber-600 group-hover:scale-110 transition-transform" />
                                   </button>
-                                )}
-                                <button 
-                                  onClick={() => handleResetDevice(u.id)}
-                                  className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
-                                  title="Reset Dispositivo (Scollega Cellulare)"
-                                >
-                                  <Smartphone className="w-4 h-4 text-slate-400 group-hover:text-sky-500" />
-                                </button>
-                                <button 
-                                  onClick={() => handleResetPassword(u.id)}
-                                  className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
-                                  title="Reset Password (1234)"
-                                >
-                                  <Shield className="w-4 h-4 text-slate-400 group-hover:text-amber-500" />
-                                </button>
-                                {u.id !== currentUser.id && (
+
                                   <button 
-                                    onClick={() => handleDeleteUser(u.id)}
-                                    className="p-2 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-xl transition-all group"
+                                    onClick={() => handleGeneratePairingCode(u)}
+                                    className="p-2 hover:bg-amber-50 border border-transparent hover:border-amber-200 rounded-xl transition-all group" 
+                                    title="Collega Cellulare con Chiave a 4 Cifre"
                                   >
-                                    <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-rose-500" />
+                                    <KeyRound className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
                                   </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+
+                                  {u.role !== 'admin' && (
+                                    <button 
+                                      onClick={() => setUserToAccredit(u)}
+                                      className="p-2 hover:bg-slate-100 border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                      title="Gestisci Accesso Cantieri"
+                                    >
+                                      <Building2 className="w-4 h-4 text-slate-400 group-hover:text-emerald-500" />
+                                    </button>
+                                  )}
+
+                                  <button 
+                                    onClick={() => handleResetDevice(u.id)}
+                                    className="p-2 hover:bg-slate-100 border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                    title="Reset Dispositivo (Scollega Cellulare)"
+                                  >
+                                    <Smartphone className="w-4 h-4 text-slate-400 group-hover:text-sky-500" />
+                                  </button>
+
+                                  <button 
+                                    onClick={() => handleResetPassword(u.id)}
+                                    className="p-2 hover:bg-slate-100 border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
+                                    title="Reset Password (1234)"
+                                  >
+                                    <Shield className="w-4 h-4 text-slate-400 group-hover:text-amber-500" />
+                                  </button>
+
+                                  {u.id !== currentUser.id && (
+                                    <button 
+                                      onClick={() => handleDeleteUser(u.id)}
+                                      className="p-2 hover:bg-rose-50 border border-transparent hover:border-rose-100 rounded-xl transition-all group"
+                                      title="Elimina Utente"
+                                    >
+                                      <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-rose-500" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
+                </div>
+
+                {/* MOBILE VIEW FOR UTENTI (VERTICAL STACKED CARDS - 0 HORIZONTAL SCROLL) */}
+                <div className="block lg:hidden space-y-4 w-full max-w-full">
+                  {users.map(u => {
+                    const userRoleLabel = ROLE_LABELS[u.role] || u.role;
+                    const perms = u.permissions || DEFAULT_ROLE_PERMISSIONS[u.role] || DEFAULT_ROLE_PERMISSIONS.operativo;
+
+                    return (
+                      <div key={u.id} className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-11 h-11 rounded-2xl font-black text-sm flex items-center justify-center shrink-0 ${
+                              u.active ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20' : 'bg-slate-100 text-slate-400'
+                            }`}>
+                              {u.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className={`text-sm font-bold ${u.active ? 'text-slate-900' : 'text-slate-400 italic'}`}>{u.name}</p>
+                              <p className="text-[10px] font-mono text-slate-500">{u.username}</p>
+                              <span className={`inline-block mt-1 text-[9px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-tight ${
+                                u.role === 'admin' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
+                                u.role === 'dirigente' ? 'bg-purple-100 text-purple-900 border border-purple-200' :
+                                u.role === 'capo_cantiere' ? 'bg-blue-100 text-blue-900 border border-blue-200' :
+                                'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}>
+                                {userRoleLabel}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => onSaveUser({ ...u, active: !u.active })}
+                              className={`w-9 h-5 rounded-full transition-all relative ${u.active ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                            >
+                              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all ${u.active ? 'left-4.5' : 'left-0.5'}`}></div>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Permessi Assegnati */}
+                        <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 space-y-1.5">
+                          <p className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Permessi & Moduli Server</p>
+                          <div className="flex flex-wrap gap-1">
+                            {perms.rapportini && <span className="text-[9px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md">📋 Rapportini</span>}
+                            {perms.documentale && <span className="text-[9px] font-bold bg-blue-100 text-blue-900 px-2 py-0.5 rounded-md">📦 Doc & Bolle</span>}
+                            {perms.chatta && <span className="text-[9px] font-bold bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-md">💬 Chat</span>}
+                            {perms.amministrativo && <span className="text-[9px] font-bold bg-purple-100 text-purple-900 px-2 py-0.5 rounded-md">💶 Amministrazione</span>}
+                            {perms.tecnico && <span className="text-[9px] font-bold bg-slate-200 text-slate-900 px-2 py-0.5 rounded-md">🛠️ Tecnico</span>}
+                            {!perms.canEdit && <span className="text-[9px] font-black bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md">👁️ Sola Lettura</span>}
+                          </div>
+                        </div>
+
+                        {/* Status Cellulare */}
+                        <div className="flex items-center justify-between text-[11px] pt-1">
+                          {u.deviceId ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 inline-flex items-center gap-1">
+                              <Smartphone className="w-3 h-3 text-emerald-600" /> Cellulare Collegato
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2.5 py-0.5 rounded-full border border-slate-200 inline-flex items-center gap-1">
+                              <Smartphone className="w-3 h-3 text-slate-300" /> Cellulare Non Associato
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Pulsanti Azione */}
+                        <div className="flex flex-wrap items-center justify-end gap-1.5 pt-2 border-t border-slate-100">
+                          <button
+                            onClick={() => handleStartEditUser(u)}
+                            className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-xl text-xs font-bold flex items-center gap-1 transition-colors"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Modifica Permessi</span>
+                          </button>
+                          <button
+                            onClick={() => handleGeneratePairingCode(u)}
+                            className="p-2 bg-slate-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold transition-colors"
+                            title="Collega Cellulare"
+                          >
+                            <KeyRound className="w-4 h-4 text-amber-600" />
+                          </button>
+                          {u.role !== 'admin' && (
+                            <button
+                              onClick={() => setUserToAccredit(u)}
+                              className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                              title="Accesso Cantieri"
+                            >
+                              <Building2 className="w-4 h-4 text-slate-600" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleResetDevice(u.id)}
+                            className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                            title="Reset Device"
+                          >
+                            <Smartphone className="w-4 h-4 text-sky-600" />
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(u.id)}
+                            className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                            title="Reset Password"
+                          >
+                            <Shield className="w-4 h-4 text-amber-600" />
+                          </button>
+                          {u.id !== currentUser.id && (
+                            <button
+                              onClick={() => handleDeleteUser(u.id)}
+                              className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-colors"
+                              title="Elimina Utente"
+                            >
+                              <Trash2 className="w-4 h-4 text-rose-600" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </motion.div>
             )}
@@ -1765,91 +1976,212 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Add User Modal */}
+      {/* Add / Edit User Modal */}
       {showAddUserModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-10 border border-slate-200"
+            className="bg-white rounded-[32px] sm:rounded-[40px] shadow-2xl max-w-2xl w-full p-6 sm:p-8 border border-slate-200 my-auto max-h-[90vh] overflow-y-auto custom-scrollbar"
           >
-            <div className="flex items-center justify-between mb-8">
-              <h3 className="text-2xl font-bold text-slate-900">Nuovo Membro Cloud</h3>
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-full">
+                  Gestione Utenze Server
+                </span>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-1">
+                  {editingUser ? 'Modifica Account & Permessi' : 'Nuovo Membro Cloud'}
+                </h3>
+              </div>
               <div className="bg-amber-500/10 p-3 rounded-2xl">
                 <Users className="w-6 h-6 text-amber-500" />
               </div>
             </div>
             
-            <form onSubmit={handleCreateUser} className="space-y-6">
-              <div className="space-y-2">
+            <form onSubmit={handleCreateUser} className="space-y-5">
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome Completo *</label>
                 <input 
                   type="text" 
                   value={newUser.name}
                   onChange={e => setNewUser({...newUser, name: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-medium"
                   required 
-                  placeholder="es. Mario Rossi"
+                  placeholder="es. Geom. Marco Bianchi"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Username (per Login) *</label>
                   <input 
                     type="text" 
                     value={newUser.username}
                     onChange={e => setNewUser({...newUser, username: e.target.value.toLowerCase().replace(/\s/g, '')})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-mono"
                     required 
-                    placeholder="es. mario.rossi"
+                    placeholder="es. marco.bianchi"
                   />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Ruolo Piattaforma *</label>
                   <select 
                     value={newUser.role}
-                    onChange={e => setNewUser({...newUser, role: e.target.value as any})}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                    onChange={e => {
+                      const selectedRole = e.target.value as UserRole;
+                      const defaultPerms = DEFAULT_ROLE_PERMISSIONS[selectedRole] || DEFAULT_ROLE_PERMISSIONS.capo_cantiere;
+                      setNewUser({
+                        ...newUser,
+                        role: selectedRole,
+                        permissions: { ...defaultPerms }
+                      });
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-bold"
                   >
-                    <option value="operativo">Operativo (Solo App Cellulare)</option>
-                    <option value="dirigente">Dirigente (Gestione Limitata)</option>
-                    <option value="admin">Amministratore (Accesso Totale)</option>
+                    <option value="capo_cantiere">Capo Cantiere</option>
+                    <option value="geometra_contabile">Geometra Contabile</option>
+                    <option value="amministrativo_contabile">Amministrativo Contabile</option>
+                    <option value="dirigente">Dirigente (Supervisione Sola Lettura)</option>
+                    <option value="admin">Amministratore Server</option>
+                    <option value="operativo">Operatore / Operaio</option>
                   </select>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Telefono (facoltativo)</label>
+              {/* PERMESSI SPECIFICI PER RUOLO ASSEGNATI DAL RESPONSABILE SERVER */}
+              <div className="space-y-3 bg-slate-50/80 p-4 rounded-3xl border border-slate-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Capacità Interazione Cantieri</span>
+                    <h4 className="text-xs font-bold text-slate-900 mt-0.5">Permessi e Moduli Abilitati dal Server</h4>
+                  </div>
+                  <Shield className="w-4 h-4 text-amber-500" />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {/* Rapportini */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={newUser.permissions?.rapportini ?? true}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, rapportini: e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-bold text-slate-800">📋 Rapportini Cantiere</span>
+                  </label>
+
+                  {/* Documentale */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={newUser.permissions?.documentale ?? true}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, documentale: e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-bold text-slate-800">📦 Documentale & Bolle</span>
+                  </label>
+
+                  {/* Chatta */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={newUser.permissions?.chatta ?? true}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, chatta: e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-bold text-slate-800">💬 Chat Cantiere & Foto</span>
+                  </label>
+
+                  {/* Amministrativo */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={newUser.permissions?.amministrativo ?? false}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, amministrativo: e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-bold text-slate-800">💶 Modulo Amministrativo</span>
+                  </label>
+
+                  {/* Tecnico */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={newUser.permissions?.tecnico ?? true}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, tecnico: e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-bold text-slate-800">🛠️ Modulo Tecnico</span>
+                  </label>
+
+                  {/* Sola Lettura (CanEdit) */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer hover:border-amber-400 transition-all">
+                    <input
+                      type="checkbox"
+                      checked={!(newUser.permissions?.canEdit ?? true)}
+                      onChange={e => setNewUser(prev => ({
+                        ...prev,
+                        permissions: { ...prev.permissions, canEdit: !e.target.checked }
+                      }))}
+                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-400"
+                    />
+                    <span className="text-xs font-black text-amber-900">👁️ Sola Lettura (Dirigente)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Telefono Cellulare (facoltativo)</label>
                 <input 
                   type="text" 
                   value={newUser.phone}
                   onChange={e => setNewUser({...newUser, phone: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-medium"
                   placeholder="es. +39 333 1234567"
                 />
               </div>
 
-              <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
-                <p className="text-[10px] font-bold text-amber-700 uppercase mb-1">Nota Sicurezza</p>
-                <p className="text-[11px] text-amber-800 leading-relaxed">
-                  La password iniziale sarà <span className="font-bold">1234</span>. L'utente dovrà cambiarla al primo accesso. Il login sarà legato al primo cellulare utilizzato.
-                </p>
-              </div>
+              {!editingUser && (
+                <div className="bg-amber-50 p-4 rounded-2xl border border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-700 uppercase mb-0.5">Nota Sicurezza</p>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    La password iniziale per l'accesso sarà <span className="font-bold">1234</span>. L'utente dovrà cambiarla al primo login.
+                  </p>
+                </div>
+              )}
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-3 pt-2">
                 <button 
                   type="button" 
-                  onClick={() => setShowAddUserModal(false)}
-                  className="flex-1 bg-slate-100 text-slate-900 font-bold py-4 rounded-2xl text-xs"
+                  onClick={() => {
+                    setShowAddUserModal(false);
+                    setEditingUser(null);
+                  }}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-3.5 rounded-2xl text-xs transition-colors"
                 >
                   Annulla
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all"
+                  className="flex-1 bg-slate-950 text-white font-bold py-3.5 rounded-2xl text-xs shadow-xl hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
                 >
-                  Crea Account
+                  <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                  <span>{editingUser ? 'Salva Permessi & Ruolo' : 'Crea Account'}</span>
                 </button>
               </div>
             </form>
