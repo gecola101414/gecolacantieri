@@ -11,7 +11,7 @@ import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
 import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -35,6 +35,7 @@ export default function App() {
   const [contabilita, setContabilita] = useState<ContabilitaEntry[]>(initialLocalData.contabilita);
   const [rapportini, setRapportini] = useState<Rapportino[]>(initialLocalData.rapportini);
   const [materiali, setMateriali] = useState<Materiale[]>(initialLocalData.materiali || []);
+  const [fornitori, setFornitori] = useState<Fornitore[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [documents, setDocuments] = useState<MaterialDocument[]>([]);
   const [chatMessages, setChatMessages] = useState<CantiereChatMessage[]>([]);
@@ -68,21 +69,22 @@ export default function App() {
     }
     if (!company) return;
     setIsGeneratingTransferCode(true);
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    // Codice personale a 4 cifre valido per 2 minuti (120 secondi), poi scompare
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
     const newCode: TransferCode = {
       id: 'tc-' + Date.now(),
       code,
       userId: currentUser.id,
-      expiresAt: new Date(Date.now() + 600 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 120 * 1000).toISOString(),
       used: false
     };
     try {
       await firestoreService.saveTransferCode(company, currentUser, newCode);
       setActiveTransferCode(newCode);
-      setTransferTimeLeft(600);
+      setTransferTimeLeft(120);
     } catch (err) {
       console.error('Transfer code error:', err);
-      alert('Errore nella generazione del codice di trasferimento.');
+      alert('Errore nella generazione del codice personale.');
     } finally {
       setIsGeneratingTransferCode(false);
     }
@@ -167,6 +169,10 @@ export default function App() {
       setTechnicalDocs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CantiereDocumentoTecnico)));
     });
 
+    const unsubFornitori = onSnapshot(collection(db, 'companies', company.id, 'fornitori'), (snap) => {
+      setFornitori(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornitore)));
+    });
+
     setIsCloudLoading(false);
 
     return () => {
@@ -182,6 +188,7 @@ export default function App() {
       unsubDocuments();
       unsubChat();
       unsubArchivio();
+      unsubFornitori();
     };
   }, [company?.id]);
 
@@ -297,6 +304,14 @@ export default function App() {
     deleteTechnicalDoc: async (docId: string) => {
       if (!company) return;
       await firestoreService.deleteTechnicalDoc(company.id, docId);
+    },
+    saveFornitore: async (f: Fornitore) => {
+      if (!company) return;
+      await firestoreService.saveFornitore(company.id, f);
+    },
+    deleteFornitore: async (fid: string) => {
+      if (!company) return;
+      await firestoreService.deleteFornitore(company.id, fid);
     },
   };
 
@@ -454,6 +469,9 @@ export default function App() {
                   onSendMessage={cloudHandlers.sendChatMessage}
                   onSaveTechnicalDoc={cloudHandlers.saveTechnicalDoc}
                   onDeleteTechnicalDoc={cloudHandlers.deleteTechnicalDoc}
+                  fornitori={fornitori}
+                  onSaveFornitore={cloudHandlers.saveFornitore}
+                  onDeleteFornitore={cloudHandlers.deleteFornitore}
                 />
               </motion.div>
             )}

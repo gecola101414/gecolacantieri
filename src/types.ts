@@ -144,6 +144,25 @@ export interface StockItem {
   totalCost: number; // Valore economico della giacenza
 }
 
+export interface Fornitore {
+  id: string;
+  name: string; // Ragione Sociale / Nome Fornitore
+  piva?: string; // Partita IVA
+  codiceFiscale?: string;
+  address?: string; // Sede legale / Indirizzo
+  phone?: string;
+  email?: string;
+  pec?: string;
+  sdi?: string; // Codice Univoco SDI
+  category?: string; // Categoria (es. Materiali Edili, Calcestruzzo, Noleggio, ecc.)
+  notes?: string;
+  totalOrdersCount: number; // Numero totale bolle/fatture registrate
+  totalSpent: number; // Totale spesa cumulativa (€)
+  lastOrderDate?: string; // Data dell'ultima bolla/fattura
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type DocumentType = 'bolla' | 'fattura';
 
 export interface DocumentItem {

@@ -74,23 +74,25 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Action Hub */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             
-            {/* PC Transfer Code Generator Button */}
+            {/* Codice Personale 4 Cifre */}
             {onGenerateTransferCode && (
               <button
                 onClick={onGenerateTransferCode}
                 disabled={isGeneratingTransferCode || transferTimeLeft > 0}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold transition-all border ${
                   transferTimeLeft > 0
-                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_-4px_rgba(16,185,129,0.4)]'
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400 shadow-[0_0_15px_-4px_rgba(245,158,11,0.5)]'
                     : 'bg-slate-900/80 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
                 }`}
-                title="Genera Codice Trasferimento PC"
+                title="Genera Codice Personale a 4 Cifre (dura 2 minuti, poi scompare)"
               >
                 <KeyRound className={`w-4 h-4 ${isGeneratingTransferCode ? 'animate-pulse text-amber-500' : ''}`} />
                 {transferTimeLeft > 0 ? (
-                  <span className="font-mono text-[11px] font-black text-emerald-400">{transferTimeLeft}s</span>
+                  <span className="font-mono text-[11px] font-black text-amber-400">
+                    {Math.floor(transferTimeLeft / 60)}:{(transferTimeLeft % 60).toString().padStart(2, '0')}
+                  </span>
                 ) : (
-                  <span className="hidden sm:inline text-[10px] uppercase tracking-wider">Codice PC</span>
+                  <span className="hidden sm:inline text-[10px] uppercase tracking-wider">Codice Personale</span>
                 )}
               </button>
             )}
@@ -177,30 +179,30 @@ export const Navbar: React.FC<NavbarProps> = ({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="bg-gradient-to-r from-emerald-950 via-slate-950 to-emerald-950 border-t border-emerald-500/30 px-3 py-2 text-white overflow-hidden"
+            className="bg-gradient-to-r from-amber-950 via-slate-950 to-amber-950 border-t border-amber-500/30 px-3 py-2 text-white overflow-hidden"
           >
             <div className="w-full max-w-[1600px] mx-auto flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 min-w-0">
-                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
-                  <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Accesso PC:</span>
-                  <span className="font-mono font-black text-sm tracking-[0.15em] bg-emerald-500/20 text-white px-2.5 py-0.5 rounded-lg border border-emerald-500/40 shadow-sm">
+                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Codice Personale (4 Cifre):</span>
+                  <span className="font-mono font-black text-sm tracking-[0.25em] bg-amber-500/20 text-white px-2.5 py-0.5 rounded-lg border border-amber-500/40 shadow-sm">
                     {activeTransferCode.code}
                   </span>
-                  <span className="text-[10px] text-emerald-300/80 font-medium">
-                    (Sul PC clicca su <span className="text-white font-bold underline">"Codice da Cellulare"</span> ed entra)
+                  <span className="text-[10px] text-amber-300/80 font-medium">
+                    (Valido 2 minuti: usalo su <span className="text-white font-bold underline">"Entra con Codice Personale"</span> su PC o cellulare)
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[10px] font-mono font-bold text-emerald-300 flex items-center gap-1">
-                  <Timer className="w-3 h-3 text-emerald-400" /> {transferTimeLeft}s
+                <span className="text-[10px] font-mono font-bold text-amber-300 flex items-center gap-1">
+                  <Timer className="w-3 h-3 text-amber-400" /> {Math.floor(transferTimeLeft / 60)}:{(transferTimeLeft % 60).toString().padStart(2, '0')}
                 </span>
                 <button
                   onClick={handleCopyTransferCode}
-                  className="px-2 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors"
+                  className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
                 >
-                  {codeCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  {codeCopied ? <Check className="w-3 h-3 text-amber-400" /> : <Copy className="w-3 h-3" />}
                   <span className="hidden xs:inline">{codeCopied ? 'Copiato' : 'Copia'}</span>
                 </button>
               </div>

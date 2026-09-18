@@ -7,7 +7,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
   Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument,
-  CantiereChatMessage, CantiereDocumentoTecnico
+  CantiereChatMessage, CantiereDocumentoTecnico, Fornitore
 } from '../types';
 
 // Generic error handler as required by skill
@@ -477,9 +477,9 @@ export const firestoreService = {
       const data = snap.data();
       if (data.used) return null;
 
-      // Relaxed time check for clock skew (allow 24h grace period)
+      // Code strictly expires according to expiresAt (+ 20s grace period for device clock discrepancies)
       const expTime = new Date(data.expiresAt).getTime();
-      if (Date.now() > expTime + 24 * 60 * 60 * 1000) return null;
+      if (Date.now() > expTime + 20 * 1000) return null;
 
       // Mark used in root
       await updateDoc(doc(db, 'transferCodes', cleanCode), { used: true });
@@ -538,12 +538,81 @@ export const firestoreService = {
     }
   },
 
-  // Pairing Codes
+  // Pairing Codes & Mobile Device Registration (4 Cifre - 2 Minuti)
+  async createMobilePairingRequest(code: string, deviceId: string, deviceInfo?: string): Promise<void> {
+    const path = `pairingCodes/${code}`;
+    const expiresAt = new Date(Date.now() + 120 * 1000).toISOString(); // 2 minuti esatti
+    try {
+      await setDoc(doc(db, 'pairingCodes', code), { 
+        code, 
+        deviceId, 
+        deviceInfo: deviceInfo || '', 
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        expiresAt,
+        companyId: null, 
+        userId: null 
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  listenMobilePairingRequest(code: string, onApproved: (companyId: string, userId: string) => void): () => void {
+    const docRef = doc(db, 'pairingCodes', code);
+    return onSnapshot(docRef, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.status === 'approved' && data.companyId && data.userId) {
+          onApproved(data.companyId, data.userId);
+        }
+      }
+    }, (err) => {
+      console.error('Error listening to pairing code:', err);
+    });
+  },
+
+  async approveMobilePairing(code: string, companyId: string, userId: string): Promise<{ deviceId: string } | null> {
+    const cleanCode = code.trim().toUpperCase();
+    const path = `pairingCodes/${cleanCode}`;
+    try {
+      const snap = await getDoc(doc(db, 'pairingCodes', cleanCode));
+      if (!snap.exists()) return null;
+      const data = snap.data();
+      
+      // Controlla scadenza dei 2 minuti (+ 20s di tolleranza per orologio di sistema)
+      const expTime = new Date(data.expiresAt).getTime();
+      if (Date.now() > expTime + 20 * 1000) {
+        return null;
+      }
+
+      const deviceId = data.deviceId || '';
+      await updateDoc(doc(db, 'pairingCodes', cleanCode), {
+        status: 'approved',
+        companyId,
+        userId,
+        approvedAt: new Date().toISOString()
+      });
+
+      return { deviceId };
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+      return null;
+    }
+  },
+
   async savePairingCode(code: string, companyId: string, userId: string): Promise<void> {
     const path = `pairingCodes/${code}`;
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutes
+    const expiresAt = new Date(Date.now() + 120 * 1000).toISOString(); // 2 minuti
     try {
-      await setDoc(doc(db, 'pairingCodes', code), { companyId, userId, expiresAt });
+      await setDoc(doc(db, 'pairingCodes', code), { 
+        code,
+        companyId, 
+        userId, 
+        expiresAt,
+        status: 'approved',
+        createdAt: new Date().toISOString()
+      });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -556,7 +625,7 @@ export const firestoreService = {
       if (!docSnap.exists()) return null;
       const data = docSnap.data();
       const expTime = new Date(data.expiresAt).getTime();
-      if (Date.now() > expTime + 24 * 60 * 60 * 1000) {
+      if (Date.now() > expTime + 20 * 1000) {
         await deleteDoc(doc(db, 'pairingCodes', code));
         return null;
       }
@@ -890,6 +959,20 @@ export const firestoreService = {
           }
         }
       }
+
+      // CRITICAL: Automatically update or create Supplier in the Archivio Fornitori
+      if (docData.supplier && docData.supplier.trim()) {
+        try {
+          await this.recordSupplierFromDocument(
+            companyId,
+            docData.supplier.trim(),
+            docData.date || new Date().toISOString().split('T')[0],
+            docData.totalAmount || 0
+          );
+        } catch (suppErr) {
+          console.warn('[Archivio Fornitori] Non-blocking update error:', suppErr);
+        }
+      }
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -941,6 +1024,90 @@ export const firestoreService = {
       await deleteDoc(doc(db, 'companies', companyId, 'archivioTecnico', docId));
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
+  // Archivio Fornitori (Suppliers Archive)
+  async getFornitori(companyId: string): Promise<Fornitore[]> {
+    const path = `companies/${companyId}/fornitori`;
+    try {
+      const q = query(collection(db, path), orderBy('name', 'asc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as Fornitore));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async saveFornitore(companyId: string, fornitore: Fornitore): Promise<void> {
+    const path = `companies/${companyId}/fornitori/${fornitore.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'fornitori', fornitore.id), sanitizeData(fornitore));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteFornitore(companyId: string, fornitoreId: string): Promise<void> {
+    const path = `companies/${companyId}/fornitori/${fornitoreId}`;
+    try {
+      await deleteDoc(doc(db, 'companies', companyId, 'fornitori', fornitoreId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
+  // Auto-record or update a supplier whenever a new document (bolla o fattura) is recorded
+  async recordSupplierFromDocument(
+    companyId: string,
+    supplierName: string,
+    docDate: string,
+    docTotal: number,
+    extra?: Partial<Fornitore>
+  ): Promise<Fornitore> {
+    const cleanName = supplierName.trim();
+    if (!cleanName) {
+      throw new Error('Nome fornitore non valido');
+    }
+
+    const path = `companies/${companyId}/fornitori`;
+    const snapshot = await getDocs(collection(db, path));
+    const existingDoc = snapshot.docs.find(d => {
+      const data = d.data();
+      return (data.name || '').trim().toLowerCase() === cleanName.toLowerCase();
+    });
+
+    const now = new Date().toISOString();
+
+    if (existingDoc) {
+      const existing = existingDoc.data() as Fornitore;
+      const updated: Fornitore = {
+        ...existing,
+        name: existing.name || cleanName,
+        totalOrdersCount: (existing.totalOrdersCount || 0) + 1,
+        totalSpent: parseFloat(((existing.totalSpent || 0) + (docTotal || 0)).toFixed(2)),
+        lastOrderDate: docDate || existing.lastOrderDate || now.split('T')[0],
+        updatedAt: now,
+        ...(extra || {})
+      };
+      await setDoc(doc(db, path, existingDoc.id), sanitizeData(updated));
+      return updated;
+    } else {
+      // Create new supplier in archive
+      const newId = `forn-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      const newSupplier: Fornitore = {
+        id: newId,
+        name: cleanName,
+        totalOrdersCount: 1,
+        totalSpent: parseFloat((docTotal || 0).toFixed(2)),
+        lastOrderDate: docDate || now.split('T')[0],
+        createdAt: now,
+        updatedAt: now,
+        ...(extra || {})
+      };
+      await setDoc(doc(db, path, newId), sanitizeData(newSupplier));
+      return newSupplier;
     }
   }
 };

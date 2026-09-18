@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -56,6 +56,9 @@ interface AdminDashboardProps {
   onSendMessage?: (msg: CantiereChatMessage) => Promise<void>;
   onSaveTechnicalDoc?: (doc: CantiereDocumentoTecnico) => Promise<void>;
   onDeleteTechnicalDoc?: (docId: string) => Promise<void>;
+  fornitori?: Fornitore[];
+  onSaveFornitore?: (f: Fornitore) => Promise<void>;
+  onDeleteFornitore?: (fid: string) => Promise<void>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -91,6 +94,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onSendMessage = async () => {},
   onSaveTechnicalDoc = async () => {},
   onDeleteTechnicalDoc = async () => {},
+  fornitori = [],
+  onSaveFornitore = async () => {},
+  onDeleteFornitore = async () => {},
 }) => {
   // Modals
   const [showAddCantiereModal, setShowAddCantiereModal] = useState(false);
@@ -107,6 +113,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [userToAccredit, setUserToAccredit] = useState<UserAccount | null>(null);
   const [whatsappModalCantiere, setWhatsappModalCantiere] = useState<Cantiere | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+
+  // Finestra Inserimento Chiave 4 Cifre per Collegare Cellulare (Admin)
+  const [pairingModalUser, setPairingModalUser] = useState<UserAccount | null>(null);
+  const [pairingInputCode, setPairingInputCode] = useState<string>('');
+  const [pairingLoading, setPairingLoading] = useState<boolean>(false);
+  const [pairingError, setPairingError] = useState<string>('');
+  const [pairingSuccess, setPairingSuccess] = useState<string>('');
 
   // Rapportini filters & cancellation state
   const [rapportiniFilterCantiere, setRapportiniFilterCantiere] = useState<string>('all');
@@ -417,21 +430,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const handleGeneratePairingCode = async (user: UserAccount) => {
-    if (!company?.id) {
-      alert('Errore: ID Azienda non trovato. Effettua nuovamente il login.');
+  // Conferma inserimento chiave a 4 cifre da parte dell'Amministratore
+  const handleConfirmPairing = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pairingModalUser || !company?.id) return;
+    
+    const cleanCode = pairingInputCode.trim().replace(/\D/g, '');
+    if (cleanCode.length !== 4) {
+      setPairingError('Inserisci la chiave a 4 cifre comunicata dall\'operatore.');
       return;
     }
 
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    setPairingLoading(true);
+    setPairingError('');
+    setPairingSuccess('');
+
     try {
-      console.log('Generating pairing code for user:', user.id, 'in company:', company.id);
-      await firestoreService.savePairingCode(code, company.id, user.id);
-      alert(`CHIAVE MOBILE GENERATA PER ${user.name.toUpperCase()}\n\nCODICE: ${code}\n\nComunica questo codice al collaboratore. Potrà usarlo per collegare istantaneamente il suo cellulare senza password.`);
+      const res = await firestoreService.approveMobilePairing(cleanCode, company.id, pairingModalUser.id);
+      if (!res || !res.deviceId) {
+        setPairingError('Codice non trovato o scaduto. Ricorda che la chiave a 4 cifre dura solo 2 minuti. Fai premere "Genera Nuova Chiave" sul cellulare del collaboratore.');
+        setPairingLoading(false);
+        return;
+      }
+
+      // Memorizza il deviceId sul profilo utente
+      const updatedUser: UserAccount = {
+        ...pairingModalUser,
+        deviceId: res.deviceId
+      };
+      await onSaveUser(updatedUser);
+      setPairingSuccess(`✓ Cellulare collegato con successo a ${pairingModalUser.name}! I dati del dispositivo sono stati memorizzati sul server e il cellulare è stato autorizzato all'accesso.`);
+
+      setTimeout(() => {
+        setPairingModalUser(null);
+        setPairingInputCode('');
+        setPairingSuccess('');
+      }, 2000);
     } catch (err) {
-      console.error('Pairing code generation error:', err);
-      alert(`Errore nella generazione del codice: ${err instanceof Error ? err.message : 'Errore sconosciuto'}`);
+      console.error('Errore collegamento cellulare:', err);
+      setPairingError('Errore durante il collegamento del cellulare.');
+    } finally {
+      setPairingLoading(false);
     }
+  };
+
+  const handleUnlinkDevice = async (user: UserAccount) => {
+    if (!window.confirm(`Vuoi scollegare il cellulare associato a ${user.name}? L'operatore non potrà più accedere da quel dispositivo senza una nuova autorizzazione.`)) {
+      return;
+    }
+    try {
+      const updated = { ...user, deviceId: undefined };
+      await onSaveUser(updated);
+      setPairingModalUser(updated);
+      setPairingSuccess('Cellulare scollegato con successo.');
+      setTimeout(() => setPairingSuccess(''), 2000);
+    } catch (err) {
+      console.error('Errore scollegamento cellulare:', err);
+      setPairingError('Errore durante lo scollegamento.');
+    }
+  };
+
+  const handleGeneratePairingCode = async (user: UserAccount) => {
+    // Apri la finestra di inserimento dati per l'amministratore
+    setPairingModalUser(user);
+    setPairingInputCode('');
+    setPairingError('');
+    setPairingSuccess('');
   };
 
   const handleToggleAccredit = async (userId: string, cantiereId: string) => {
@@ -1034,6 +1098,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   materiali={materiali}
                   movements={movements}
                   currentUser={currentUser}
+                  fornitori={fornitori}
+                  onSaveFornitore={onSaveFornitore}
+                  onDeleteFornitore={onDeleteFornitore}
                   onSaveDocument={async (d) => onAddDocument(d)}
                   onDeleteDocument={onDeleteDocument || (async () => {})}
                   onAcceptDocument={onAcceptDocument || (async () => {})}
@@ -1312,8 +1379,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Utente</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ruolo</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Accesso Cantieri</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Cellulare Aziendale</th>
                           <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stato Cloud</th>
-                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Azioni</th>
+                          <th className="px-8 py-5 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-right">Azioni</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
@@ -1364,6 +1432,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                             </td>
                             <td className="px-8 py-5">
+                              {u.deviceId ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-full" title={`Device ID: ${u.deviceId}`}>
+                                    <Smartphone className="w-3.5 h-3.5 text-emerald-600" /> Collegato
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-400 bg-slate-50 border border-slate-200/80 px-2.5 py-1 rounded-full">
+                                  <Smartphone className="w-3.5 h-3.5 text-slate-300" /> Non associato
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-8 py-5">
                               <div className="flex items-center gap-3">
                                 <button
                                   onClick={() => onSaveUser({ ...u, active: !u.active })}
@@ -1377,11 +1458,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </div>
                             </td>
                             <td className="px-8 py-5 text-right">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center justify-end gap-2">
                                 <button 
                                   onClick={() => handleGeneratePairingCode(u)}
-                                  className="p-2 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition-all group" 
-                                  title="Genera Chiave Mobile (4 cifre)"
+                                  className="p-2 hover:bg-amber-50 border border-transparent hover:border-amber-200 rounded-xl transition-all group" 
+                                  title="Collega Cellulare con Chiave a 4 Cifre"
                                 >
                                   <KeyRound className="w-4 h-4 text-amber-500 group-hover:scale-110 transition-transform" />
                                 </button>
@@ -2495,6 +2576,148 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Chiudi e Salva
               </button>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Finestra Inserimento Chiave 4 Cifre - Collegamento Cellulare Aziendale */}
+      {pairingModalUser && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[200] flex items-center justify-center p-6">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-[40px] shadow-2xl max-w-xl w-full p-8 sm:p-10 border border-slate-200"
+          >
+            <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-5">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                  Collegamento Cellulare Aziendale
+                </span>
+                <h3 className="text-xl sm:text-2xl font-black text-slate-900 mt-2">
+                  {pairingModalUser.name}
+                </h3>
+                <p className="text-xs font-medium text-slate-500 mt-0.5">
+                  Account: <strong className="text-slate-800">{pairingModalUser.username}</strong>
+                </p>
+              </div>
+              <div className="w-12 h-12 bg-amber-500 text-slate-950 rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+                <KeyRound className="w-6 h-6" />
+              </div>
+            </div>
+
+            {pairingSuccess ? (
+              <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-3xl text-center space-y-3">
+                <div className="w-12 h-12 bg-emerald-500 text-white rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/20">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <p className="text-sm font-bold text-emerald-900">
+                  {pairingSuccess}
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleConfirmPairing} className="space-y-6">
+                {/* Status cellulare corrente */}
+                {pairingModalUser.deviceId ? (
+                  <div className="bg-emerald-50/80 border border-emerald-200/80 p-4 rounded-2xl flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                        <Smartphone className="w-5 h-5" />
+                      </div>
+                      <div className="text-left min-w-0">
+                        <p className="text-xs font-bold text-emerald-950">Cellulare attualmente registrato</p>
+                        <p className="text-[10px] font-mono text-emerald-700 truncate" title={pairingModalUser.deviceId}>
+                          ID: {pairingModalUser.deviceId}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUnlinkDevice(pairingModalUser)}
+                      className="text-[10px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition-all shrink-0 cursor-pointer"
+                    >
+                      Scollega
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-slate-200 text-slate-500 flex items-center justify-center shrink-0">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-xs font-bold text-slate-800">Nessun cellulare associato</p>
+                      <p className="text-[10px] text-slate-500">
+                        Inserisci la chiave generata dall'operatore per autorizzarlo.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Istruzioni operative */}
+                <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl space-y-1.5 text-left">
+                  <div className="flex items-center gap-2 text-amber-800 font-bold text-xs uppercase tracking-wider">
+                    <Timer className="w-4 h-4 text-amber-600" /> Istruzioni Operative
+                  </div>
+                  <p className="text-xs text-slate-700 leading-relaxed">
+                    L'operatore preme <strong className="text-slate-900">"Entra con Codice Personale"</strong> sul suo cellulare.
+                    Il cellulare mostrerà una chiave a <strong>4 cifre</strong> (valida 2 minuti). Fatti comunicare il codice e inseriscilo qui sotto.
+                  </p>
+                </div>
+
+                {pairingError && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-700 p-3.5 rounded-2xl text-xs font-semibold leading-relaxed">
+                    {pairingError}
+                  </div>
+                )}
+
+                {/* Input 4 cifre */}
+                <div className="space-y-2 text-center">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+                    Chiave a 4 Cifre dall'Operatore
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={pairingInputCode}
+                    onChange={(e) => setPairingInputCode(e.target.value.replace(/\D/g, ''))}
+                    placeholder="0000"
+                    autoFocus
+                    className="w-full bg-slate-50 border-2 border-amber-500/40 focus:border-amber-500 rounded-3xl p-4 text-center text-4xl font-black font-mono tracking-[0.5em] text-slate-900 outline-none focus:ring-4 focus:ring-amber-500/10 transition-all placeholder:text-slate-300"
+                    required
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPairingModalUser(null);
+                      setPairingInputCode('');
+                      setPairingError('');
+                      setPairingSuccess('');
+                    }}
+                    className="w-1/3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-2xl text-xs transition-all cursor-pointer"
+                  >
+                    Annulla
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={pairingLoading || pairingInputCode.trim().length !== 4}
+                    className="w-2/3 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold py-4 rounded-2xl text-xs shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {pairingLoading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <Smartphone className="w-4 h-4" />
+                        <span>Collega e Memorizza Cellulare</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
           </motion.div>
         </div>
       )}

@@ -1,12 +1,12 @@
 import React, { useState, useRef } from 'react';
-import { MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount } from '../types';
+import { MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount, Fornitore } from '../types';
 import { extractTextFromPdf, parseBollaOrFatturaText, ExtractedDocumentData } from '../utils/pdfExtractor';
 import { formatItalianDate } from '../utils/dateUtils';
 import { 
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
   ArrowRightLeft, Sparkles, Loader2, Send, ChevronDown, Check,
-  X, ExternalLink, Info, Layers
+  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -16,6 +16,9 @@ interface BolleManagerProps {
   materiali: Materiale[];
   movements: StockMovement[];
   currentUser: UserAccount;
+  fornitori?: Fornitore[];
+  onSaveFornitore?: (f: Fornitore) => Promise<void>;
+  onDeleteFornitore?: (docId: string) => Promise<void>;
   onSaveDocument: (doc: MaterialDocument) => Promise<void>;
   onDeleteDocument: (docId: string) => Promise<void>;
   onAcceptDocument: (docId: string) => Promise<void>;
@@ -29,6 +32,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   materiali,
   movements,
   currentUser,
+  fornitori = [],
+  onSaveFornitore,
+  onDeleteFornitore,
   onSaveDocument,
   onDeleteDocument,
   onAcceptDocument,
@@ -44,12 +50,43 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showFornitoriModal, setShowFornitoriModal] = useState(false);
+  const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Fornitore | null>(null);
+  const [fornitoriSearch, setFornitoriSearch] = useState('');
   const [selectedDocDetails, setSelectedDocDetails] = useState<MaterialDocument | null>(null);
   const [previewDocument, setPreviewDocument] = useState<MaterialDocument | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Extract unique suppliers
-  const uniqueSuppliers = Array.from(new Set(documents.map(d => d.supplier).filter(Boolean))).sort();
+  // New / Edit Supplier Form State
+  const [supplierForm, setSupplierForm] = useState<{
+    name: string;
+    piva: string;
+    codiceFiscale: string;
+    address: string;
+    phone: string;
+    email: string;
+    pec: string;
+    sdi: string;
+    category: string;
+    notes: string;
+  }>({
+    name: '',
+    piva: '',
+    codiceFiscale: '',
+    address: '',
+    phone: '',
+    email: '',
+    pec: '',
+    sdi: '',
+    category: 'Materiali Edili',
+    notes: '',
+  });
+
+  // Extract combined unique suppliers from both existing documents AND registered suppliers archive
+  const suppliersFromArchive = (fornitori || []).map(f => f.name.trim()).filter(Boolean);
+  const suppliersFromDocs = documents.map(d => d.supplier.trim()).filter(Boolean);
+  const uniqueSuppliers = Array.from(new Set([...suppliersFromArchive, ...suppliersFromDocs])).sort((a, b) => a.localeCompare(b));
 
   // Upload & Extraction state (PDF files only)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -236,14 +273,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
     const itemsSum = parseFloat(mappedItems.reduce((acc, i) => acc + (i.totalPrice || 0), 0).toFixed(2));
 
-    // Master Rule: take net total without VAT directly from document parsed values (printed total / imponibile)
-    const docNetTotal = (parsed.imponibile && parsed.imponibile > 0)
-      ? parsed.imponibile
-      : (parsed.totalAmount && parsed.totalAmount > 0
-          ? parsed.totalAmount
-          : (parsed.printedDocumentTotal && parsed.printedDocumentTotal > 0
-              ? parsed.printedDocumentTotal
-              : itemsSum));
+    // Master Rule (Authorized by user): calculate document total by summing all material item totals
+    const docNetTotal = itemsSum > 0 ? itemsSum : (parsed.imponibile || parsed.totalAmount || 0);
 
     setDocForm(prev => ({
       ...prev,
@@ -266,7 +297,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     const formattedDate = formatItalianDate(parsed.date);
 
     setExtractedNotice(
-      `${sourceLabel} analizzato con successo! Riconosciuti: Fornitore (${parsed.supplier}), ${parsed.type.toUpperCase()} N. ${parsed.number}, Data ${formattedDate}, ${mappedItems.length} voci materiali.${destInfo} Totale (Senza IVA): €${docNetTotal.toFixed(2)}.`
+      `${sourceLabel} analizzato con successo! Riconosciuti: Fornitore (${parsed.supplier}), ${parsed.type.toUpperCase()} N. ${parsed.number}, Data ${formattedDate}, ${mappedItems.length} voci materiali.${destInfo} Totale Verificato Somma Materiali (Senza IVA): €${docNetTotal.toFixed(2)}.`
     );
   };
 
@@ -359,9 +390,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
   // Add a new row to the items list
   const handleAddItemRow = () => {
-    setDocForm(prev => ({
-      ...prev,
-      items: [
+    setDocForm(prev => {
+      const updated = [
         ...prev.items,
         {
           materialeId: '',
@@ -373,17 +403,30 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           totalPrice: 0,
           destinationCantiereId: prev.defaultDestination,
         }
-      ]
-    }));
+      ];
+      const newItemsSum = parseFloat(updated.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
+      return {
+        ...prev,
+        items: updated,
+        parsedDocumentTotal: newItemsSum,
+        parsedImponibile: newItemsSum
+      };
+    });
   };
 
   // Remove row
   const handleRemoveItemRow = (index: number) => {
     if (docForm.items.length <= 1) return;
-    setDocForm(prev => ({
-      ...prev,
-      items: prev.items.filter((_, i) => i !== index)
-    }));
+    setDocForm(prev => {
+      const updated = prev.items.filter((_, i) => i !== index);
+      const newItemsSum = parseFloat(updated.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
+      return {
+        ...prev,
+        items: updated,
+        parsedDocumentTotal: newItemsSum,
+        parsedImponibile: newItemsSum
+      };
+    });
   };
 
   // Dedicated handler to dynamically update a single row's field with instant price & discount recalculation
@@ -406,7 +449,13 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       }
 
       updated[idx] = cur;
-      return { ...prev, items: updated };
+      const newItemsSum = parseFloat(updated.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
+      return { 
+        ...prev, 
+        items: updated,
+        parsedDocumentTotal: newItemsSum,
+        parsedImponibile: newItemsSum
+      };
     });
   };
 
@@ -444,8 +493,39 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         }
       }
 
-      // Calculate fallback sum of items
+      // Authorized rule: consider the sum of all material items as the verified document total
       const itemsSum = parseFloat(docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
+      const finalTotal = itemsSum > 0 ? itemsSum : (docForm.parsedDocumentTotal || 0);
+
+      // Automatic update / creation in Archivio Fornitori
+      const cleanSupplier = docForm.supplier.trim();
+      if (cleanSupplier && onSaveFornitore) {
+        const existingFornitore = (fornitori || []).find(f => f.name.trim().toLowerCase() === cleanSupplier.toLowerCase());
+        const now = new Date().toISOString();
+        if (existingFornitore) {
+          const updatedFornitore: Fornitore = {
+            ...existingFornitore,
+            name: existingFornitore.name || cleanSupplier,
+            totalOrdersCount: (existingFornitore.totalOrdersCount || 0) + 1,
+            totalSpent: parseFloat(((existingFornitore.totalSpent || 0) + finalTotal).toFixed(2)),
+            lastOrderDate: docForm.date || now.split('T')[0],
+            updatedAt: now,
+          };
+          await onSaveFornitore(updatedFornitore);
+        } else {
+          const newFornitore: Fornitore = {
+            id: `forn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: cleanSupplier,
+            totalOrdersCount: 1,
+            totalSpent: finalTotal,
+            lastOrderDate: docForm.date || now.split('T')[0],
+            category: 'Materiali Edili',
+            createdAt: now,
+            updatedAt: now,
+          };
+          await onSaveFornitore(newFornitore);
+        }
+      }
 
       // Check if all items go to same cantiere or are split
       const destinations: string[] = Array.from(new Set(docForm.items.map(i => i.destinationCantiereId || 'centrale')));
@@ -454,11 +534,6 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
       const isCentraleOnly = destinations.length === 1 && destinations[0] === 'centrale';
       const initialDocStatus = isCentraleOnly ? 'accettata' : docForm.status;
-
-      // Master Rule: prioritize the document net total without VAT parsed directly from document header/footer
-      const finalTotal = (docForm.parsedDocumentTotal !== undefined && docForm.parsedDocumentTotal >= 0)
-        ? docForm.parsedDocumentTotal
-        : (itemsSum > 0 ? itemsSum : 0);
 
       const newDoc: MaterialDocument = {
         id: `doc-${Date.now()}`,
@@ -535,6 +610,115 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     }
   };
 
+  // Supplier Management Handlers
+  const handleOpenAddSupplier = () => {
+    setEditingSupplier(null);
+    setSupplierForm({
+      name: '',
+      piva: '',
+      codiceFiscale: '',
+      address: '',
+      phone: '',
+      email: '',
+      pec: '',
+      sdi: '',
+      category: 'Materiali Edili',
+      notes: '',
+    });
+    setShowAddSupplierModal(true);
+  };
+
+  const handleOpenEditSupplier = (supplierName: string) => {
+    const existing = (fornitori || []).find(f => f.name.toLowerCase() === supplierName.toLowerCase());
+    if (existing) {
+      setEditingSupplier(existing);
+      setSupplierForm({
+        name: existing.name || '',
+        piva: existing.piva || '',
+        codiceFiscale: existing.codiceFiscale || '',
+        address: existing.address || '',
+        phone: existing.phone || '',
+        email: existing.email || '',
+        pec: existing.pec || '',
+        sdi: existing.sdi || '',
+        category: existing.category || 'Materiali Edili',
+        notes: existing.notes || '',
+      });
+    } else {
+      setEditingSupplier(null);
+      setSupplierForm({
+        name: supplierName,
+        piva: '',
+        codiceFiscale: '',
+        address: '',
+        phone: '',
+        email: '',
+        pec: '',
+        sdi: '',
+        category: 'Materiali Edili',
+        notes: '',
+      });
+    }
+    setShowAddSupplierModal(true);
+  };
+
+  const handleSaveSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supplierForm.name.trim()) {
+      alert('Inserisci il nome del fornitore.');
+      return;
+    }
+    if (!onSaveFornitore) return;
+
+    try {
+      const now = new Date().toISOString();
+      const existing = editingSupplier || (fornitori || []).find(f => f.name.toLowerCase() === supplierForm.name.trim().toLowerCase());
+      
+      const supplierDocs = documents.filter(d => d.supplier.trim().toLowerCase() === supplierForm.name.trim().toLowerCase());
+      const calcOrders = supplierDocs.length;
+      const calcSpent = supplierDocs.reduce((acc, d) => acc + (d.totalAmount || 0), 0);
+      const lastDate = supplierDocs.sort((a, b) => b.date.localeCompare(a.date))[0]?.date;
+
+      const fornitoreToSave: Fornitore = {
+        id: existing?.id || `forn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        name: supplierForm.name.trim(),
+        piva: supplierForm.piva.trim() || undefined,
+        codiceFiscale: supplierForm.codiceFiscale.trim() || undefined,
+        address: supplierForm.address.trim() || undefined,
+        phone: supplierForm.phone.trim() || undefined,
+        email: supplierForm.email.trim() || undefined,
+        pec: supplierForm.pec.trim() || undefined,
+        sdi: supplierForm.sdi.trim() || undefined,
+        category: supplierForm.category || 'Materiali Edili',
+        notes: supplierForm.notes.trim() || undefined,
+        totalOrdersCount: existing?.totalOrdersCount !== undefined ? existing.totalOrdersCount : calcOrders,
+        totalSpent: existing?.totalSpent !== undefined ? existing.totalSpent : calcSpent,
+        lastOrderDate: existing?.lastOrderDate || lastDate,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+
+      await onSaveFornitore(fornitoreToSave);
+      setShowAddSupplierModal(false);
+      setEditingSupplier(null);
+    } catch (err) {
+      console.error('Error saving supplier:', err);
+      alert('Errore durante il salvataggio del fornitore.');
+    }
+  };
+
+  const handleDeleteSupplier = async (supplierId: string, supplierName: string) => {
+    if (!onDeleteFornitore) return;
+    if (window.confirm(`Sei sicuro di voler eliminare "${supplierName}" dall'archivio fornitori?`)) {
+      try {
+        await onDeleteFornitore(supplierId);
+      } catch (err) {
+        console.error('Error deleting supplier:', err);
+        alert('Errore durante l\'eliminazione del fornitore.');
+      }
+    }
+  };
+
   // Filter documents
   const filteredDocuments = documents.filter(doc => {
     const matchesSearch = 
@@ -579,7 +763,19 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setShowFornitoriModal(true)}
+            className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/90 font-bold px-5 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+            title="Visualizza e gestisci l'archivio fornitori"
+          >
+            <Building2 className="w-4 h-4 text-amber-500" />
+            <span>Archivio Fornitori</span>
+            <span className="bg-amber-100 text-amber-900 font-black px-2 py-0.5 rounded-full text-[10px]">
+              {uniqueSuppliers.length}
+            </span>
+          </button>
+
           <button
             onClick={() => {
               setUploadedPdfName(null);
@@ -587,7 +783,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               setExtractedNotice(null);
               setShowUploadModal(true);
             }}
-            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-6 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-6 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
           >
             <Upload className="w-4 h-4" />
             <span>Carica Bolla / Fattura PDF</span>
@@ -1110,33 +1306,77 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Fornitore / Cedente *</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Fornitore / Cedente *</label>
+                    {docForm.supplier.trim() && (
+                      <span className="text-[10px] font-bold text-amber-700">
+                        {fornitori.some(f => f.name.toLowerCase() === docForm.supplier.trim().toLowerCase()) 
+                          ? '✓ In Archivio' 
+                          : '✨ Nuovo Fornitore'}
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
+                    list="fornitori-datalist-input"
                     placeholder="es. SARDARES S.p.A."
                     value={docForm.supplier}
                     onChange={e => setDocForm({ ...docForm, supplier: e.target.value })}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-xs font-bold outline-none focus:border-amber-500"
                   />
+                  <datalist id="fornitori-datalist-input">
+                    {uniqueSuppliers.map(s => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                  {docForm.supplier.trim() && (
+                    <div className="pt-0.5">
+                      {(() => {
+                        const matched = fornitori.find(f => f.name.toLowerCase() === docForm.supplier.trim().toLowerCase());
+                        if (matched) {
+                          return (
+                            <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>Fornitore presente in archivio ({matched.totalOrdersCount || 0} documenti • Spesa: €{(matched.totalSpent || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</span>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div className="flex items-center gap-1.5 text-[10px] text-amber-900 font-semibold bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                              <span>Nuovo fornitore: verrà archiviato automaticamente nell'Archivio Fornitori al salvataggio.</span>
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                  )}
                 </div>
 
-                {/* Read-Only Extracted Imponibile / Tax Free Total Display */}
+                {/* Verified Extracted Imponibile / Tax Free Total Display */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-amber-700 uppercase tracking-widest block">
-                    Totale Documento (Senza IVA)
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-amber-800 uppercase tracking-widest block">
+                      Totale Fattura / Documento (Senza IVA)
+                    </label>
+                    <span className="text-[9px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
+                      ✓ SOMMA MATERIALI
+                    </span>
+                  </div>
                   <div className="bg-amber-100/90 border border-amber-300 rounded-2xl p-3 flex flex-col justify-center min-h-[46px]">
                     <div className="flex items-center justify-between">
                       <span className="text-base font-black text-amber-950">
-                        €{(docForm.parsedDocumentTotal !== undefined ? docForm.parsedDocumentTotal : 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        €{(docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
-                      <span className="text-[9px] font-extrabold text-amber-800 bg-amber-200 px-2 py-0.5 rounded-full border border-amber-400">
-                        TAX FREE / NO IVA
+                      <span className="text-[9px] font-extrabold text-amber-900 bg-amber-200 px-2 py-0.5 rounded-full border border-amber-400">
+                        {docForm.items.length} {docForm.items.length === 1 ? 'ARTICOLO' : 'ARTICOLI'}
                       </span>
                     </div>
                   </div>
-                  <span className="text-[9px] text-amber-700 font-semibold block">Rilevato direttamente dal documento originale</span>
+                  <span className="text-[9px] text-amber-800 font-semibold block">
+                    Verificato: calcolato sommando i totali netti di ogni materiale.
+                  </span>
                 </div>
               </div>
 
@@ -1320,6 +1560,19 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         );
                       })}
                     </tbody>
+                    <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                      <tr>
+                        <td colSpan={6} className="px-3 py-3 text-right font-extrabold text-slate-700 uppercase tracking-wider text-[11px]">
+                          Totale Fattura / Documento (Somma Netta Materiali):
+                        </td>
+                        <td className="px-3 py-3 text-right font-black text-amber-900 bg-amber-100/80 text-xs">
+                          €{docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2)}
+                        </td>
+                        <td colSpan={3} className="px-3 py-3 text-[10px] font-bold text-slate-400">
+                          Tax Free / Senza IVA
+                        </td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -1535,6 +1788,19 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       );
                     })}
                   </tbody>
+                  <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                    <tr>
+                      <td colSpan={6} className="px-3 py-3 text-right font-extrabold text-slate-700 uppercase tracking-wider text-[11px]">
+                        Totale Verificato Somma Materiali:
+                      </td>
+                      <td className="px-3 py-3 font-black text-amber-900 bg-amber-100/80 text-xs text-right">
+                        €{selectedDocDetails.items.reduce((s, i) => s + (i.totalPrice || 0), 0).toFixed(2)}
+                      </td>
+                      <td colSpan={2} className="px-3 py-3 text-[10px] font-bold text-slate-400">
+                        Tax Free / Senza IVA
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -1655,6 +1921,403 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               )}
             </div>
           </div>
+        </div>
+      )}
+      {/* MODAL 4: ARCHIVIO FORNITORI MODAL */}
+      {showFornitoriModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[250] flex items-center justify-center p-3 sm:p-6" onClick={() => setShowFornitoriModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col"
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                  <Building2 className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black tracking-tight flex items-center gap-2">
+                    <span>Archivio Fornitori</span>
+                    <span className="bg-amber-500/20 text-amber-300 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+                      {uniqueSuppliers.length} Registrati
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Anagrafica completa, storico acquisti da bolle/fatture e aggiornamento automatico
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleOpenAddSupplier}
+                  className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nuovo Fornitore</span>
+                </button>
+                <button
+                  onClick={() => setShowFornitoriModal(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Metrics Ribbon */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-6 bg-slate-50 border-b border-slate-100">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fornitori in Archivio</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{uniqueSuppliers.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Aggiornati ad ogni nuova bolla</p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Spesa Totale Forniture</p>
+                <p className="text-2xl font-black text-amber-700 mt-1">
+                  €{documents.reduce((acc, d) => acc + (d.totalAmount || 0), 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Somma netta bolle e fatture caricate</p>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Documenti Tracciati</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{documents.length}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">DDT e fatture archiviate nel sistema</p>
+              </div>
+            </div>
+
+            {/* Search filter in Archivio */}
+            <div className="p-4 border-b border-slate-100 bg-white">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Cerca fornitore per nome, P.IVA, categoria o note..."
+                  value={fornitoriSearch}
+                  onChange={e => setFornitoriSearch(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200/90 rounded-xl pl-10 pr-4 py-2.5 text-xs font-semibold outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            {/* Suppliers Grid / List */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 bg-slate-100/50">
+              {(() => {
+                const searchLow = fornitoriSearch.trim().toLowerCase();
+                const filtered = uniqueSuppliers.filter(name => {
+                  if (!searchLow) return true;
+                  const fObj = (fornitori || []).find(f => f.name.toLowerCase() === name.toLowerCase());
+                  return (
+                    name.toLowerCase().includes(searchLow) ||
+                    (fObj?.piva && fObj.piva.toLowerCase().includes(searchLow)) ||
+                    (fObj?.category && fObj.category.toLowerCase().includes(searchLow)) ||
+                    (fObj?.notes && fObj.notes.toLowerCase().includes(searchLow))
+                  );
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-12 bg-white rounded-2xl border border-slate-200">
+                      <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-sm font-bold text-slate-700">Nessun fornitore trovato</p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {fornitoriSearch ? 'Prova con un termine di ricerca diverso' : 'I fornitori vengono aggiunti automaticamente salvando bolle o manualmente con il pulsante in alto.'}
+                      </p>
+                    </div>
+                  );
+                }
+
+                return filtered.map((supplierName) => {
+                  const fObj = (fornitori || []).find(f => f.name.toLowerCase() === supplierName.toLowerCase());
+                  const supplierDocs = documents.filter(d => d.supplier.trim().toLowerCase() === supplierName.toLowerCase());
+                  const docCount = supplierDocs.length;
+                  const totalSpent = supplierDocs.reduce((acc, d) => acc + (d.totalAmount || 0), 0);
+                  const lastDoc = supplierDocs.sort((a, b) => b.date.localeCompare(a.date))[0];
+
+                  return (
+                    <div
+                      key={supplierName}
+                      className="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs hover:border-amber-400/80 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    >
+                      <div className="space-y-2 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-black text-slate-900">{supplierName}</h4>
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                            {fObj?.category || 'Materiali Edili'}
+                          </span>
+                          {fObj?.piva && (
+                            <span className="text-[10px] font-semibold text-slate-500 font-mono">
+                              P.IVA: {fObj.piva}
+                            </span>
+                          )}
+                          {fObj?.sdi && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200">
+                              SDI: {fObj.sdi}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Additional contact & address details if registered */}
+                        {(fObj?.address || fObj?.phone || fObj?.email || fObj?.pec) && (
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 pt-0.5">
+                            {fObj.address && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3 h-3 text-slate-400" />
+                                {fObj.address}
+                              </span>
+                            )}
+                            {fObj.phone && (
+                              <span className="flex items-center gap-1 font-medium">
+                                <Phone className="w-3 h-3 text-slate-400" />
+                                {fObj.phone}
+                              </span>
+                            )}
+                            {fObj.email && (
+                              <span className="flex items-center gap-1 font-medium">
+                                <Mail className="w-3 h-3 text-slate-400" />
+                                {fObj.email}
+                              </span>
+                            )}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600 pt-1">
+                          <span className="font-semibold">
+                            Documenti: <strong className="text-slate-900">{docCount}</strong>
+                          </span>
+                          <span className="font-semibold">
+                            Totale Spesa: <strong className="text-amber-700">€{totalSpent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                          </span>
+                          {lastDoc && (
+                            <span className="text-slate-400 text-[11px]">
+                              Ultimo carico: {formatItalianDate(lastDoc.date)} ({lastDoc.type.toUpperCase()} N. {lastDoc.number})
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Supplier Actions */}
+                      <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                        <button
+                          onClick={() => {
+                            setSelectedSuppliers([supplierName]);
+                            setShowFornitoriModal(false);
+                          }}
+                          className="bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold px-3.5 py-2 rounded-xl text-xs border border-amber-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                          title="Filtra le bolle e fatture di questo fornitore"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Vedi Bolle ({docCount})</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenEditSupplier(supplierName)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2 rounded-xl text-xs transition-colors cursor-pointer"
+                          title="Modifica anagrafica fornitore"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        {fObj && (
+                          <button
+                            onClick={() => handleDeleteSupplier(fObj.id, supplierName)}
+                            className="bg-red-50 hover:bg-red-100 text-red-700 font-bold p-2 rounded-xl text-xs transition-colors cursor-pointer"
+                            title="Elimina dall'archivio fornitori"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span className="flex items-center gap-1.5 font-medium">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                Sincronizzazione archivio attiva: ogni nuova fornitore inserito nelle bolle viene registrato automaticamente.
+              </span>
+              <button
+                onClick={() => setShowFornitoriModal(false)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-5 py-2 rounded-xl text-xs transition-colors cursor-pointer"
+              >
+                Chiudi
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* MODAL 5: ADD / EDIT SUPPLIER MODAL */}
+      {showAddSupplierModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[300] flex items-center justify-center p-3 sm:p-6" onClick={() => setShowAddSupplierModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-xl flex flex-col"
+          >
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-900 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center">
+                  <Building2 className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black">
+                    {editingSupplier ? 'Modifica Anagrafica Fornitore' : 'Nuovo Fornitore in Archivio'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {editingSupplier ? `Aggiorna i dati di ${editingSupplier.name}` : 'Inserisci i dettagli del fornitore da registrare'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAddSupplierModal(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSupplier} className="p-6 space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  Ragione Sociale / Nome Fornitore *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="es. SARDARES S.p.A."
+                  value={supplierForm.name}
+                  onChange={e => setSupplierForm({ ...supplierForm, name: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Categoria</label>
+                  <select
+                    value={supplierForm.category}
+                    onChange={e => setSupplierForm({ ...supplierForm, category: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                  >
+                    <option value="Materiali Edili">Materiali Edili</option>
+                    <option value="Calcestruzzo & Inerti">Calcestruzzo & Inerti</option>
+                    <option value="Ferramenta & Utensileria">Ferramenta & Utensileria</option>
+                    <option value="Noleggio Mezzi & Attrezzature">Noleggio Mezzi & Attrezzature</option>
+                    <option value="Impianti Elettrici & Idraulici">Impianti Elettrici & Idraulici</option>
+                    <option value="Altro">Altro</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Partita IVA</label>
+                  <input
+                    type="text"
+                    placeholder="es. IT01234567890"
+                    value={supplierForm.piva}
+                    onChange={e => setSupplierForm({ ...supplierForm, piva: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Codice Destinatario (SDI)</label>
+                  <input
+                    type="text"
+                    placeholder="es. M5UXCR1 (7 caratteri)"
+                    maxLength={7}
+                    value={supplierForm.sdi}
+                    onChange={e => setSupplierForm({ ...supplierForm, sdi: e.target.value.toUpperCase() })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500 font-mono uppercase"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">PEC</label>
+                  <input
+                    type="email"
+                    placeholder="es. fatture@pec.fornitore.it"
+                    value={supplierForm.pec}
+                    onChange={e => setSupplierForm({ ...supplierForm, pec: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Telefono</label>
+                  <input
+                    type="tel"
+                    placeholder="es. 070 123456"
+                    value={supplierForm.phone}
+                    onChange={e => setSupplierForm({ ...supplierForm, phone: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Email Ordinaria</label>
+                  <input
+                    type="email"
+                    placeholder="es. ordini@fornitore.it"
+                    value={supplierForm.email}
+                    onChange={e => setSupplierForm({ ...supplierForm, email: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Sede Legale / Indirizzo</label>
+                <input
+                  type="text"
+                  placeholder="es. Via Roma 100, 09100 Cagliari (CA)"
+                  value={supplierForm.address}
+                  onChange={e => setSupplierForm({ ...supplierForm, address: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Note e Accordi Commerciali</label>
+                <textarea
+                  rows={2}
+                  placeholder="es. Sconto 15% su cemento e inerti, consegna franco cantiere..."
+                  value={supplierForm.notes}
+                  onChange={e => setSupplierForm({ ...supplierForm, notes: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-semibold outline-none focus:border-amber-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowAddSupplierModal(false)}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Salva Fornitore</span>
+                </button>
+              </div>
+            </form>
+          </motion.div>
         </div>
       )}
     </div>
