@@ -226,22 +226,36 @@ export default function App() {
     setCurrentUser(adminUser);
   };
 
-  const handleLogin = async (user: UserAccount) => {
-    // Refresh user data from cloud before logging in
-    if (company) {
-      const cloudUsers = await firestoreService.getUsers(company.id);
-      const cloudUser = cloudUsers.find(u => u.id === user.id);
-      if (cloudUser) {
-        if (!cloudUser.active) {
-          alert('Impossibile accedere: utenza disattivata dall\'amministratore aziendale.');
+  const handleLogin = async (user: UserAccount, targetCompany?: Company | null) => {
+    const compToUse = targetCompany || company;
+    if (compToUse) {
+      setCompany(compToUse);
+      saveLocalCompany(compToUse);
+      try {
+        const cloudUsers = await firestoreService.getUsers(compToUse.id);
+        const cloudUser = cloudUsers.find(u => u.id === user.id);
+        if (cloudUser) {
+          if (!cloudUser.active) {
+            alert('Impossibile accedere: utenza disattivata dall\'amministratore aziendale.');
+            return;
+          }
+          if (user.password !== cloudUser.password) {
+            await firestoreService.saveUser(compToUse.id, user);
+          }
+          setCurrentUser(cloudUser);
+          saveLocalUser(cloudUser);
           return;
         }
-        // Update in cloud if mustChangePassword was cleared
-        if (user.password !== cloudUser.password) {
-          await firestoreService.saveUser(company.id, user);
-        }
-        setCurrentUser(cloudUser);
+      } catch (err) {
+        console.error('Error verifying cloud user on login:', err);
       }
+    }
+
+    if (user.active !== false) {
+      setCurrentUser(user);
+      saveLocalUser(user);
+    } else {
+      alert('Impossibile accedere: utenza disattivata dall\'amministratore aziendale.');
     }
   };
 

@@ -28,7 +28,7 @@ interface AuthScreenProps {
   company: Company | null;
   users: UserAccount[];
   onRegisterCompany: (company: Company, adminUser: UserAccount) => void;
-  onLogin: (user: UserAccount) => void;
+  onLogin: (user: UserAccount, targetCompany?: Company | null) => void;
   onRegisterCollaborator: (user: UserAccount) => void;
   setCompany: (company: Company | null) => void;
   setUsers: (users: UserAccount[]) => void;
@@ -180,9 +180,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               setCompany(comp);
               setUsers(allUsers.length > 0 ? allUsers : [user]);
               localStorage.setItem('last_company_code', comp.code);
-              setTimeout(() => {
-                onLogin(user);
-              }, 1200);
+              onLogin(user, comp);
               return;
             }
           }
@@ -236,7 +234,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setCompany(foundCompany);
         setUsers(companyUsers.length > 0 ? companyUsers : [foundUser]);
         localStorage.setItem('last_company_code', foundCompany.code);
-        onLogin(foundUser);
+        onLogin(foundUser, foundCompany);
         return;
       }
 
@@ -254,7 +252,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 setIsLoading(false);
                 return;
               }
-              onLogin(foundUser);
+              onLogin(foundUser, company);
               return;
             }
           }
