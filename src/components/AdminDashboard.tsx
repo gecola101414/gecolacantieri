@@ -3,7 +3,7 @@ import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, 
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw, ReceiptText
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw, ReceiptText, Timer, Loader2
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
