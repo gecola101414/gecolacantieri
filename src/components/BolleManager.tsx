@@ -135,6 +135,58 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     return 0;
   };
 
+  // Dedicated helper to resolve line unit price, discount percentage and true net line total
+  const resolveLinePrices = (
+    qty: number,
+    rawUnitPrice: number,
+    rawDiscount?: string,
+    rawTotalPrice?: number
+  ): { unitPrice: number; discount: string; totalPrice: number } => {
+    const q = Math.max(qty, 0);
+    let uPrice = Number(rawUnitPrice) || 0;
+    let tPrice = Number(rawTotalPrice) || 0;
+    let disc = rawDiscount ? String(rawDiscount).trim() : '';
+
+    // Extract numeric discount value
+    let discountPercent = 0;
+    if (disc) {
+      const m = disc.match(/([0-9]+(?:[.,][0-9]+)?)/);
+      if (m) {
+        discountPercent = parseFloat(m[1].replace(',', '.'));
+        if (!disc.includes('%')) {
+          disc = `${disc}%`;
+        }
+      }
+    }
+
+    // 1. If unitPrice is 0 but totalPrice is given
+    if (uPrice === 0 && tPrice > 0) {
+      if (q > 0) {
+        const undiscounted = discountPercent > 0 && discountPercent < 100
+          ? tPrice / (1 - discountPercent / 100)
+          : tPrice;
+        uPrice = parseFloat((undiscounted / q).toFixed(4));
+      } else {
+        uPrice = tPrice;
+      }
+    }
+
+    // 2. CRITICAL SAFEGUARD:
+    // If totalPrice is 0 OR was mistakenly set equal to unitPrice when quantity > 1:
+    // Recalculate true net line total using qty * unitPrice * (1 - discount%)!
+    const isSuspicious = tPrice === 0 || (q > 1 && Math.abs(tPrice - uPrice) < 0.01);
+    if (isSuspicious && uPrice > 0) {
+      const gross = q * uPrice;
+      tPrice = discountPercent > 0
+        ? parseFloat((gross * (1 - discountPercent / 100)).toFixed(2))
+        : parseFloat(gross.toFixed(2));
+    } else if (q === 1 && discountPercent > 0 && Math.abs(tPrice - uPrice) < 0.01) {
+      tPrice = parseFloat((uPrice * (1 - discountPercent / 100)).toFixed(2));
+    }
+
+    return { unitPrice: uPrice, discount: disc, totalPrice: tPrice };
+  };
+
   // Apply parsed document data to docForm
   const applyExtractedData = (parsed: ExtractedDocumentData, sourceLabel: string) => {
     // Match destination cantiere if specified in document
@@ -153,24 +205,20 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       }
     }
 
-    // Map extracted items preserving all 8 columns (observing Master Rule: direct reporting, no item math calculations)
+    // Map extracted items preserving all 8 columns with robust price & discount resolution
     const mappedItems = parsed.items.map((item, idx) => {
       const found = materiali.find(m => 
         m.name.toLowerCase().includes(item.materialeName.toLowerCase()) || 
         item.materialeName.toLowerCase().includes(m.name.toLowerCase())
       );
 
-      const qty = safeParseNum(item.quantity);
-      let uPrice = safeParseNum(item.unitPrice);
-      const disc = item.discount ? String(item.discount).trim() : '';
-      let tPrice = safeParseNum(item.totalPrice);
+      const qty = safeParseNum(item.quantity) || 1;
+      const rawUPrice = safeParseNum(item.unitPrice);
+      const rawDisc = item.discount ? String(item.discount).trim() : '';
+      const rawTPrice = safeParseNum(item.totalPrice);
       const vat = item.vatRate ? String(item.vatRate).trim() : '22%';
 
-      if (uPrice === 0 && tPrice > 0) {
-        uPrice = tPrice;
-      } else if (tPrice === 0 && uPrice > 0) {
-        tPrice = uPrice;
-      }
+      const { unitPrice, discount, totalPrice } = resolveLinePrices(qty, rawUPrice, rawDisc, rawTPrice);
 
       return {
         code: item.code || '',
@@ -178,9 +226,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         materialeName: item.materialeName,
         quantity: qty,
         unit: item.unit || 'pz',
-        unitPrice: uPrice,
-        discount: disc,
-        totalPrice: tPrice,
+        unitPrice,
+        discount,
+        totalPrice,
         vatRate: vat,
         destinationCantiereId: matchedDestinationId,
       };
@@ -257,23 +305,20 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           if (json.success && json.data) {
             const d = json.data;
             const mappedItems = (d.items || []).map((it: any) => {
-              const qty = safeParseNum(it.quantity);
-              let uPrice = safeParseNum(it.unitPrice);
-              const disc = it.discount ? String(it.discount).trim() : '';
-              let tPrice = safeParseNum(it.totalPrice);
-              if (uPrice === 0 && tPrice > 0) {
-                uPrice = tPrice;
-              } else if (tPrice === 0 && uPrice > 0) {
-                tPrice = uPrice;
-              }
+              const qty = safeParseNum(it.quantity) || 1;
+              const rawUPrice = safeParseNum(it.unitPrice);
+              const rawDisc = it.discount ? String(it.discount).trim() : '';
+              const rawTPrice = safeParseNum(it.totalPrice);
+              const { unitPrice, discount, totalPrice } = resolveLinePrices(qty, rawUPrice, rawDisc, rawTPrice);
+
               return {
                 code: it.code || undefined,
                 materialeName: it.materialeName || '',
                 quantity: qty,
                 unit: it.unit || 'pz',
-                unitPrice: uPrice,
-                discount: disc,
-                totalPrice: tPrice,
+                unitPrice,
+                discount,
+                totalPrice,
                 vatRate: it.vatRate ? String(it.vatRate).trim() : '22%',
               };
             });
@@ -339,6 +384,30 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       ...prev,
       items: prev.items.filter((_, i) => i !== index)
     }));
+  };
+
+  // Dedicated handler to dynamically update a single row's field with instant price & discount recalculation
+  const handleItemFieldChange = (idx: number, field: string, val: any) => {
+    setDocForm(prev => {
+      const updated = [...prev.items];
+      const cur = { ...updated[idx], [field]: val };
+
+      if (field === 'quantity' || field === 'unitPrice' || field === 'discount') {
+        const q = field === 'quantity' ? (parseFloat(val) || 0) : (cur.quantity || 0);
+        const u = field === 'unitPrice' ? (parseFloat(val) || 0) : (cur.unitPrice || 0);
+        const d = field === 'discount' ? String(val) : (cur.discount || '');
+        const resolved = resolveLinePrices(q, u, d, 0);
+        cur.quantity = q;
+        cur.unitPrice = u;
+        cur.discount = d;
+        cur.totalPrice = resolved.totalPrice;
+      } else if (field === 'totalPrice') {
+        cur.totalPrice = parseFloat(val) || 0;
+      }
+
+      updated[idx] = cur;
+      return { ...prev, items: updated };
+    });
   };
 
   // Propagate master destination change to all items
@@ -412,17 +481,19 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           const qty = Number(item.quantity) || 0;
           const uPrice = Number(item.unitPrice) || 0;
           const disc = item.discount ? String(item.discount).trim() : '';
-          const tot = Number(item.totalPrice) || 0;
+          const rawTot = Number(item.totalPrice) || 0;
           const vat = item.vatRate ? String(item.vatRate).trim() : '';
+          const resolved = resolveLinePrices(qty, uPrice, disc, rawTot);
+
           return {
             code: item.code || '',
             materialeId: item.materialeId || `mat-${Date.now()}`,
             materialeName: item.materialeName.trim(),
             quantity: qty,
             unit: item.unit,
-            unitPrice: uPrice,
-            discount: disc,
-            totalPrice: tot,
+            unitPrice: resolved.unitPrice,
+            discount: resolved.discount,
+            totalPrice: resolved.totalPrice,
             vatRate: vat,
             destinationCantiereId: item.destinationCantiereId,
             status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
@@ -1160,30 +1231,50 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                               </span>
                             </td>
 
-                            {/* 4. Q.tà */}
-                            <td className="px-3 py-3 text-center font-black text-slate-900 text-sm">
-                              {item.quantity || 0}
-                            </td>
-
-                            {/* 5. Prezzo Unitario (€) */}
-                            <td className="px-3 py-3 text-right font-semibold text-slate-800">
-                              €{uPriceFormatted}
-                            </td>
-
-                            {/* 6. Sconto (%) */}
+                            {/* 4. Q.tà (Editable) */}
                             <td className="px-3 py-3 text-center">
-                              {item.discount ? (
-                                <span className="inline-block bg-emerald-100 text-emerald-900 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300 text-[11px]">
-                                  {item.discount}
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-medium">-</span>
-                              )}
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={item.quantity || ''}
+                                onChange={e => handleItemFieldChange(idx, 'quantity', e.target.value)}
+                                className="w-16 text-center font-black text-slate-900 bg-slate-50 border border-slate-200 rounded-lg py-1 px-1.5 text-xs focus:ring-2 focus:ring-amber-500/50 outline-none transition-all"
+                                title="Quantità"
+                              />
                             </td>
 
-                            {/* 7. Imp. Netto (€) - Read-only line total */}
+                            {/* 5. Prezzo Unitario (€) (Editable) */}
                             <td className="px-3 py-3 text-right">
-                              <span className="inline-block font-black text-amber-950 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-300 text-xs">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="text-[11px] font-bold text-slate-400">€</span>
+                                <input
+                                  type="number"
+                                  step="0.0001"
+                                  min="0"
+                                  value={item.unitPrice !== undefined ? item.unitPrice : ''}
+                                  onChange={e => handleItemFieldChange(idx, 'unitPrice', e.target.value)}
+                                  className="w-24 text-right font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg py-1 px-1.5 text-xs focus:ring-2 focus:ring-amber-500/50 outline-none transition-all"
+                                  title="Prezzo Unitario"
+                                />
+                              </div>
+                            </td>
+
+                            {/* 6. Sconto (%) (Editable with highlighted emerald style) */}
+                            <td className="px-3 py-3 text-center">
+                              <input
+                                type="text"
+                                placeholder="0%"
+                                value={item.discount || ''}
+                                onChange={e => handleItemFieldChange(idx, 'discount', e.target.value)}
+                                className="w-20 text-center font-extrabold text-emerald-900 bg-emerald-50/80 border border-emerald-300 rounded-lg py-1 px-1.5 text-xs focus:ring-2 focus:ring-emerald-500/50 outline-none transition-all placeholder:text-slate-300"
+                                title="Sconto riga (es. -28% o 28%)"
+                              />
+                            </td>
+
+                            {/* 7. Imp. Netto (€) - Auto-recalculated with high visibility */}
+                            <td className="px-3 py-3 text-right">
+                              <span className="inline-block font-black text-amber-950 bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-300 text-xs shadow-xs">
                                 €{lineTotFormatted}
                               </span>
                             </td>
@@ -1403,22 +1494,26 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                   <tbody className="divide-y divide-slate-100">
                     {selectedDocDetails.items.map((item, idx) => {
                       const cDest = cantieri.find(c => c.id === item.destinationCantiereId);
-                      const rowTot = Number(item.totalPrice) || 0;
-                      const uPrice = Number(item.unitPrice) || 0;
+                      const { unitPrice: uPrice, discount: disc, totalPrice: rowTot } = resolveLinePrices(
+                        Number(item.quantity) || 1,
+                        Number(item.unitPrice) || 0,
+                        item.discount || '',
+                        Number(item.totalPrice) || 0
+                      );
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50/50">
                           <td className="px-3 py-3 font-mono font-bold text-slate-500">{item.code || '-'}</td>
                           <td className="px-3 py-3 font-bold text-slate-900">{item.materialeName}</td>
                           <td className="px-3 py-3 text-center font-bold text-slate-500">{item.unit || 'pz'}</td>
-                          <td className="px-3 py-3 text-center font-bold text-slate-900">{item.quantity}</td>
+                          <td className="px-3 py-3 text-center font-black text-slate-900">{item.quantity}</td>
                           <td className="px-3 py-3 text-right font-semibold text-slate-700">
                             {uPrice > 0 ? `€${uPrice.toFixed(2)}` : '-'}
                           </td>
                           <td className="px-3 py-3 text-center">
-                            {item.discount ? (
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold text-[10px]">
-                                {item.discount}
+                            {disc ? (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-extrabold text-[10px] border border-emerald-200">
+                                {disc}
                               </span>
                             ) : (
                               <span className="text-slate-300">-</span>

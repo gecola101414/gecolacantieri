@@ -74,116 +74,167 @@ app.post('/api/analyze-bolla', async (req, res) => {
     const ai = getGeminiClient();
 
     const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
-Il tuo compito è analizzare il testo o l'immagine di un documento (Bolla, DDT, Fattura accompagnatoria, Ricevuta di consegna) di materiali edili.
+Il tuo compito è analizzare il documento (Bolla, DDT, Fattura accompagnatoria di vendita, Ricevuta di consegna) di materiali edili (ad es. emesso da rivendite edili come SARDARES, BigMat, Kerakoll, Mapei, ecc.).
 
-REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
-1. RILEVAZIONE DELLE COLONNE DI RIGA (ESTRAI SOLTANTO I DATI DIRETTI RILEVATI DALLA BOLLA/FATTURA, SENZA FARE NESSUNA OPERAZIONE NÉ DI SOMMA NÉ DI MOLTIPLICAZIONE):
-   - "code": CODICE / ITEMCODE articolo se presente sul documento (es. "KEK07202", "WEB5200778823").
-   - "materialeName": DESCRIZIONE / DESCRIPTION completa del materiale.
-   - "unit": U.M. / UNIT di misura (es. "nr", "pz", "ql", "mc", "kg", "m").
-   - "quantity": QUANTITA' / QUANTITY riportata sul documento.
-   - "unitPrice": PREZZO UNITARIO / PREZZO LISTINO di riga riportato nella colonna del prezzo unitario o listino del documento (es. 3.145, 21.5165, 151.317).
-     ATTENZIONE RIGOROSA PREZZO UNITARIO:
-     * Non lasciare MAI "unitPrice" a 0 se per l'articolo c'è un prezzo sul documento!
-     * Se una riga ha quantità > 1 (es. Q.tà: 10) e sul documento c'è il prezzo unitario (es. 3,145), devi estrarre 3.145 in "unitPrice" e l'importo totale netto 31.45 in "totalPrice".
-     * Se sulla riga compaiono valori di prezzo, assegna sempre il prezzo unitario/listino a "unitPrice". Non confondere il prezzo unitario con l'importo totale di riga.
-   - "discount": SCONTO / DISCOUNT di riga (es. "30%", "10%", "5%+3%", "15" o "" se assente). Rileva sempre la colonna sconti se presente nel documento!
-   - "totalPrice": IMPORTO NETTO / NET AMOUNT di riga (l'importo totale della riga situato nell'ultima colonna della riga prima dell'IVA, es. 31.45).
-   - "vatRate": IVA / VAT (aliquota o importo IVA di riga es. "22%", "10%", "0%").
+STRUTTURA TIPICA DELLE COLONNE NELLE FATTURE E BOLLE EDILI ITALIANE:
+Tipicamente le righe articoli hanno queste colonne:
+CODICE ITEMCODE | DESCRIZIONE DESCRIPTION | U.M. UNIT | QUANTITA' QUANTITY | PREZZO PRICE | SCONTO DISCOUNT | IMP. NETTO NET AMOUNT | IVA VAT
 
-   ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori scritti nelle colonne del documento.
+REGOLE TASSATIVE PER L'ESTRAZIONE DI OGNI RIGA ARTICOLO:
+1. "code": Codice articolo se presente (es. "CEUC325025", "KEK07202", "WEB5200778823", "EEDSABBIA03").
+2. "materialeName": Descrizione completa del materiale (es. "CEMENTO 32,5R 25kg", "H40 NO LIMITS 25 KG BIANCO").
+3. "unit": Unità di misura (es. "nr", "ql", "kg", "pz", "m", "mc").
+4. "quantity": Quantità numerica riportata (es. 15, 10, 5, 112, 1).
+5. "unitPrice": PREZZO UNITARIO DI LISTINO riportato nella colonna PREZZO / PRICE (es. 9.45000 per il cemento, 31.45000 per H40, 25.14000 per Webertherm, 5.50000 per la sabbia).
+6. "discount": SCONTO DI RIGA riportato nella colonna SCONTO / DISCOUNT (es. "-28%", "-22%", "-19%", "-40%", "-49%"). Riporta sempre la percentuale di sconto se presente nel documento (es. "-28%" o "28%"), oppure "" se non c'è sconto.
+7. "totalPrice": IMPORTO NETTO TOTALE DELL'ARTICOLO riportato nella colonna IMP. NETTO / NET AMOUNT.
+   ATTENZIONE CRUCIALE:
+   * NON METTERE MAI IL PREZZO UNITARIO COME TOTALE DELL'ARTICOLO QUANDO LA QUANTITÀ È MAGGIORE DI UNO O QUANDO C'È UNO SCONTO!
+   * Esempi reali:
+     - CEMENTO: Q.tà 15, Prezzo Unitario 9.45, Sconto -28% -> "totalPrice" deve essere 102.06 (ovvero 15 * 9.45 * 0.72 = 102.06), NON 9.45!
+     - H40 NO LIMITS: Q.tà 10, Prezzo Unitario 31.45, Sconto -22% -> "totalPrice" deve essere 245.31, NON 31.45!
+     - WEBERTHERM AP60: Q.tà 5, Prezzo Unitario 25.14, Sconto -19% -> "totalPrice" deve essere 101.82, NON 25.14!
+     - SABBIA LAVATA: Q.tà 112, Prezzo Unitario 5.50, Sconto -40% -> "totalPrice" deve essere 369.60, NON 5.50!
+     - RACCORDO: Q.tà 3, Prezzo Unitario 4.675, Sconto 0% -> "totalPrice" deve essere 14.03, NON 4.68!
+8. "vatRate": Aliquota IVA (es. "22%").
 
-2. TOTALE GENERALE DEL DOCUMENTO (TOTALE IMPONIBILE / TAX BASE / SENZA IVA):
-   - "totalAmount" e "imponibile": PRENDI SEMPRE E DIRETTAMENTE IL TOTALE DEL DOCUMENTO SENZA IVA (come riportato nel riquadro 'TOTALE IMPONIBILE - TAX BASE', 'TOTALE SENZA IVA' o 'TAX FREE' in calce al documento, es. 3427.07).
-   - NON fare MAI operazioni di somma delle righe per calcolare il totale. Il totale del documento dev'essere esattamente quello stampato nel box del totale imponibile / senza IVA del documento.
+REGOLE PER IL TOTALE GENERALE DEL DOCUMENTO:
+- "totalAmount" e "imponibile": Estrai il TOTALE IMPONIBILE / TAX BASE / TOTALE NETTO DEL DOCUMENTO SENZA IVA (come riportato nei riquadri di riepilogo in calce alla fattura, ad es. 3427.07 o 3416.75).
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
-  "supplier": "Nome completo del fornitore",
+  "supplier": "Nome del fornitore (es. SARDARES S.p.A.)",
   "type": "bolla" | "fattura" | "ddt",
-  "number": "Numero documento",
+  "number": "Numero documento (es. FVDO / 4149)",
   "date": "YYYY-MM-DD",
-  "destinationCantiere": "Cantiere o indirizzo di destinazione",
+  "destinationCantiere": "Indirizzo o cantiere di destinazione (es. CUGNANA PORTO ROTONDO)",
   "totalAmount": 3427.07,
   "imponibile": 3427.07,
-  "summaryDescription": "Sintesi materiali",
+  "summaryDescription": "Sintesi dei materiali (es. Cemento, H40, Guaine, Raccordi)",
   "items": [
     {
-      "code": "codice articolo (es. KEK07202)",
-      "materialeName": "Descrizione materiale (es. H40 NO LIMITS 25 KG BIANCO)",
-      "quantity": 10.0,
+      "code": "CEUC325025",
+      "materialeName": "CEMENTO 32,5R 25kg",
       "unit": "nr",
-      "unitPrice": 3.145,
-      "discount": "30%",
-      "totalPrice": 31.45,
+      "quantity": 15.0,
+      "unitPrice": 9.45,
+      "discount": "-28%",
+      "totalPrice": 102.06,
       "vatRate": "22%"
     }
   ],
-  "vettore": "Nome del vettore se visibile",
-  "notes": "Eventuali annotazioni"
+  "vettore": "Nome vettore se presente",
+  "notes": ""
 }`;
 
-    let response;
+    // Multi-model resilience: try primary model, fall back gracefully if 503/429
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let response: any = null;
+    let lastError: any = null;
 
-    if (imageBase64) {
-      // Strip data:image/...;base64, prefix if present
-      const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+    for (const modelName of candidateModels) {
+      try {
+        if (imageBase64) {
+          const cleanBase64 = imageBase64.replace(/^data:[^;]+;base64,/, '');
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: {
+              parts: [
+                {
+                  inlineData: {
+                    mimeType,
+                    data: cleanBase64,
+                  },
+                },
+                {
+                  text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza il documento ed estrai il JSON completo.`,
+                },
+              ],
+            },
+            config: {
+              responseMimeType: 'application/json',
+              maxOutputTokens: 8192,
+            },
+          });
+        } else {
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: `${systemPrompt}\n\nEcco il testo estratto dal documento PDF:\n\n${text}`,
+            config: {
+              responseMimeType: 'application/json',
+              maxOutputTokens: 8192,
+            },
+          });
+        }
 
-      response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: cleanBase64,
-              },
-            },
-            {
-              text: `${systemPrompt}\n\nNome file caricato: ${fileName}. Analizza il documento ed estrai il JSON completo.`,
-            },
-          ],
-        },
-        config: {
-          responseMimeType: 'application/json',
-          maxOutputTokens: 8192,
-        },
-      });
-    } else {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
-        contents: `${systemPrompt}\n\nEcco il testo estratto dalla bolla/DDT/Fattura PDF:\n\n${text}`,
-        config: {
-          responseMimeType: 'application/json',
-          maxOutputTokens: 8192,
-        },
-      });
+        if (response && response.text) {
+          break; // Success!
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${modelName} failed, trying next fallback:`, err.message || err);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error('Tutti i modelli AI sono momentaneamente non disponibili.');
     }
 
     const responseText = response.text?.trim() || '{}';
     const parsedData = JSON.parse(responseText);
 
-    // Map extracted items preserving all raw columns without altering unitPrice, discount, totalPrice or calculating sums
+    // Map extracted items with strict math checks and discount preservation
     if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
       parsedData.items = parsedData.items.map((it: any) => {
-        const qty = parseItalianNumber(it.quantity);
+        const qty = parseItalianNumber(it.quantity) || 1;
         let uPrice = parseItalianNumber(it.unitPrice);
         let lineTot = parseItalianNumber(it.totalPrice);
-        const disc = it.discount ? String(it.discount).trim() : '';
-        const vat = it.vatRate ? String(it.vatRate).trim() : '';
+        let disc = it.discount ? String(it.discount).trim() : '';
+        const vat = it.vatRate ? String(it.vatRate).trim() : '22%';
 
-        // Fallback: If unit price was missed or set to 0 but line total exists, assign line total so unit price is never 0
+        // Extract numeric discount value if present (e.g. "-28%", "28%", "-28")
+        let discountPercent = 0;
+        if (disc) {
+          const numMatch = disc.match(/([0-9]+(?:[.,][0-9]+)?)/);
+          if (numMatch) {
+            discountPercent = parseFloat(numMatch[1].replace(',', '.'));
+            if (!disc.includes('%')) {
+              disc = `${disc}%`;
+            }
+          }
+        }
+
+        // Mathematical safeguard:
+        // 1. If unitPrice is 0 and lineTot > 0, deduce unitPrice
         if (uPrice === 0 && lineTot > 0) {
-          uPrice = lineTot;
-        } else if (lineTot === 0 && uPrice > 0) {
-          lineTot = uPrice;
+          if (qty > 0) {
+            const undiscounted = discountPercent > 0 && discountPercent < 100 
+              ? lineTot / (1 - discountPercent / 100) 
+              : lineTot;
+            uPrice = parseFloat((undiscounted / qty).toFixed(4));
+          } else {
+            uPrice = lineTot;
+          }
+        }
+
+        // 2. If lineTot is 0 OR lineTot was mistakenly set equal to unitPrice when quantity > 1:
+        // Recalculate the true net total!
+        const isSuspiciousLineTot = lineTot === 0 || (qty > 1 && Math.abs(lineTot - uPrice) < 0.01);
+        if (isSuspiciousLineTot && uPrice > 0) {
+          const gross = qty * uPrice;
+          lineTot = discountPercent > 0 
+            ? parseFloat((gross * (1 - discountPercent / 100)).toFixed(2)) 
+            : parseFloat(gross.toFixed(2));
+        } else if (qty === 1 && discountPercent > 0 && Math.abs(lineTot - uPrice) < 0.01) {
+          // If qty is 1 but discount was not applied to lineTot
+          lineTot = parseFloat((uPrice * (1 - discountPercent / 100)).toFixed(2));
         }
 
         return {
           code: it.code ? String(it.code).trim() : '',
           materialeName: it.materialeName ? String(it.materialeName).trim() : 'Materiale',
           quantity: qty,
-          unit: it.unit ? String(it.unit).trim() : 'pz',
+          unit: it.unit ? String(it.unit).trim().toLowerCase() : 'nr',
           unitPrice: uPrice,
           discount: disc,
           totalPrice: lineTot,

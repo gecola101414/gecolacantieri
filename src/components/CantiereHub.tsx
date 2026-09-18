@@ -577,7 +577,22 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                       const cantiereItems = doc.items.filter(i => 
                         i.destinationCantiereId === cantiere.id || doc.destinationCantiereId === cantiere.id
                       );
-                      const totalDocNet = cantiereItems.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' ? i.totalPrice : (i.quantity * (i.unitPrice || 0))), 0);
+                      const totalDocNet = cantiereItems.reduce((acc, i) => {
+                        const q = Number(i.quantity) || 1;
+                        const u = Number(i.unitPrice) || 0;
+                        let t = Number(i.totalPrice) || 0;
+                        let d = i.discount ? String(i.discount).trim() : '';
+                        let dPct = 0;
+                        if (d) {
+                          const m = d.match(/([0-9]+(?:[.,][0-9]+)?)/);
+                          if (m) dPct = parseFloat(m[1].replace(',', '.'));
+                        }
+                        if ((t === 0 || (q > 1 && Math.abs(t - u) < 0.01)) && u > 0) {
+                          const gross = q * u;
+                          t = dPct > 0 ? parseFloat((gross * (1 - dPct / 100)).toFixed(2)) : parseFloat(gross.toFixed(2));
+                        }
+                        return acc + t;
+                      }, 0);
 
                       return (
                         <div key={doc.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
@@ -603,17 +618,40 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
 
                           {/* Items breakdown */}
                           <div className="border-t border-slate-100 pt-2 space-y-1.5">
-                            {cantiereItems.map((item, idx) => (
-                              <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-slate-50">
-                                <div className="min-w-0 pr-2">
-                                  <p className="font-bold text-slate-800 truncate">{item.materialeName}</p>
-                                  <p className="text-[10px] text-slate-400 font-mono">
-                                    {item.quantity} {item.unit} • €{item.unitPrice?.toFixed(2)}/u {item.discount ? `• Sc. ${item.discount}` : ''}
-                                  </p>
+                            {cantiereItems.map((item, idx) => {
+                              const q = Number(item.quantity) || 1;
+                              const u = Number(item.unitPrice) || 0;
+                              let t = Number(item.totalPrice) || 0;
+                              let d = item.discount ? String(item.discount).trim() : '';
+                              let dPct = 0;
+                              if (d) {
+                                const m = d.match(/([0-9]+(?:[.,][0-9]+)?)/);
+                                if (m) dPct = parseFloat(m[1].replace(',', '.'));
+                              }
+                              if ((t === 0 || (q > 1 && Math.abs(t - u) < 0.01)) && u > 0) {
+                                const gross = q * u;
+                                t = dPct > 0 ? parseFloat((gross * (1 - dPct / 100)).toFixed(2)) : parseFloat(gross.toFixed(2));
+                              }
+
+                              return (
+                                <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-slate-50">
+                                  <div className="min-w-0 pr-2">
+                                    <p className="font-bold text-slate-800 truncate">{item.materialeName}</p>
+                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
+                                      <span>{item.quantity} {item.unit}</span>
+                                      <span>•</span>
+                                      <span>€{u > 0 ? u.toFixed(2) : '0.00'}/u</span>
+                                      {d && (
+                                        <span className="font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded">
+                                          Sc. {d.includes('%') ? d : `${d}%`}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <span className="font-black text-slate-900 shrink-0">€{t.toFixed(2)}</span>
                                 </div>
-                                <span className="font-black text-slate-900 shrink-0">€{item.totalPrice?.toFixed(2)}</span>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       );

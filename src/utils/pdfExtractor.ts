@@ -279,19 +279,19 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
   // Line-by-line scanning using spatial lines
   const lines = rawText.split('\n');
 
-  // Pattern 1: [Optional Item Code] [Description] [Unit] [Qty] [Price] [Optional Discount] [Optional Total] [Optional VAT]
+  // Pattern 1: [Optional Item Code] [Description] [Unit] [Qty] [Tokens: Sconto / Prezzo / Totale / IVA]
   const lineRegex1 = new RegExp(
     '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+\\b(' +
     validUnits +
-    ')\\b\\s+([0-9]+(?:[.,][0-9]{1,4})?)\\s+([0-9]+(?:[.,][0-9]{1,4})?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]{1,2})?))?',
+    ')\\b\\s+([0-9]+(?:[.,][0-9]+)?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]+)?))?',
     'i'
   );
 
-  // Pattern 2: [Optional Item Code] [Description] [Qty] [Unit] [Price] [Optional Discount] [Optional Total]
+  // Pattern 2: [Optional Item Code] [Description] [Qty] [Unit] [Tokens: Sconto / Prezzo / Totale / IVA]
   const lineRegex2 = new RegExp(
-    '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+([0-9]+(?:[.,][0-9]{1,4})?)\\s+\\b(' +
+    '^\\s*(?:([0-9]{1,2})\\s+)?(?:([A-Z0-9\\.\\-\\_]{3,30})\\s+)?(.{3,90}?)\\s+([0-9]+(?:[.,][0-9]+)?)\\s+\\b(' +
     validUnits +
-    ')\\b\\s+([0-9]+(?:[.,][0-9]{1,4})?)(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]{1,2})?))?',
+    ')\\b(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([\\-0-9]+(?:[.,][0-9]+)?))?(?:\\s+([0-9]+(?:[.,][0-9]+)?))?',
     'i'
   );
 
@@ -312,26 +312,29 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
     let desc: string;
     let unit: string;
     let qty: number;
-    let col6: string | undefined;
-    let col7: string | undefined;
-    let col8: string | undefined;
+    let c6: string | undefined;
+    let c7: string | undefined;
+    let c8: string | undefined;
+    let c9: string | undefined;
 
     if (isPattern1) {
       code = m[2];
       desc = m[3].trim().replace(/\s+/g, ' ');
       unit = m[4].toLowerCase();
       qty = parseItalianNumber(m[5]);
-      col6 = m[6];
-      col7 = m[7];
-      col8 = m[8];
+      c6 = m[6];
+      c7 = m[7];
+      c8 = m[8];
+      c9 = m[9];
     } else {
       code = m[2];
       desc = m[3].trim().replace(/\s+/g, ' ');
       qty = parseItalianNumber(m[4]);
       unit = m[5].toLowerCase();
-      col6 = m[6];
-      col7 = m[7];
-      col8 = m[8];
+      c6 = m[6];
+      c7 = m[7];
+      c8 = m[8];
+      c9 = m[9];
     }
 
     // Clean description: remove order refs like "Rif. BCV 14330 del 15.09.25"
@@ -339,33 +342,56 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
 
     if (desc.length < 3) continue;
 
-    // Collect all numeric values present at the end of the line
-    const numList: number[] = [];
-    if (col6) numList.push(parseItalianNumber(col6));
-    if (col7) numList.push(parseItalianNumber(col7));
-    if (col8) numList.push(parseItalianNumber(col8));
+    // Collect trailing tokens (Sconto, Prezzo Unitario, Importo Netto, IVA)
+    const trailingTokens = [c6, c7, c8, c9].filter((x): x is string => !!x && x.trim() !== '');
 
-    let rowImporto = 0;
+    let vatRate = '22%';
+    if (trailingTokens.length >= 2 && /^(?:22|10|5|4|0)$/.test(trailingTokens[trailingTokens.length - 1])) {
+      vatRate = `${trailingTokens.pop()}%`;
+    }
+
     let extractedUnitPrice = 0;
     let extractedDiscount = '';
+    let discountPercent = 0;
+    let rowImporto = 0;
 
-    if (numList.length >= 3) {
-      // col6: Unit Price, col7: Discount, col8: Net Total (rightmost column)
-      extractedUnitPrice = Math.abs(numList[0]);
-      let rawDisc = col7 ? col7.trim() : '';
-      if (rawDisc && !rawDisc.includes('%') && !isNaN(Number(rawDisc)) && Number(rawDisc) > 0 && Number(rawDisc) <= 100) {
-        rawDisc = `${rawDisc}%`;
+    if (trailingTokens.length >= 3) {
+      // 3 tokens: e.g. ['-28', '9,45000', '102,06'] or ['9,45000', '-28', '102,06']
+      const discIndex = trailingTokens.findIndex(t => t.startsWith('-') || t.includes('%') || (Math.abs(parseFloat(t.replace(',', '.'))) <= 99 && t.includes('-')));
+      if (discIndex !== -1) {
+        const rawDisc = trailingTokens[discIndex];
+        extractedDiscount = rawDisc.includes('%') ? rawDisc : `${rawDisc}%`;
+        const numDiscMatch = rawDisc.match(/([0-9]+(?:[.,][0-9]+)?)/);
+        if (numDiscMatch) {
+          discountPercent = parseFloat(numDiscMatch[1].replace(',', '.'));
+        }
+        const otherTokens = trailingTokens.filter((_, i) => i !== discIndex).map(t => parseItalianNumber(t));
+        extractedUnitPrice = otherTokens[0] || 0;
+        rowImporto = otherTokens[1] || 0;
+      } else {
+        extractedUnitPrice = parseItalianNumber(trailingTokens[0]);
+        rowImporto = parseItalianNumber(trailingTokens[trailingTokens.length - 1]);
       }
-      extractedDiscount = rawDisc;
-      rowImporto = Math.abs(numList[numList.length - 1]);
-    } else if (numList.length === 2) {
-      // col6: Unit Price, col7: Net Total (rightmost column)
-      extractedUnitPrice = Math.abs(numList[0]);
-      rowImporto = Math.abs(numList[1]);
-    } else if (numList.length === 1) {
-      // Single price number found on the line -> set both total and unit price to this value (never leave unit price at 0)
-      rowImporto = Math.abs(numList[0]);
-      extractedUnitPrice = rowImporto;
+    } else if (trailingTokens.length === 2) {
+      // 2 tokens: Unit Price & Net Total
+      extractedUnitPrice = parseItalianNumber(trailingTokens[0]);
+      rowImporto = parseItalianNumber(trailingTokens[1]);
+    } else if (trailingTokens.length === 1) {
+      // 1 token
+      const val = parseItalianNumber(trailingTokens[0]);
+      extractedUnitPrice = val;
+      rowImporto = qty > 1 ? parseFloat((qty * val).toFixed(2)) : val;
+    }
+
+    // Mathematical safeguard:
+    // When qty > 1, line total MUST NOT be equal to unit price!
+    if (qty > 1 && (rowImporto === 0 || Math.abs(rowImporto - extractedUnitPrice) < 0.01)) {
+      const gross = qty * extractedUnitPrice;
+      rowImporto = discountPercent > 0 
+        ? parseFloat((gross * (1 - discountPercent / 100)).toFixed(2)) 
+        : parseFloat(gross.toFixed(2));
+    } else if (qty === 1 && discountPercent > 0 && Math.abs(rowImporto - extractedUnitPrice) < 0.01) {
+      rowImporto = parseFloat((extractedUnitPrice * (1 - discountPercent / 100)).toFixed(2));
     }
 
     if (qty > 0 || rowImporto > 0) {
@@ -377,6 +403,7 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
         unitPrice: extractedUnitPrice,
         discount: extractedDiscount,
         totalPrice: rowImporto,
+        vatRate,
       });
     }
   }
