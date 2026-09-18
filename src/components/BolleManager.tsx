@@ -161,10 +161,16 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       );
 
       const qty = safeParseNum(item.quantity);
-      const uPrice = safeParseNum(item.unitPrice);
+      let uPrice = safeParseNum(item.unitPrice);
       const disc = item.discount ? String(item.discount).trim() : '';
-      const tPrice = safeParseNum(item.totalPrice);
+      let tPrice = safeParseNum(item.totalPrice);
       const vat = item.vatRate ? String(item.vatRate).trim() : '22%';
+
+      if (uPrice === 0 && tPrice > 0) {
+        uPrice = tPrice;
+      } else if (tPrice === 0 && uPrice > 0) {
+        tPrice = uPrice;
+      }
 
       return {
         code: item.code || '',
@@ -251,10 +257,15 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           if (json.success && json.data) {
             const d = json.data;
             const mappedItems = (d.items || []).map((it: any) => {
-              const qty = Number(it.quantity) || 0;
-              const uPrice = Number(it.unitPrice) || 0;
+              const qty = safeParseNum(it.quantity);
+              let uPrice = safeParseNum(it.unitPrice);
               const disc = it.discount ? String(it.discount).trim() : '';
-              const tPrice = Number(it.totalPrice) || 0;
+              let tPrice = safeParseNum(it.totalPrice);
+              if (uPrice === 0 && tPrice > 0) {
+                uPrice = tPrice;
+              } else if (tPrice === 0 && uPrice > 0) {
+                tPrice = uPrice;
+              }
               return {
                 code: it.code || undefined,
                 materialeName: it.materialeName || '',
@@ -263,6 +274,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 unitPrice: uPrice,
                 discount: disc,
                 totalPrice: tPrice,
+                vatRate: it.vatRate ? String(it.vatRate).trim() : '22%',
               };
             });
 

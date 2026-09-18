@@ -78,13 +78,17 @@ Il tuo compito è analizzare il testo o l'immagine di un documento (Bolla, DDT, 
 
 REGOLE TASSATIVE E MASTER PER L'ANALISI DEI DATI IN BOLLA / FATTURA:
 1. RILEVAZIONE DELLE COLONNE DI RIGA (ESTRAI SOLTANTO I DATI DIRETTI RILEVATI DALLA BOLLA/FATTURA, SENZA FARE NESSUNA OPERAZIONE NÉ DI SOMMA NÉ DI MOLTIPLICAZIONE):
-   - "code": CODICE / ITEMCODE articolo se presente sul documento (es. "EEDSABBIA02").
+   - "code": CODICE / ITEMCODE articolo se presente sul documento (es. "KEK07202", "WEB5200778823").
    - "materialeName": DESCRIZIONE / DESCRIPTION completa del materiale.
-   - "unit": U.M. / UNIT di misura (es. "ql", "mc", "pz", "kg", "m").
+   - "unit": U.M. / UNIT di misura (es. "nr", "pz", "ql", "mc", "kg", "m").
    - "quantity": QUANTITA' / QUANTITY riportata sul documento.
-   - "unitPrice": PREZZO / PRICE unitario di riga riportato sulla colonna del documento (es. 3.48 o 12.50). ATTENZIONE RIGOROSA: Rileva sempre il prezzo unitario esatto! Se il prezzo è scritto con la virgola (es. "3,48"), convertilo nel numero decimale 3.48. Non lasciare mai il prezzo unitario a 0 se è visibile!
-   - "discount": SCONTO / DISCOUNT di riga (es. "10%", "5%+3%", "15" o "" se assente).
-   - "totalPrice": IMP. NETTO / NET AMOUNT (l'importo totale netto di riga situato nell'ultima colonna prima dell'IVA).
+   - "unitPrice": PREZZO UNITARIO / PREZZO LISTINO di riga riportato nella colonna del prezzo unitario o listino del documento (es. 3.145, 21.5165, 151.317).
+     ATTENZIONE RIGOROSA PREZZO UNITARIO:
+     * Non lasciare MAI "unitPrice" a 0 se per l'articolo c'è un prezzo sul documento!
+     * Se una riga ha quantità > 1 (es. Q.tà: 10) e sul documento c'è il prezzo unitario (es. 3,145), devi estrarre 3.145 in "unitPrice" e l'importo totale netto 31.45 in "totalPrice".
+     * Se sulla riga compaiono valori di prezzo, assegna sempre il prezzo unitario/listino a "unitPrice". Non confondere il prezzo unitario con l'importo totale di riga.
+   - "discount": SCONTO / DISCOUNT di riga (es. "30%", "10%", "5%+3%", "15" o "" se assente). Rileva sempre la colonna sconti se presente nel documento!
+   - "totalPrice": IMPORTO NETTO / NET AMOUNT di riga (l'importo totale della riga situato nell'ultima colonna della riga prima dell'IVA, es. 31.45).
    - "vatRate": IVA / VAT (aliquota o importo IVA di riga es. "22%", "10%", "0%").
 
    ATTENZIONE: NON fare alcuna operazione matematica, moltiplicazione o applicazione di sconti sulle righe. Registra esattamente i valori scritti nelle colonne del documento.
@@ -105,13 +109,13 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
   "summaryDescription": "Sintesi materiali",
   "items": [
     {
-      "code": "codice articolo (es. EEDSABBIA02)",
-      "materialeName": "Descrizione materiale (es. SABBIA FINE LAVATA 0/2)",
-      "quantity": 16.0,
-      "unit": "ql",
-      "unitPrice": 3.48,
-      "discount": "10%",
-      "totalPrice": 55.62,
+      "code": "codice articolo (es. KEK07202)",
+      "materialeName": "Descrizione materiale (es. H40 NO LIMITS 25 KG BIANCO)",
+      "quantity": 10.0,
+      "unit": "nr",
+      "unitPrice": 3.145,
+      "discount": "30%",
+      "totalPrice": 31.45,
       "vatRate": "22%"
     }
   ],
@@ -163,10 +167,18 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
     if (parsedData.items && Array.isArray(parsedData.items) && parsedData.items.length > 0) {
       parsedData.items = parsedData.items.map((it: any) => {
         const qty = parseItalianNumber(it.quantity);
-        const uPrice = parseItalianNumber(it.unitPrice);
-        const lineTot = parseItalianNumber(it.totalPrice);
+        let uPrice = parseItalianNumber(it.unitPrice);
+        let lineTot = parseItalianNumber(it.totalPrice);
         const disc = it.discount ? String(it.discount).trim() : '';
         const vat = it.vatRate ? String(it.vatRate).trim() : '';
+
+        // Fallback: If unit price was missed or set to 0 but line total exists, assign line total so unit price is never 0
+        if (uPrice === 0 && lineTot > 0) {
+          uPrice = lineTot;
+        } else if (lineTot === 0 && uPrice > 0) {
+          lineTot = uPrice;
+        }
+
         return {
           code: it.code ? String(it.code).trim() : '',
           materialeName: it.materialeName ? String(it.materialeName).trim() : 'Materiale',

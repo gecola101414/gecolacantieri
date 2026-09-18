@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
   Trash2, Image as ImageIcon, Sparkles, Smartphone, Cloud, ArrowLeft, KeyRound, Timer, ShieldCheck, Loader2, ArrowRightLeft, Check, X,
-  Calendar, RotateCcw, Ban, Search, Filter, AlertTriangle, RefreshCw
+  Calendar, RotateCcw, Ban, Search, Filter, AlertTriangle, RefreshCw, Box, MessageSquare, FolderArchive
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 import { compressPhoto } from '../utils/imageCompressor';
 import { PhotoLightbox } from './PhotoLightbox';
 import { Logo, FooterBranding } from './Branding';
+import { CantiereHub } from './CantiereHub';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -29,9 +30,15 @@ interface MobileRapportinoViewProps {
   mezzi: Mezzo[];
   rapportini: Rapportino[];
   movements: StockMovement[];
+  documents?: MaterialDocument[];
+  chatMessages?: CantiereChatMessage[];
+  technicalDocs?: CantiereDocumentoTecnico[];
   onAddRapportino: (r: Rapportino) => void;
   onCancelRapportino?: (rapportinoId: string, motivo: string) => Promise<void>;
   onAcceptTransfer: (moveId: string) => Promise<void>;
+  onSendMessage?: (msg: CantiereChatMessage) => Promise<void>;
+  onSaveTechnicalDoc?: (doc: CantiereDocumentoTecnico) => Promise<void>;
+  onDeleteTechnicalDoc?: (docId: string) => Promise<void>;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
@@ -42,11 +49,17 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   mezzi,
   rapportini,
   movements,
+  documents = [],
+  chatMessages = [],
+  technicalDocs = [],
   onAddRapportino,
   onCancelRapportino,
   onAcceptTransfer,
+  onSendMessage = async () => {},
+  onSaveTechnicalDoc = async () => {},
+  onDeleteTechnicalDoc = async () => {},
 }) => {
-  const [step, setStep] = useState<'list' | 'create'>('list');
+  const [step, setStep] = useState<'list' | 'create' | 'hub'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   
   // Real-time emission clock ticker
@@ -342,7 +355,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
         foto: [],
         note: '',
       });
-      setStep('list');
+      setStep(selectedCantiere ? 'hub' : 'list');
       const numFoto = (rapportino.foto || []).length;
       alert(`Rapportino N° ${nextProg} inviato con successo alle ore ${emissioneOra}!${numFoto > 0 ? ` (${numFoto} foto allegat${numFoto === 1 ? 'a' : 'e'})` : ''}`);
     } catch (err: any) {
@@ -444,7 +457,36 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   return (
     <div className="w-full max-w-xl mx-auto px-3.5 py-4 sm:px-6 sm:py-6 overflow-x-hidden space-y-6 pb-20">
       <AnimatePresence mode="wait">
-        {step === 'list' ? (
+        {step === 'hub' && selectedCantiere ? (
+          <motion.div
+            key={`hub-${selectedCantiere.id}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="w-full max-w-full overflow-x-hidden"
+          >
+            <CantiereHub
+              cantiere={selectedCantiere}
+              currentUser={currentUser}
+              company={company}
+              cantieri={cantieri}
+              personale={personale}
+              mezzi={mezzi}
+              rapportini={rapportini}
+              movements={movements}
+              documents={documents}
+              chatMessages={chatMessages}
+              technicalDocs={technicalDocs}
+              onSendMessage={onSendMessage}
+              onSaveTechnicalDoc={onSaveTechnicalDoc}
+              onDeleteTechnicalDoc={onDeleteTechnicalDoc}
+              onOpenRapportinoDetail={(r) => setSelectedHistoryRapportino(r)}
+              onCreateRapportinoForCantiere={(c) => handleCreateNew(c)}
+              onClose={() => setStep('list')}
+              onOpenPhotoLightbox={(url) => setPreviewPhoto(url)}
+            />
+          </motion.div>
+        ) : step === 'list' ? (
           <motion.div 
             key="list"
             initial={{ opacity: 0, y: 10 }}
@@ -467,30 +509,73 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                     </div>
                   ) : (
                     filteredCantieri.map(c => (
-                      <button
+                      <div
                         key={c.id}
-                        onClick={() => handleCreateNew(c)}
-                        className="w-full bg-white p-6 rounded-[28px] border border-slate-200 shadow-sm hover:shadow-xl hover:border-amber-500/30 text-left group transition-all"
+                        className="w-full bg-white p-5 rounded-3xl border border-slate-200 shadow-xs hover:border-amber-500/40 transition-all space-y-3.5"
                       >
-                        <div className="flex items-start justify-between mb-4">
-                          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 group-hover:bg-amber-500 group-hover:text-slate-950 transition-all">
-                            <Building2 className="w-6 h-6" />
-                          </div>
-                          <div className="flex items-center gap-1 bg-emerald-500/10 text-emerald-600 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                            <CheckCircle2 className="w-3 h-3" /> Attivo
+                        <div 
+                          onClick={() => {
+                            setSelectedCantiere(c);
+                            setStep('hub');
+                          }}
+                          className="flex items-start justify-between gap-3 cursor-pointer group"
+                        >
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className="bg-slate-50 group-hover:bg-amber-500 group-hover:text-slate-950 p-3 rounded-2xl border border-slate-100 text-slate-800 shrink-0 transition-colors">
+                              <Building2 className="w-6 h-6" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-base sm:text-lg font-bold text-slate-900 truncate">{c.name}</h3>
+                                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 shrink-0">
+                                  Attivo
+                                </span>
+                              </div>
+                              <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5 mt-0.5 truncate">
+                                <MapPin className="w-3.5 h-3.5 shrink-0 text-amber-500" /> {c.address}
+                              </p>
+                            </div>
                           </div>
                         </div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-1">{c.name}</h3>
-                        <p className="text-xs font-medium text-slate-500 flex items-center gap-1.5">
-                          <MapPin className="w-3.5 h-3.5" /> {c.address}
-                        </p>
-                        <div className="mt-6 flex items-center justify-between">
-                          <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Nuovo Rapportino</span>
-                          <div className="w-8 h-8 rounded-full bg-slate-950 flex items-center justify-center text-white group-hover:scale-110 transition-transform">
-                            <Plus className="w-4 h-4 stroke-[3]" />
-                          </div>
+
+                        {/* 5 Sections Preview Bar */}
+                        <div 
+                          onClick={() => {
+                            setSelectedCantiere(c);
+                            setStep('hub');
+                          }}
+                          className="grid grid-cols-5 gap-1 pt-1 cursor-pointer text-center text-[9px] font-bold text-slate-600"
+                        >
+                          <div className="bg-slate-50 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">📦 Materiali</div>
+                          <div className="bg-slate-50 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">📋 Rapportini</div>
+                          <div className="bg-slate-50 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">👷 Personale</div>
+                          <div className="bg-slate-50 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">💬 Chat</div>
+                          <div className="bg-slate-50 py-1.5 rounded-lg border border-slate-100 hover:bg-slate-100 transition-colors">📁 Archivio</div>
                         </div>
-                      </button>
+
+                        {/* Dual Actions: Open Hub OR Direct Rapportino */}
+                        <div className="flex gap-2 pt-1 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCantiere(c);
+                              setStep('hub');
+                            }}
+                            className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <span>Gestione Cantiere</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCreateNew(c)}
+                            className="flex-1 bg-slate-950 hover:bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-amber-400 stroke-[3]" />
+                            <span>+ Rapportino</span>
+                          </button>
+                        </div>
+                      </div>
                     ))
                   )}
                 </div>
@@ -737,10 +822,10 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
             >
               {/* Breadcrumb / Back */}
               <button 
-                onClick={() => setStep('list')}
+                onClick={() => setStep(selectedCantiere ? 'hub' : 'list')}
                 className="flex items-center gap-2 text-slate-500 font-bold text-xs uppercase tracking-widest hover:text-slate-900 transition-colors"
               >
-                <ArrowLeft className="w-4 h-4" /> Torna ai Cantieri
+                <ArrowLeft className="w-4 h-4" /> {selectedCantiere ? `Torna al Cantiere` : 'Torna ai Cantieri'}
               </button>
 
               <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">

@@ -6,7 +6,8 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
-  Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument
+  Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument,
+  CantiereChatMessage, CantiereDocumentoTecnico
 } from '../types';
 
 // Generic error handler as required by skill
@@ -912,5 +913,35 @@ export const firestoreService = {
         reader.readAsDataURL(file);
       });
     }
+  },
+
+  // Cantieri Real-Time Chat (Text & Voice Messaging)
+  async sendChatMessage(companyId: string, message: CantiereChatMessage): Promise<void> {
+    const path = `companies/${companyId}/cantieriChat/${message.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'cantieriChat', message.id), sanitizeData(message));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  // Cantieri Technical Archive Documents
+  async saveTechnicalDoc(companyId: string, docData: CantiereDocumentoTecnico): Promise<void> {
+    const path = `companies/${companyId}/archivioTecnico/${docData.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'archivioTecnico', docData.id), sanitizeData(docData));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteTechnicalDoc(companyId: string, docId: string): Promise<void> {
+    const path = `companies/${companyId}/archivioTecnico/${docId}`;
+    try {
+      await deleteDoc(doc(db, 'companies', companyId, 'archivioTecnico', docId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
   }
 };
+

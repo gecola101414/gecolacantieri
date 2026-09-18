@@ -209,3 +209,41 @@ export interface StockMovement {
   acceptedAt?: string;
   acceptedBy?: string;
 }
+
+export type TechnicalDocCategory = 
+  | 'planimetria' 
+  | 'computo' 
+  | 'relazione' 
+  | 'sicurezza' 
+  | 'foto_tecnica' 
+  | 'scheda_materiale' 
+  | 'certificato' 
+  | 'altro';
+
+export interface CantiereDocumentoTecnico {
+  id: string;
+  cantiereId: string;
+  name: string;
+  category: TechnicalDocCategory;
+  fileName: string;
+  fileUrl: string; // base64 or storage url
+  fileType: string;
+  fileSize?: number; // in bytes
+  uploadedBy: string;
+  uploadedAt: string;
+  notes?: string;
+}
+
+export interface CantiereChatMessage {
+  id: string;
+  cantiereId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: UserRole;
+  createdAt: string;
+  type: 'text' | 'voice';
+  text?: string;
+  audioUrl?: string; // base64 data url or storage url
+  audioDurationSeconds?: number;
+}
+

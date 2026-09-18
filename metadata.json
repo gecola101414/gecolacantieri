@@ -3,6 +3,7 @@
   "description": "Piattaforma professionale cloud per la contabilità cantieri, gestione mezzi, personale, SAL, acconti e rapportini giornalieri per capicantieri e operai.",
   "requestFramePermissions": [
     "camera",
+    "microphone",
     "geolocation"
   ],
   "majorCapabilities": [

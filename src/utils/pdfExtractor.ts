@@ -363,9 +363,9 @@ export function parseBollaOrFatturaText(rawText: string, fileName?: string): Ext
       extractedUnitPrice = Math.abs(numList[0]);
       rowImporto = Math.abs(numList[1]);
     } else if (numList.length === 1) {
-      // Single number at right -> row total
+      // Single price number found on the line -> set both total and unit price to this value (never leave unit price at 0)
       rowImporto = Math.abs(numList[0]);
-      extractedUnitPrice = (qty === 1 || qty === 0) ? rowImporto : 0;
+      extractedUnitPrice = rowImporto;
     }
 
     if (qty > 0 || rowImporto > 0) {

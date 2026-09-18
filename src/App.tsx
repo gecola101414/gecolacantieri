@@ -11,7 +11,7 @@ import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
 import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -37,6 +37,8 @@ export default function App() {
   const [materiali, setMateriali] = useState<Materiale[]>(initialLocalData.materiali || []);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [documents, setDocuments] = useState<MaterialDocument[]>([]);
+  const [chatMessages, setChatMessages] = useState<CantiereChatMessage[]>([]);
+  const [technicalDocs, setTechnicalDocs] = useState<CantiereDocumentoTecnico[]>([]);
 
   const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
   const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
@@ -157,6 +159,14 @@ export default function App() {
       setDocuments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialDocument)));
     });
 
+    const unsubChat = onSnapshot(collection(db, 'companies', company.id, 'cantieriChat'), (snap) => {
+      setChatMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CantiereChatMessage)));
+    });
+
+    const unsubArchivio = onSnapshot(collection(db, 'companies', company.id, 'archivioTecnico'), (snap) => {
+      setTechnicalDocs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CantiereDocumentoTecnico)));
+    });
+
     setIsCloudLoading(false);
 
     return () => {
@@ -170,6 +180,8 @@ export default function App() {
       unsubMateriali();
       unsubMovements();
       unsubDocuments();
+      unsubChat();
+      unsubArchivio();
     };
   }, [company?.id]);
 
@@ -273,6 +285,18 @@ export default function App() {
         throw new Error('Utenza disattivata: operazione non consentita.');
       }
       await firestoreService.acceptTransfer(company.id, mid);
+    },
+    sendChatMessage: async (msg: CantiereChatMessage) => {
+      if (!company) return;
+      await firestoreService.sendChatMessage(company.id, msg);
+    },
+    saveTechnicalDoc: async (doc: CantiereDocumentoTecnico) => {
+      if (!company) return;
+      await firestoreService.saveTechnicalDoc(company.id, doc);
+    },
+    deleteTechnicalDoc: async (docId: string) => {
+      if (!company) return;
+      await firestoreService.deleteTechnicalDoc(company.id, docId);
     },
   };
 
@@ -378,9 +402,15 @@ export default function App() {
                   mezzi={mezzi}
                   rapportini={rapportini}
                   movements={movements}
+                  documents={documents}
+                  chatMessages={chatMessages}
+                  technicalDocs={technicalDocs}
                   onAddRapportino={cloudHandlers.saveRapportino}
                   onCancelRapportino={cloudHandlers.cancelRapportino}
                   onAcceptTransfer={cloudHandlers.acceptTransfer}
+                  onSendMessage={cloudHandlers.sendChatMessage}
+                  onSaveTechnicalDoc={cloudHandlers.saveTechnicalDoc}
+                  onDeleteTechnicalDoc={cloudHandlers.deleteTechnicalDoc}
                 />
               </motion.div>
             ) : (
@@ -419,6 +449,11 @@ export default function App() {
                   currentUser={currentUser}
                   activeTab={activeTab}
                   setActiveTab={setActiveTab}
+                  chatMessages={chatMessages}
+                  technicalDocs={technicalDocs}
+                  onSendMessage={cloudHandlers.sendChatMessage}
+                  onSaveTechnicalDoc={cloudHandlers.saveTechnicalDoc}
+                  onDeleteTechnicalDoc={cloudHandlers.deleteTechnicalDoc}
                 />
               </motion.div>
             )}

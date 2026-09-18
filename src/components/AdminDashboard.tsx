@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -12,6 +12,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 import { PhotoLightbox } from './PhotoLightbox';
 import { BolleManager } from './BolleManager';
+import { CantiereHub } from './CantiereHub';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -50,6 +51,11 @@ interface AdminDashboardProps {
   currentUser: UserAccount;
   activeTab: string;
   setActiveTab: (tab: any) => void;
+  chatMessages?: CantiereChatMessage[];
+  technicalDocs?: CantiereDocumentoTecnico[];
+  onSendMessage?: (msg: CantiereChatMessage) => Promise<void>;
+  onSaveTechnicalDoc?: (doc: CantiereDocumentoTecnico) => Promise<void>;
+  onDeleteTechnicalDoc?: (docId: string) => Promise<void>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -80,6 +86,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   activeTab,
   setActiveTab,
+  chatMessages = [],
+  technicalDocs = [],
+  onSendMessage = async () => {},
+  onSaveTechnicalDoc = async () => {},
+  onDeleteTechnicalDoc = async () => {},
 }) => {
   // Modals
   const [showAddCantiereModal, setShowAddCantiereModal] = useState(false);
@@ -1735,165 +1746,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       )}
 
-      {/* Cantiere Detail Modal */}
+      {/* Cantiere Detail & Hub Modal */}
       {selectedCantiere && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-6">
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-[40px] shadow-2xl max-w-2xl w-full p-10 border border-slate-200 overflow-y-auto max-h-[90vh]"
-          >
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h3 className="text-2xl font-bold text-slate-900">{selectedCantiere.name}</h3>
-                <p className="text-xs font-medium text-slate-500 mt-1">{selectedCantiere.address}</p>
-              </div>
-              <button onClick={() => setSelectedCantiere(null)} className="p-2 hover:bg-slate-100 rounded-full">
-                <X className="w-6 h-6 text-slate-400" />
-              </button>
-            </div>
-
-            <div className="space-y-8">
-              {/* KPI Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Lavorate</p>
-                  <p className="text-2xl font-black text-slate-900">{selectedCantiere.totalWorkHours || 0} h</p>
-                </div>
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Materiali</p>
-                  <p className="text-2xl font-black text-emerald-600">€{(selectedCantiere.totalMaterialCost || 0).toLocaleString()}</p>
-                </div>
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Personale</p>
-                  <p className="text-2xl font-black text-amber-600">€{(selectedCantiere.totalPersonnelCost || 0).toLocaleString()}</p>
-                </div>
-                <div className="p-6 bg-slate-900 rounded-3xl border border-slate-800 shadow-xl shadow-slate-900/20">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Costo Totale</p>
-                  <p className="text-2xl font-black text-white">€{((selectedCantiere.totalMaterialCost || 0) + (selectedCantiere.totalPersonnelCost || 0)).toLocaleString()}</p>
-                </div>
-              </div>
-
-              {/* Stock in Cantiere */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Box className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">Giacenza Cantiere</span>
-                </div>
-                <div className="space-y-2">
-                  {!selectedCantiere.stock || selectedCantiere.stock.length === 0 ? (
-                    <p className="text-xs text-slate-500 italic p-4 bg-slate-50 rounded-2xl">Nessun materiale in giacenza.</p>
-                  ) : (
-                    selectedCantiere.stock.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl">
-                        <div>
-                          <p className="text-sm font-bold text-slate-900">{item.materialeName}</p>
-                          <p className="text-[10px] text-slate-400">Valore: €{item.totalCost.toLocaleString()}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black text-amber-600">{item.quantity} {item.unit}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Forniture & Bolle Consegnate in Cantiere */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <ReceiptText className="w-4 h-4 text-amber-500" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest">Forniture & Bolle Arrivate</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {documents.filter(d => 
-                      d.destinationCantiereId === selectedCantiere.id || 
-                      d.items.some(i => i.destinationCantiereId === selectedCantiere.id)
-                    ).length} bolle registrate
-                  </span>
-                </div>
-
-                <div className="space-y-2">
-                  {(() => {
-                    const cantiereDocs = documents.filter(d => 
-                      d.destinationCantiereId === selectedCantiere.id || 
-                      d.items.some(i => i.destinationCantiereId === selectedCantiere.id)
-                    );
-
-                    if (cantiereDocs.length === 0) {
-                      return <p className="text-xs text-slate-400 italic p-4 bg-slate-50 rounded-2xl">Nessuna bolla o fornitura assegnata a questo cantiere.</p>;
-                    }
-
-                    return cantiereDocs.slice(0, 5).map(doc => {
-                      const cantiereItems = doc.items.filter(i => 
-                        i.destinationCantiereId === selectedCantiere.id || doc.destinationCantiereId === selectedCantiere.id
-                      );
-                      const cantiereItemsTotal = cantiereItems.reduce((acc, i) => acc + (typeof i.totalPrice === 'number' ? i.totalPrice : (i.quantity * (i.unitPrice || 0))), 0);
-
-                      return (
-                        <div key={doc.id} className="p-3.5 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                                {doc.type.toUpperCase()} N. {doc.number}
-                              </span>
-                              <span className="text-[10px] text-slate-400 font-medium">{formatItalianDate(doc.date)}</span>
-                            </div>
-                            <p className="text-xs font-bold text-slate-900 mt-1">{doc.supplier}</p>
-                            <p className="text-[10px] text-slate-500">
-                              {cantiereItems.map(i => `${i.quantity} ${i.unit} ${i.materialeName}`).join(', ')}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-black text-slate-900">€{cantiereItemsTotal.toFixed(2)}</p>
-                            <span className={`inline-block mt-0.5 text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
-                              doc.status === 'accettata' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {doc.status === 'accettata' ? 'Accettata' : 'In attesa'}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-
-              {/* Rapportini recenti di questo cantiere */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-slate-400">
-                  <FileText className="w-4 h-4" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest">Ultimi Rapportini</span>
-                </div>
-                <div className="space-y-2">
-                  {rapportini.filter(r => r.cantiereId === selectedCantiere.id).slice(0, 3).map(r => (
-                    <div key={r.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                      <span className="text-xs font-bold text-slate-700">{formatItalianDate(r.date)} - {r.userName}</span>
-                      <button 
-                        onClick={() => {
-                          setSelectedRapportino(r);
-                          setSelectedCantiere(null);
-                        }}
-                        className="text-[10px] font-bold text-amber-600 uppercase"
-                      >
-                        Apri
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-10">
-              <button 
-                onClick={() => setSelectedCantiere(null)}
-                className="w-full bg-slate-950 text-white font-bold py-4 rounded-2xl text-xs shadow-xl"
-              >
-                Chiudi
-              </button>
-            </div>
-          </motion.div>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[250] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div className="w-full max-w-3xl my-auto">
+            <CantiereHub
+              cantiere={selectedCantiere}
+              currentUser={currentUser}
+              company={company}
+              cantieri={cantieri}
+              personale={personale}
+              mezzi={mezzi}
+              rapportini={rapportini}
+              movements={movements}
+              documents={documents}
+              chatMessages={chatMessages}
+              technicalDocs={technicalDocs}
+              onSendMessage={onSendMessage}
+              onSaveTechnicalDoc={onSaveTechnicalDoc}
+              onDeleteTechnicalDoc={onDeleteTechnicalDoc}
+              onOpenRapportinoDetail={(r) => setSelectedRapportino(r)}
+              onClose={() => setSelectedCantiere(null)}
+              onOpenPhotoLightbox={(url) => setAdminLightboxPhoto(url)}
+            />
+          </div>
         </div>
       )}
 
