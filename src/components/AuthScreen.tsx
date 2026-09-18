@@ -23,6 +23,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 import { Logo, FooterBranding } from './Branding';
+import { PresentationModal } from './PresentationModal';
 
 interface AuthScreenProps {
   company: Company | null;
@@ -72,6 +73,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   // Main navigation state: 'menu' | 'personal_code' | 'company_code' | 'new_server'
   const [activeView, setActiveView] = useState<'menu' | 'personal_code' | 'company_code' | 'new_server'>('menu');
+  const [showPresentation, setShowPresentation] = useState<boolean>(false);
 
   // Company Code flow steps: 'input_company' -> 'select_user' -> 'password'
   const [companyStep, setCompanyStep] = useState<'input_company' | 'select_user' | 'password'>('input_company');
@@ -577,7 +579,29 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     exit={{ opacity: 0, scale: 0.98 }}
                     className="space-y-3.5"
                   >
-                    <div className="text-center pb-2">
+                    {/* BANNER GUIDA PRESENTAZIONE IN 10 SLIDE */}
+                    <button
+                      type="button"
+                      onClick={() => setShowPresentation(true)}
+                      className="w-full bg-slate-800/80 hover:bg-slate-800 border border-amber-500/30 hover:border-amber-500/60 p-3 rounded-2xl text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer group shadow-sm"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/30">
+                          <Sparkles className="w-4 h-4 animate-pulse" />
+                        </div>
+                        <div className="text-left">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 block">
+                            Presentazione App (10 Slide)
+                          </span>
+                          <span className="text-xs font-bold text-slate-200">
+                            Scopri come funziona CantieriCloud Pro →
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-1 transition-transform" />
+                    </button>
+
+                    <div className="text-center py-1">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-800/80 px-3 py-1 rounded-full border border-slate-700/60">
                         Scegli come accedere
                       </span>
@@ -1167,6 +1191,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           <FooterBranding />
         </div>
       </motion.div>
+
+      {/* MODAL PRESENTAZIONE 10 SLIDE */}
+      <PresentationModal 
+        isOpen={showPresentation} 
+        onClose={() => setShowPresentation(false)} 
+      />
     </div>
   );
 };

@@ -515,6 +515,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   return (
     <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 pb-6 lg:pb-12 space-y-4 lg:space-y-8">
       
+      {/* Mobile Responsive Admin Navigation Bar */}
+      <div className="lg:hidden w-full bg-slate-950 border border-slate-800 rounded-2xl p-2 shadow-md overflow-x-auto flex items-center gap-1.5 scroll-smooth z-10">
+        {[
+          { id: 'panoramica', label: 'Panoramica', icon: PieChartIcon },
+          { id: 'cantieri', label: 'Cantieri', icon: Building2 },
+          { id: 'personale', label: 'Personale', icon: HardHat },
+          { id: 'mezzi', label: 'Mezzi', icon: Wrench },
+          { id: 'bolle', label: 'Bolle & DDT', icon: ReceiptText },
+          { id: 'rapportini', label: 'Rapportini', icon: FileText },
+          { id: 'utenti', label: 'Utenti', icon: Users },
+        ].map((t) => {
+          const Icon = t.icon;
+          const isActive = activeTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+                isActive 
+                  ? 'bg-amber-500 text-slate-950 font-black shadow-md' 
+                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Main Content Area */}
       <div className="w-full">
         {/* Tab Content Display */}

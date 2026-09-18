@@ -57,6 +57,7 @@ interface CantiereHubProps {
   onCreateRapportinoForCantiere?: (cantiere: Cantiere) => void;
   onClose: () => void;
   onOpenPhotoLightbox?: (photoUrl: string) => void;
+  initialTab?: 'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio';
 }
 
 export const CantiereHub: React.FC<CantiereHubProps> = ({
@@ -78,8 +79,9 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   onCreateRapportinoForCantiere,
   onClose,
   onOpenPhotoLightbox,
+  initialTab = 'materiali',
 }) => {
-  const [activeTab, setActiveTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>('materiali');
+  const [activeTab, setActiveTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>(initialTab);
 
   // Chat State
   const [inputText, setInputText] = useState('');

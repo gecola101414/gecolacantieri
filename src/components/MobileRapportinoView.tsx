@@ -61,6 +61,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 }) => {
   const [step, setStep] = useState<'list' | 'create' | 'hub'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
+  const [hubInitialTab, setHubInitialTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>('materiali');
   
   // Real-time emission clock ticker
   const [currentTime, setCurrentTime] = useState(() => 
@@ -484,6 +485,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               onCreateRapportinoForCantiere={(c) => handleCreateNew(c)}
               onClose={() => setStep('list')}
               onOpenPhotoLightbox={(url) => setPreviewPhoto(url)}
+              initialTab={hubInitialTab}
             />
           </motion.div>
         ) : step === 'list' ? (
@@ -494,6 +496,97 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6 w-full max-w-full overflow-x-hidden"
           >
+              {/* 4 PROMINENT QUICK ACCESS FUNCTION CARDS FOR OPERATOR MOBILE */}
+              <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-[28px] shadow-xl border border-slate-800 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+                      Funzioni In Evidenza
+                    </span>
+                    <h2 className="text-base font-black text-white mt-1">Accesso Diretto Operazioni</h2>
+                  </div>
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5">
+                  {/* 1. MATERIALI */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHubInitialTab('materiali');
+                      if (filteredCantieri.length > 0) {
+                        setSelectedCantiere(filteredCantieri[0]);
+                        setStep('hub');
+                      }
+                    }}
+                    className="bg-gradient-to-br from-amber-500/20 to-orange-500/10 hover:from-amber-500/30 hover:to-orange-500/20 border border-amber-500/40 p-3.5 rounded-2xl flex flex-col items-start text-left transition-all active:scale-[0.97] cursor-pointer group shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center mb-2 shadow-md group-hover:scale-110 transition-transform">
+                      <Box className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-black text-amber-300">Materiali & Bolle</span>
+                    <span className="text-[9px] text-slate-300 font-medium">Giacenze e carichi cantiere</span>
+                  </button>
+
+                  {/* 2. PERSONALE */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHubInitialTab('personale');
+                      if (filteredCantieri.length > 0) {
+                        setSelectedCantiere(filteredCantieri[0]);
+                        setStep('hub');
+                      }
+                    }}
+                    className="bg-gradient-to-br from-blue-500/20 to-indigo-500/10 hover:from-blue-500/30 hover:to-indigo-500/20 border border-blue-500/40 p-3.5 rounded-2xl flex flex-col items-start text-left transition-all active:scale-[0.97] cursor-pointer group shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-blue-500 text-white flex items-center justify-center mb-2 shadow-md group-hover:scale-110 transition-transform">
+                      <HardHat className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-black text-blue-300">Personale & Presenze</span>
+                    <span className="text-[9px] text-slate-300 font-medium">Squadra e ore lavorate</span>
+                  </button>
+
+                  {/* 3. CHAT */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHubInitialTab('chat');
+                      if (filteredCantieri.length > 0) {
+                        setSelectedCantiere(filteredCantieri[0]);
+                        setStep('hub');
+                      }
+                    }}
+                    className="bg-gradient-to-br from-emerald-500/20 to-teal-500/10 hover:from-emerald-500/30 hover:to-teal-500/20 border border-emerald-500/40 p-3.5 rounded-2xl flex flex-col items-start text-left transition-all active:scale-[0.97] cursor-pointer group shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center mb-2 shadow-md group-hover:scale-110 transition-transform">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-black text-emerald-300">Chat & Foto Cantiere</span>
+                    <span className="text-[9px] text-slate-300 font-medium">Invio scatti e messaggi</span>
+                  </button>
+
+                  {/* 4. ARCHIVIO */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHubInitialTab('archivio');
+                      if (filteredCantieri.length > 0) {
+                        setSelectedCantiere(filteredCantieri[0]);
+                        setStep('hub');
+                      }
+                    }}
+                    className="bg-gradient-to-br from-purple-500/20 to-pink-500/10 hover:from-purple-500/30 hover:to-pink-500/20 border border-purple-500/40 p-3.5 rounded-2xl flex flex-col items-start text-left transition-all active:scale-[0.97] cursor-pointer group shadow-sm"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-purple-500 text-white flex items-center justify-center mb-2 shadow-md group-hover:scale-110 transition-transform">
+                      <FolderArchive className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-black text-purple-300">Archivio Documenti</span>
+                    <span className="text-[9px] text-slate-300 font-medium">POS, DVR e schede tecniche</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Active Assignments */}
               <div>
                 <div className="flex items-center justify-between mb-4 px-2">
