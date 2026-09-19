@@ -74,56 +74,58 @@ app.post('/api/analyze-bolla', async (req, res) => {
     const ai = getGeminiClient();
 
     const systemPrompt = `Sei un esperto geometra e contabile di cantieri edili italiani.
-Il tuo compito è analizzare il documento (Bolla, DDT, Fattura accompagnatoria di vendita, Ricevuta di consegna) di materiali edili (ad es. emesso da rivendite edili come SARDARES, BigMat, Kerakoll, Mapei, ecc.).
+Il tuo compito è analizzare il documento (Bolla, DDT, Fattura accompagnatoria di vendita, Ricevuta di consegna) di materiali edili.
 
-STRUTTURA TIPICA DELLE COLONNE NELLE FATTURE E BOLLE EDILI ITALIANE:
-Tipicamente le righe articoli hanno queste colonne:
-CODICE ITEMCODE | DESCRIZIONE DESCRIPTION | U.M. UNIT | QUANTITA' QUANTITY | PREZZO PRICE | SCONTO DISCOUNT | IMP. NETTO NET AMOUNT | IVA VAT
+REGOLE CRUCIALI DI ESTRAZIONE:
+1. DISTINGUI TRA DESCRIZIONE E QUANTITÀ: Molti materiali hanno numeri nella descrizione (es. "KERAKOLL H40 25 KG"). Quel "25" fa parte del NOME, NON è la quantità. La quantità vera è in una colonna separata (es. 125,000).
+2. PREZZO UNITARIO: Cerca sempre il prezzo unitario di riga (es. 0,806). Se la colonna PREZZO mostra un valore, estrailo come "unitPrice". NON ARROTONDARE A ZERO i prezzi piccoli (es. 0,806 è un valore fondamentale).
+3. IMPORTO NETTO DI RIGA: È il valore totale della riga (es. 100,80). Deve corrispondere a (Quantità * Prezzo Unitario) - Sconto. Se la colonna IMPORTO mostra un valore, estrailo con precisione.
 
-REGOLE TASSATIVE PER L'ESTRAZIONE DI OGNI RIGA ARTICOLO:
-1. "code": Codice articolo se presente (es. "CEUC325025", "KEK07202", "WEB5200778823", "EEDSABBIA03").
-2. "materialeName": Descrizione completa del materiale (es. "CEMENTO 32,5R 25kg", "H40 NO LIMITS 25 KG BIANCO").
-3. "unit": Unità di misura (es. "nr", "ql", "kg", "pz", "m", "mc").
-4. "quantity": Quantità numerica riportata (es. 15, 10, 5, 112, 1).
-5. "unitPrice": PREZZO UNITARIO DI LISTINO riportato nella colonna PREZZO / PRICE (es. 9.45000 per il cemento, 31.45000 per H40, 25.14000 per Webertherm, 5.50000 per la sabbia).
-6. "discount": SCONTO DI RIGA riportato nella colonna SCONTO / DISCOUNT (es. "-28%", "-22%", "-19%", "-40%", "-49%"). Riporta sempre la percentuale di sconto se presente nel documento (es. "-28%" o "28%"), oppure "" se non c'è sconto.
-7. "totalPrice": IMPORTO NETTO TOTALE DELL'ARTICOLO riportato nella colonna IMP. NETTO / NET AMOUNT.
-   ATTENZIONE CRUCIALE:
-   * NON METTERE MAI IL PREZZO UNITARIO COME TOTALE DELL'ARTICOLO QUANDO LA QUANTITÀ È MAGGIORE DI UNO O QUANDO C'È UNO SCONTO!
-   * Esempi reali:
-     - CEMENTO: Q.tà 15, Prezzo Unitario 9.45, Sconto -28% -> "totalPrice" deve essere 102.06 (ovvero 15 * 9.45 * 0.72 = 102.06), NON 9.45!
-     - H40 NO LIMITS: Q.tà 10, Prezzo Unitario 31.45, Sconto -22% -> "totalPrice" deve essere 245.31, NON 31.45!
-     - WEBERTHERM AP60: Q.tà 5, Prezzo Unitario 25.14, Sconto -19% -> "totalPrice" deve essere 101.82, NON 25.14!
-     - SABBIA LAVATA: Q.tà 112, Prezzo Unitario 5.50, Sconto -40% -> "totalPrice" deve essere 369.60, NON 5.50!
-     - RACCORDO: Q.tà 3, Prezzo Unitario 4.675, Sconto 0% -> "totalPrice" deve essere 14.03, NON 4.68!
-8. "vatRate": Aliquota IVA (es. "22%").
+REGOLE DI PRECISIONE:
+* Se la descrizione dice "KG 25", è solo il formato del sacco. Guarda le altre colonne per la QUANTITÀ TOTALE (es. 125) e il PREZZO UNITARIO (es. 0,806).
+* Il totale della riga (100,80) diviso la quantità (125) deve dare il prezzo unitario (0,806). Usa questa logica per verificare i dati.
 
-REGOLE PER IL TOTALE GENERALE DEL DOCUMENTO:
-- "totalAmount" e "imponibile": Estrai il TOTALE IMPONIBILE / TAX BASE / TOTALE NETTO DEL DOCUMENTO SENZA IVA (come riportato nei riquadri di riepilogo in calce alla fattura, ad es. 3427.07 o 3416.75).
+STRUTTURA DELLE COLONNE:
+Tipicamente: CODICE | DESCRIZIONE | U.M. | QUANTITÀ | PREZZO UNITARIO | SCONTO | IMPORTO NETTO | IVA
+
+ESTRAZIONE JSON (REGOLE PER CAMPI):
+- "code": Codice articolo.
+- "materialeName": Descrizione completa (es. "KERAKOLL H40 NO LIMTS KG 25 BIANCA").
+- "unit": Unità di misura (es. "KG", "NR", "ML").
+- "quantity": Quantità numerica (es. 125.0).
+- "unitPrice": Prezzo unitario (es. 0.806).
+- "discount": Sconto (es. "" o "10%").
+- "totalPrice": Importo netto totale della riga (es. 100.80).
+- "vatRate": Aliquota IVA (es. "22%").
+
+REGOLE MATEMATICHE:
+* Se estrai Quantity 25 e Unit Price 0.806, il Total Price DEVE essere 20.15.
+* Se il documento dice Total Price 100.80 e Quantity 125, allora il Prezzo Unitario è 0.806.
+* Sii estremamente preciso con i decimali.
 
 Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 {
-  "supplier": "Nome del fornitore (es. SARDARES S.p.A.)",
+  "supplier": "Nome del fornitore",
   "type": "bolla" | "fattura" | "ddt",
-  "number": "Numero documento (es. FVDO / 4149)",
+  "number": "Numero documento",
   "date": "YYYY-MM-DD",
-  "destinationCantiere": "Indirizzo o cantiere di destinazione (es. CUGNANA PORTO ROTONDO)",
-  "totalAmount": 3427.07,
-  "imponibile": 3427.07,
-  "summaryDescription": "Sintesi dei materiali (es. Cemento, H40, Guaine, Raccordi)",
+  "destinationCantiere": "Cantiere di destinazione",
+  "totalAmount": 207.89,
+  "imponibile": 170.40,
+  "summaryDescription": "Sintesi materiali",
   "items": [
     {
-      "code": "CEUC325025",
-      "materialeName": "CEMENTO 32,5R 25kg",
-      "unit": "nr",
-      "quantity": 15.0,
-      "unitPrice": 9.45,
-      "discount": "-28%",
-      "totalPrice": 102.06,
+      "code": "C20120",
+      "materialeName": "KERAKOLL H40 NO LIMTS KG 25 BIANCA",
+      "unit": "KG",
+      "quantity": 125.0,
+      "unitPrice": 0.806,
+      "discount": "",
+      "totalPrice": 100.80,
       "vatRate": "22%"
     }
   ],
-  "vettore": "Nome vettore se presente",
+  "vettore": "Nome vettore",
   "notes": ""
 }`;
 

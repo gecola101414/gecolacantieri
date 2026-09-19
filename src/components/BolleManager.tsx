@@ -1786,7 +1786,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           <td className="px-3 py-3 text-center font-bold text-slate-500">{item.unit || 'pz'}</td>
                           <td className="px-3 py-3 text-center font-black text-slate-900">{item.quantity}</td>
                           <td className="px-3 py-3 text-right font-semibold text-slate-700">
-                            {uPrice > 0 ? `€${uPrice.toFixed(2)}` : '-'}
+                            {uPrice > 0 ? `€${uPrice.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}` : '-'}
                           </td>
                           <td className="px-3 py-3 text-center">
                             {disc ? (

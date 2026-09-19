@@ -2648,7 +2648,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <label className="text-[9px] font-bold text-slate-400 uppercase">Quantità</label>
                         <input 
                           type="number" 
-                          step="0.01"
+                          step="any"
                           value={item.quantity}
                           onChange={e => {
                             const updatedItems = [...newDocument.items];
@@ -2663,7 +2663,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         <label className="text-[9px] font-bold text-slate-400 uppercase">Prezzo Unit. (€)</label>
                         <input 
                           type="number" 
-                          step="0.01"
+                          step="any"
                           value={item.unitPrice}
                           onChange={e => {
                             const updatedItems = [...newDocument.items];
@@ -2821,11 +2821,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quantità *</label>
-                  <input name="quantity" type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
+                  <input name="quantity" type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Costo Unitario (€) *</label>
-                  <input name="costoUnitario" type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
+                  <input name="costoUnitario" type="number" step="any" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />
                 </div>
               </div>
 
