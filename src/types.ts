@@ -4,7 +4,8 @@ export type UserRole =
   | 'capo_cantiere' 
   | 'geometra_contabile' 
   | 'amministrativo_contabile' 
-  | 'operativo';
+  | 'operativo'
+  | 'lavoratore';
 
 export interface UserPermissions {
   rapportini: boolean;     // Capacità di creare/vedere/compilare rapportini per i cantieri
@@ -24,13 +25,21 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
     tecnico: true,
     canEdit: true,
   },
+  amministrativo_contabile: {
+    rapportini: true,
+    documentale: true,
+    chatta: true,
+    amministrativo: true,
+    tecnico: true,
+    canEdit: true,
+  },
   dirigente: {
     rapportini: true,
     documentale: true,
     chatta: true,
     amministrativo: true,
     tecnico: true,
-    canEdit: false, // Può visionare TUTTO ma non può modificare nulla
+    canEdit: true, // Responsabile dei Cantieri: operatività completa su tutti i cantieri
   },
   capo_cantiere: {
     rapportini: true,
@@ -48,14 +57,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
     tecnico: true,
     canEdit: true,
   },
-  amministrativo_contabile: {
-    rapportini: true,
-    documentale: true,
-    chatta: true,
-    amministrativo: true,
-    tecnico: false,
-    canEdit: true,
-  },
   operativo: {
     rapportini: true,
     documentale: false,
@@ -64,15 +65,34 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
     tecnico: false,
     canEdit: true,
   },
+  lavoratore: {
+    rapportini: false,   // NON autorizzato ad inviare rapportini
+    documentale: false,  // NON autorizzato a caricare file o bolle
+    chatta: true,        // Può consultare e comunicare nella chat di cantiere
+    amministrativo: false,
+    tecnico: false,
+    canEdit: false,      // Vista cantiere consultativa
+  },
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Amministratore Server',
-  dirigente: 'Dirigente (Supervisione Sola Lettura)',
+  amministrativo_contabile: 'Amministrativo',
+  dirigente: 'Responsabile dei Cantieri',
   capo_cantiere: 'Capo Cantiere',
   geometra_contabile: 'Geometra Contabile',
-  amministrativo_contabile: 'Amministrativo Contabile',
-  operativo: 'Operatore / Operaio',
+  operativo: 'Operativo (Invio Rapportini)',
+  lavoratore: 'Lavoratore (Sola Lettura & Badge GPS)',
+};
+
+export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+  admin: 'Amministratore Server: fa tutto. Ha il pieno controllo su tutto il sistema, utenti, bilanci, contabilità e impostazioni.',
+  amministrativo_contabile: 'Amministrativo: fa tutto come l\'amministratore di server (accesso completo a contabilità, cantieri, documentale e rapportini).',
+  dirigente: 'Responsabile dei Cantieri: vede tutti i cantieri con operatività completa come capo cantiere generale di tutti i cantieri.',
+  capo_cantiere: 'Capo Cantiere: gestisce tutto dal sistema periferico per i suoi cantieri, vede tutti gli operai presenti, carica rapportini, gestisce materiali, chatta e controlla i documenti in archivio.',
+  geometra_contabile: 'Geometra Contabile: gestione contabile dei cantieri, SAL, rapportini, prezzari, materiali e verifica documentale.',
+  operativo: 'Operativo: maestranza abilitata all\'invio rapido dei rapportini di cantiere, visualizzazione materiali, chat di cantiere e timbratura badge.',
+  lavoratore: 'Lavoratore: maestranza dei cantieri assegnati. Può chattare, vedere i materiali ed i documenti. NON può fare rapportini né caricare file. Timbra con Badge GPS (Entrata/Uscita), vede solo i propri orari ed i colleghi presenti in cantiere con lui.',
 };
 
 export interface Company {

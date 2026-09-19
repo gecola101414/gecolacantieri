@@ -721,14 +721,16 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                             <span>Gestione Cantiere</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCreateNew(c)}
-                            className="flex-1 bg-slate-950 hover:bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
-                          >
-                            <Plus className="w-3.5 h-3.5 text-amber-400 stroke-[3]" />
-                            <span>+ Rapportino</span>
-                          </button>
+                          {currentUser.role !== 'lavoratore' && currentUser.permissions?.rapportini !== false && (
+                            <button
+                              type="button"
+                              onClick={() => handleCreateNew(c)}
+                              className="flex-1 bg-slate-950 hover:bg-slate-900 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition-colors"
+                            >
+                              <Plus className="w-3.5 h-3.5 text-amber-400 stroke-[3]" />
+                              <span>+ Rapportino</span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))

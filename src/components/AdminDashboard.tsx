@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS, TimbraturaBadge } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS, ROLE_DESCRIPTIONS, TimbraturaBadge } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -565,10 +565,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 pb-6 lg:pb-12 space-y-4 lg:space-y-8">
       
       {/* Mobile Responsive Admin Navigation Bar */}
-      <div className="lg:hidden w-full bg-slate-950 border border-slate-800 rounded-2xl p-2 shadow-md overflow-x-auto flex items-center gap-1.5 scroll-smooth z-10">
+      <div className="lg:hidden w-full bg-slate-950 border border-slate-800 rounded-2xl p-2 shadow-md overflow-x-auto flex items-center gap-1.5 scroll-smooth z-10 no-x-overflow">
         {[
           { id: 'panoramica', label: 'Panoramica', icon: PieChartIcon },
           { id: 'cantieri', label: 'Cantieri', icon: Building2 },
+          { id: 'badge', label: 'Badge GPS', icon: Clock },
           { id: 'personale', label: 'Personale', icon: HardHat },
           { id: 'mezzi', label: 'Mezzi', icon: Wrench },
           { id: 'bolle', label: 'Bolle & DDT', icon: ReceiptText },
@@ -581,7 +582,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
                 isActive 
                   ? 'bg-amber-500 text-slate-950 font-black shadow-md' 
                   : 'bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
@@ -2064,6 +2065,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-bold"
                   >
                     <option value="capo_cantiere">Capo Cantiere</option>
+                    <option value="lavoratore">Lavoratore (Badge & Presenze)</option>
                     <option value="geometra_contabile">Geometra Contabile</option>
                     <option value="amministrativo_contabile">Amministrativo Contabile</option>
                     <option value="dirigente">Dirigente (Supervisione Sola Lettura)</option>
@@ -2073,100 +2075,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* PERMESSI SPECIFICI PER RUOLO ASSEGNATI DAL RESPONSABILE SERVER */}
-              <div className="space-y-3 bg-slate-50/80 p-4 rounded-3xl border border-slate-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Capacità Interazione Cantieri</span>
-                    <h4 className="text-xs font-bold text-slate-900 mt-0.5">Permessi e Moduli Abilitati dal Server</h4>
+              {/* DESCRIZIONE AUTORIZZAZIONI E CAPACITÀ ASSEGNATE IN AUTOMATICO DAL RUOLO */}
+              <div className="space-y-3 bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-800 text-white shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                      Permessi & Funzionalità Assegnati in Automatico
+                    </span>
                   </div>
-                  <Shield className="w-4 h-4 text-amber-500" />
+                  <span className="text-[10px] font-extrabold bg-slate-800 text-slate-200 px-3 py-1 rounded-full border border-slate-700">
+                    {ROLE_LABELS[newUser.role] || newUser.role}
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                  {/* Rapportini */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={newUser.permissions?.rapportini ?? true}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, rapportini: e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-bold text-slate-800">📋 Rapportini Cantiere</span>
-                  </label>
+                <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                  {ROLE_DESCRIPTIONS[newUser.role] || 'Permessi automatici impostati.'}
+                </p>
 
-                  {/* Documentale */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={newUser.permissions?.documentale ?? true}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, documentale: e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-bold text-slate-800">📦 Documentale & Bolle</span>
-                  </label>
-
-                  {/* Chatta */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={newUser.permissions?.chatta ?? true}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, chatta: e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-bold text-slate-800">💬 Chat Cantiere & Foto</span>
-                  </label>
-
-                  {/* Amministrativo */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={newUser.permissions?.amministrativo ?? false}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, amministrativo: e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-bold text-slate-800">💶 Modulo Amministrativo</span>
-                  </label>
-
-                  {/* Tecnico */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={newUser.permissions?.tecnico ?? true}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, tecnico: e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-500 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-bold text-slate-800">🛠️ Modulo Tecnico</span>
-                  </label>
-
-                  {/* Sola Lettura (CanEdit) */}
-                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-amber-50 border border-amber-200 cursor-pointer hover:border-amber-400 transition-all">
-                    <input
-                      type="checkbox"
-                      checked={!(newUser.permissions?.canEdit ?? true)}
-                      onChange={e => setNewUser(prev => ({
-                        ...prev,
-                        permissions: { ...prev.permissions, canEdit: !e.target.checked }
-                      }))}
-                      className="w-4 h-4 rounded text-amber-600 focus:ring-amber-400"
-                    />
-                    <span className="text-xs font-black text-amber-900">👁️ Sola Lettura (Dirigente)</span>
-                  </label>
+                {/* Synthesis Pills of Role Abilities */}
+                <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-800/80">
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${newUser.permissions?.rapportini ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 line-through'}`}>
+                    📋 Rapportini {newUser.permissions?.rapportini ? 'Abilitati' : 'Disabilitati'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${newUser.permissions?.documentale ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 line-through'}`}>
+                    📦 Bolle & Documenti {newUser.permissions?.documentale ? 'Abilitati' : 'Disabilitati'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${newUser.permissions?.chatta ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 line-through'}`}>
+                    💬 Chat Cantiere {newUser.permissions?.chatta ? 'Abilitata' : 'Disabilitata'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${newUser.permissions?.amministrativo ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 line-through'}`}>
+                    💶 Contabilità {newUser.permissions?.amministrativo ? 'Abilitata' : 'Esclusa'}
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 ${newUser.permissions?.canEdit ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'}`}>
+                    {newUser.permissions?.canEdit ? '✏️ Gestione & Modifica' : '👁️ Vista Consultativa'}
+                  </span>
                 </div>
               </div>
 

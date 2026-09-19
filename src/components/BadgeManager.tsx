@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Clock, MapPin, CheckCircle2, LogOut, LogIn, Users, Building2, 
   Calendar, Filter, Search, Shield, RefreshCw, AlertCircle, ExternalLink, 
-  ChevronRight, Navigation, Download, MessageSquare, Check, X
+  ChevronRight, Navigation, Download, MessageSquare, Check, X, User
 } from 'lucide-react';
 import { TimbraturaBadge, Cantiere, UserAccount, BadgeType, BadgeGPSLocation } from '../types';
 
@@ -114,6 +114,16 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
       return;
     }
 
+    if (type === 'entrata' && isCurrentlyInCantiere) {
+      alert('Risulti già presente in cantiere! Per registrare un nuovo movimento devi prima effettuare la timbratura di Uscita.');
+      return;
+    }
+
+    if (type === 'uscita' && !isCurrentlyInCantiere) {
+      alert('Non risulti attualmente presente in cantiere! È possibile registrare solo la timbratura di Entrata.');
+      return;
+    }
+
     const selectedCantiere = cantieri.find(c => c.id === selectedCantiereId);
     const cantiereName = selectedCantiere ? selectedCantiere.name : (selectedCantiereId === 'centrale' ? 'Magazzino Centrale' : 'Cantiere');
 
@@ -163,9 +173,13 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
 
   const currentlyOnSite = Object.values(latestTimbratureByUser).filter(t => t.type === 'entrata');
 
+  const isLavoratore = currentUser.role === 'lavoratore';
+
   // Filtered log entries
   const filteredTimbrature = timbrature.filter(t => {
-    if (filterUser !== 'all' && t.userId !== filterUser) return false;
+    // A lavoratore can strictly ONLY see their own timbrature history
+    if (isLavoratore && t.userId !== currentUser.id) return false;
+    if (!isLavoratore && filterUser !== 'all' && t.userId !== filterUser) return false;
     if (filterCantiere !== 'all' && t.cantiereId !== filterCantiere) return false;
     if (filterType !== 'all' && t.type !== filterType) return false;
     if (filterDate && t.date !== filterDate) return false;
@@ -181,7 +195,11 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
 
   // Calculate stats for selected date
   const todayStr = new Date().toISOString().split('T')[0];
-  const todayTimbrature = timbrature.filter(t => t.date === (filterDate || todayStr));
+  const userBaseTimbrature = isLavoratore 
+    ? timbrature.filter(t => t.userId === currentUser.id)
+    : timbrature;
+
+  const todayTimbrature = userBaseTimbrature.filter(t => t.date === (filterDate || todayStr));
   const todayEntrate = todayTimbrature.filter(t => t.type === 'entrata').length;
   const todayUscite = todayTimbrature.filter(t => t.type === 'uscita').length;
 
@@ -393,27 +411,59 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
               </div>
             </div>
 
-            {/* Action Buttons: CLOCK IN & CLOCK OUT */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <button
-                type="button"
-                onClick={() => handleBadgeClock('entrata')}
-                disabled={isSubmitting}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black py-4 px-6 rounded-2xl shadow-xl shadow-emerald-600/20 text-sm flex items-center justify-center gap-3 transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99]"
-              >
-                <LogIn className="w-5 h-5" />
-                <span>TIMBRA ENTRATA (IN)</span>
-              </button>
+            {/* Action Buttons: SMART COMPATIBLE SINGLE BADGE BUTTON */}
+            <div className="pt-2">
+              {isCurrentlyInCantiere ? (
+                <div className="space-y-3 bg-rose-50/80 border border-rose-200/90 p-5 rounded-3xl shadow-sm">
+                  <div className="flex items-center justify-between text-xs font-bold text-rose-950">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                      Prossima Azione Disponibile:
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full border border-rose-300">
+                      In Cantiere
+                    </span>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => handleBadgeClock('uscita')}
-                disabled={isSubmitting}
-                className="w-full bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-black py-4 px-6 rounded-2xl shadow-xl shadow-rose-600/20 text-sm flex items-center justify-center gap-3 transition-all cursor-pointer hover:scale-[1.01] active:scale-[0.99]"
-              >
-                <LogOut className="w-5 h-5" />
-                <span>TIMBRA USCITA (OUT)</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBadgeClock('uscita')}
+                    disabled={isSubmitting}
+                    className="w-full bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 hover:from-rose-500 hover:to-rose-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-rose-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
+                  >
+                    <LogOut className="w-6 h-6 stroke-[2.5]" />
+                    <span>{isSubmitting ? 'REGISTRAZIONE USCITA GPS...' : 'TIMBRA USCITA (OUT)'}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-slate-500 font-medium">
+                    Il pulsante Entrata è disabilitato perché risulti già presente in cantiere.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 bg-emerald-50/80 border border-emerald-200/90 p-5 rounded-3xl shadow-sm">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping" />
+                      Prossima Azione Disponibile:
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      Fuori Cantiere
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleBadgeClock('entrata')}
+                    disabled={isSubmitting}
+                    className="w-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-emerald-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
+                  >
+                    <LogIn className="w-6 h-6 stroke-[2.5]" />
+                    <span>{isSubmitting ? 'REGISTRAZIONE ENTRATA GPS...' : 'TIMBRA ENTRATA (IN)'}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-slate-500 font-medium">
+                    Il pulsante Uscita è disabilitato perché sei fuori cantiere.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -629,13 +679,17 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
           {/* KPI Cards Bar */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Entrate Oggi</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                {isLavoratore ? 'Le Mie Entrate' : 'Entrate Oggi'}
+              </span>
               <p className="text-3xl font-black text-emerald-600">{todayEntrate}</p>
               <p className="text-[11px] text-slate-500 mt-1 font-medium">Timbrature d'accesso</p>
             </div>
 
             <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Uscite Oggi</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                {isLavoratore ? 'Le Mie Uscite' : 'Uscite Oggi'}
+              </span>
               <p className="text-3xl font-black text-rose-600">{todayUscite}</p>
               <p className="text-[11px] text-slate-500 mt-1 font-medium">Fine turno/pause</p>
             </div>
@@ -643,12 +697,18 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
             <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">In Cantiere ORA</span>
               <p className="text-3xl font-black text-amber-500">{currentlyOnSite.length}</p>
-              <p className="text-[11px] text-slate-500 mt-1 font-medium">Operatori attivi</p>
+              <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                {isLavoratore ? 'Presenti in cantiere con te' : 'Operatori attivi'}
+              </p>
             </div>
 
             <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Totale Registro</span>
-              <p className="text-3xl font-black text-slate-900">{timbrature.length}</p>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                {isLavoratore ? 'Mio Storico' : 'Totale Registro'}
+              </span>
+              <p className="text-3xl font-black text-slate-900">
+                {isLavoratore ? userBaseTimbrature.length : timbrature.length}
+              </p>
               <p className="text-[11px] text-slate-500 mt-1 font-medium">Presenze complessive</p>
             </div>
           </div>
@@ -675,16 +735,23 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
                   className="bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none"
                 />
 
-                <select
-                  value={filterUser}
-                  onChange={(e) => setFilterUser(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none"
-                >
-                  <option value="all">Tutti gli Utenti</option>
-                  {users.map(u => (
-                    <option key={u.id} value={u.id}>{u.name}</option>
-                  ))}
-                </select>
+                {isLavoratore ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl px-3 py-2.5 text-xs font-black text-amber-900 flex items-center gap-1.5 truncate">
+                    <User className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="truncate">{currentUser.name} (I miei orari)</span>
+                  </div>
+                ) : (
+                  <select
+                    value={filterUser}
+                    onChange={(e) => setFilterUser(e.target.value)}
+                    className="bg-slate-50 border border-slate-200 rounded-2xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none"
+                  >
+                    <option value="all">Tutti gli Utenti</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                )}
 
                 <select
                   value={filterCantiere}

@@ -82,6 +82,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   initialTab = 'materiali',
 }) => {
   const isReadOnly = currentUser.role === 'dirigente' || currentUser.permissions?.canEdit === false;
+  const canUploadDocs = !isReadOnly && currentUser.permissions?.documentale !== false && currentUser.role !== 'lavoratore';
+  const canCreateRapportini = !isReadOnly && currentUser.permissions?.rapportini !== false && currentUser.role !== 'lavoratore';
 
   const [activeTab, setActiveTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>(initialTab);
 
@@ -756,7 +758,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 <h3 className="text-xl font-black text-white mt-0.5">{cantiereRapportini.length} Rapportini Emessi</h3>
                 <p className="text-xs text-slate-400 mt-1">Tracciabilità completa di ore, maestranze e lavorazioni.</p>
               </div>
-              {onCreateRapportinoForCantiere && (
+              {onCreateRapportinoForCantiere && canCreateRapportini && (
                 <button
                   onClick={() => onCreateRapportinoForCantiere(cantiere)}
                   className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all"
@@ -775,7 +777,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   Inizia a compilare i rapportini giornalieri per monitorare ore di lavoro, operai e materiali utilizzati.
                 </p>
-                {onCreateRapportinoForCantiere && (
+                {onCreateRapportinoForCantiere && canCreateRapportini && (
                   <button
                     onClick={() => onCreateRapportinoForCantiere(cantiere)}
                     className="mt-2 bg-slate-950 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider"
@@ -1170,7 +1172,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 <h3 className="text-xl font-black text-white mt-0.5">{cantiereDocs.length} Documenti Archiviati</h3>
                 <p className="text-xs text-slate-400 mt-1">Planimetrie, computi, relazioni tecniche, PSC e schede materiali.</p>
               </div>
-              {!isReadOnly && (
+              {canUploadDocs && (
                 <button
                   onClick={() => setShowUploadModal(true)}
                   className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all"
@@ -1221,12 +1223,14 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                 <p className="text-xs text-slate-500 max-w-sm mx-auto">
                   Carica progetti in PDF, planimetrie, computi metrici o schede tecniche da consultare rapidamente da smartphone e cantiere.
                 </p>
-                <button
-                  onClick={() => setShowUploadModal(true)}
-                  className="mt-2 bg-slate-950 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider"
-                >
-                  Carica Ora
-                </button>
+                {canUploadDocs && (
+                  <button
+                    onClick={() => setShowUploadModal(true)}
+                    className="mt-2 bg-slate-950 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider"
+                  >
+                    Carica Ora
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

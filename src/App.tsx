@@ -466,7 +466,7 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="p-4 sm:p-8"
+                className="p-2.5 sm:p-6 lg:p-8 w-full max-w-full overflow-x-hidden"
               >
                 <AdminDashboard
                   company={company}
