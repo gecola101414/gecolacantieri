@@ -562,7 +562,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 pb-6 lg:pb-12 space-y-4 lg:space-y-8">
+    <div className="w-full max-w-[1600px] mx-auto px-3.5 sm:px-8 pb-6 lg:pb-12 space-y-4 lg:space-y-8 overflow-x-hidden">
       
       {/* Mobile Responsive Admin Navigation Bar */}
       <div className="lg:hidden w-full bg-slate-950 border border-slate-800 rounded-2xl p-2 shadow-md overflow-x-auto flex items-center gap-1.5 scroll-smooth z-10 no-x-overflow">
@@ -727,7 +727,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rotate-45 translate-x-16 -translate-y-16 pointer-events-none"></div>
                     <div className="relative z-10">
                       <h3 className="text-lg font-bold text-slate-900 mb-8">Azioni Rapide</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <button 
                           onClick={() => setShowAddCantiereModal(true)}
                           className="flex flex-col items-center justify-center gap-3 p-6 bg-slate-50 hover:bg-amber-500 hover:text-slate-950 rounded-3xl border border-slate-100 transition-all group"
@@ -1883,7 +1883,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Contatto Telefonico</label>
                   <input 
@@ -1941,7 +1941,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
             
             <form onSubmit={handleCreateMezzo} className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome / Modello Mezzo *</label>
                   <input 
@@ -2208,7 +2208,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="space-y-8">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Ore Totali (Cloud)</p>
                   <p className="text-2xl font-black text-slate-900">
@@ -2737,7 +2737,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Unità di Misura *</label>
                   <input 
@@ -2818,7 +2818,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quantità *</label>
                   <input name="quantity" type="number" step="0.01" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold" required />

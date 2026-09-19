@@ -330,6 +330,61 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
               )}
             </div>
 
+            {/* Action Buttons: SMART COMPATIBLE SINGLE BADGE BUTTON moved to top */}
+            <div className="pt-2">
+              {isCurrentlyInCantiere ? (
+                <div className="space-y-3 bg-rose-50/80 border border-rose-200/90 p-5 rounded-3xl shadow-sm">
+                  <div className="flex items-center justify-between text-xs font-bold text-rose-950">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
+                      Prossima Azione Disponibile:
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full border border-rose-300">
+                      In Cantiere
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleBadgeClock('uscita')}
+                    disabled={isSubmitting}
+                    className="w-full bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 hover:from-rose-500 hover:to-rose-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-rose-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
+                  >
+                    <LogOut className="w-6 h-6 stroke-[2.5]" />
+                    <span>{isSubmitting ? 'REGISTRAZIONE USCITA GPS...' : 'TIMBRA USCITA (OUT)'}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-slate-500 font-medium">
+                    Il pulsante Entrata è disabilitato perché risulti già presente in cantiere.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 bg-emerald-50/80 border border-emerald-200/90 p-5 rounded-3xl shadow-sm">
+                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping" />
+                      Prossima Azione Disponibile:
+                    </span>
+                    <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      Fuori Cantiere
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleBadgeClock('entrata')}
+                    disabled={isSubmitting}
+                    className="w-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-emerald-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
+                  >
+                    <LogIn className="w-6 h-6 stroke-[2.5]" />
+                    <span>{isSubmitting ? 'REGISTRAZIONE ENTRATA GPS...' : 'TIMBRA ENTRATA (IN)'}</span>
+                  </button>
+                  <p className="text-[11px] text-center text-slate-500 font-medium">
+                    Il pulsante Uscita è disabilitato perché sei fuori cantiere.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Form Fields */}
             <div className="space-y-4">
               <div>
@@ -409,61 +464,6 @@ export const BadgeManager: React.FC<BadgeManagerProps> = ({
                   </p>
                 )}
               </div>
-            </div>
-
-            {/* Action Buttons: SMART COMPATIBLE SINGLE BADGE BUTTON */}
-            <div className="pt-2">
-              {isCurrentlyInCantiere ? (
-                <div className="space-y-3 bg-rose-50/80 border border-rose-200/90 p-5 rounded-3xl shadow-sm">
-                  <div className="flex items-center justify-between text-xs font-bold text-rose-950">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping" />
-                      Prossima Azione Disponibile:
-                    </span>
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-rose-200 text-rose-900 px-2.5 py-0.5 rounded-full border border-rose-300">
-                      In Cantiere
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleBadgeClock('uscita')}
-                    disabled={isSubmitting}
-                    className="w-full bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 hover:from-rose-500 hover:to-rose-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-rose-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
-                  >
-                    <LogOut className="w-6 h-6 stroke-[2.5]" />
-                    <span>{isSubmitting ? 'REGISTRAZIONE USCITA GPS...' : 'TIMBRA USCITA (OUT)'}</span>
-                  </button>
-                  <p className="text-[11px] text-center text-slate-500 font-medium">
-                    Il pulsante Entrata è disabilitato perché risulti già presente in cantiere.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3 bg-emerald-50/80 border border-emerald-200/90 p-5 rounded-3xl shadow-sm">
-                  <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
-                    <span className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-ping" />
-                      Prossima Azione Disponibile:
-                    </span>
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full border border-emerald-300">
-                      Fuori Cantiere
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => handleBadgeClock('entrata')}
-                    disabled={isSubmitting}
-                    className="w-full bg-gradient-to-r from-emerald-600 via-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-600 active:scale-[0.99] text-white font-black py-4.5 px-6 rounded-2xl shadow-xl shadow-emerald-600/25 text-base flex items-center justify-center gap-3 transition-all cursor-pointer"
-                  >
-                    <LogIn className="w-6 h-6 stroke-[2.5]" />
-                    <span>{isSubmitting ? 'REGISTRAZIONE ENTRATA GPS...' : 'TIMBRA ENTRATA (IN)'}</span>
-                  </button>
-                  <p className="text-[11px] text-center text-slate-500 font-medium">
-                    Il pulsante Uscita è disabilitato perché sei fuori cantiere.
-                  </p>
-                </div>
-              )}
             </div>
           </div>
 
