@@ -912,7 +912,7 @@ export const firestoreService = {
       // Safe Base64 PDF/Image handling to prevent 1MB Firestore document size limit crash
       if (finalDoc.pdfDataUrl && typeof finalDoc.pdfDataUrl === 'string' && finalDoc.pdfDataUrl.startsWith('data:')) {
         try {
-          // Attempt upload to Firebase Storage
+          // Attempt upload to Firebase Storage with a 3s timeout
           const fileRef = ref(storage, `companies/${companyId}/documents/${docData.id}_${docData.fileName || 'document.pdf'}`);
           const base64Parts = finalDoc.pdfDataUrl.split(',');
           if (base64Parts.length > 1) {
@@ -925,12 +925,17 @@ export const firestoreService = {
               u8arr[n] = bstr.charCodeAt(n);
             }
             const blob = new Blob([u8arr], { type: mime });
-            await uploadBytes(fileRef, blob);
-            const downloadUrl = await getDownloadURL(fileRef);
+            
+            const uploadTask = uploadBytes(fileRef, blob).then(() => getDownloadURL(fileRef));
+            const timeoutTask = new Promise<string>((_, reject) => 
+              setTimeout(() => reject(new Error('Storage upload timeout')), 3000)
+            );
+            
+            const downloadUrl = await Promise.race([uploadTask, timeoutTask]);
             finalDoc.pdfDataUrl = downloadUrl;
           }
         } catch (storageErr) {
-          console.warn('Firebase Storage upload unavailable or failed, checking Base64 payload length:', storageErr);
+          console.warn('Firebase Storage upload unavailable, timed out or bypassed:', storageErr);
           // If base64 string exceeds 300KB, strip it from the document payload to guarantee Firestore size < 1MB
           if (finalDoc.pdfDataUrl.length > 300000) {
             console.warn('pdfDataUrl exceeds 300KB and storage upload failed. Omitting raw Base64 string to prevent 1MB Firestore size limit error.');

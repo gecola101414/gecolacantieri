@@ -133,17 +133,51 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       {
         code: '',
         materialeId: '',
-        materialeName: 'Calcestruzzo Rck 30',
-        quantity: 10,
-        unit: 'mc',
-        unitPrice: 95,
+        materialeName: '',
+        quantity: 1,
+        unit: 'pz',
+        unitPrice: 0,
         discount: '',
-        totalPrice: 950,
+        totalPrice: 0,
         vatRate: '22%',
         destinationCantiereId: cantieri[0]?.id || 'centrale',
       }
     ],
   });
+
+  // Reset docForm to completely clean blank values for new acquisitions/manual entry
+  const resetDocForm = () => {
+    setDocForm({
+      type: 'bolla',
+      number: '',
+      date: new Date().toISOString().split('T')[0],
+      supplier: '',
+      acceptanceNote: 'Verificare integrità materiali ed esattezza quantità allo scarico.',
+      defaultDestination: cantieri[0]?.id || 'centrale',
+      status: 'in_attesa_accettazione',
+      summaryDescription: '',
+      parsedDocumentTotal: 0,
+      parsedImponibile: 0,
+      destinationHint: '',
+      items: [
+        {
+          code: '',
+          materialeId: '',
+          materialeName: '',
+          quantity: 1,
+          unit: 'pz',
+          unitPrice: 0,
+          discount: '',
+          totalPrice: 0,
+          vatRate: '22%',
+          destinationCantiereId: cantieri[0]?.id || 'centrale',
+        }
+      ],
+    });
+    setUploadedPdfName(null);
+    setUploadedPdfDataUrl(null);
+    setExtractedNotice(null);
+  };
 
   // Calculate stats
   const totalAmountSum = documents.reduce((acc, d) => acc + (d.totalAmount || 0), 0);
@@ -480,59 +514,40 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       return;
     }
 
+    // Filter out completely empty items
+    const validItems = docForm.items.filter(item => item.materialeName.trim().length > 0 || item.quantity > 0 || item.unitPrice > 0);
+    if (validItems.length === 0) {
+      alert('Inserisci almeno un articolo valido nella bolla.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      // Ensure any new materials are registered in catalog
-      for (const item of docForm.items) {
-        const existing = materiali.find(m => m.id === item.materialeId || m.name.toLowerCase() === item.materialeName.toLowerCase());
-        if (!existing && item.materialeName.trim()) {
-          const newMat: Materiale = {
+      // Register any new materials in catalog in parallel
+      const newMatsToCreate: Materiale[] = [];
+      for (const item of validItems) {
+        if (!item.materialeName.trim()) continue;
+        const existing = materiali.find(m => m.id === item.materialeId || m.name.toLowerCase() === item.materialeName.trim().toLowerCase());
+        if (!existing) {
+          newMatsToCreate.push({
             id: item.materialeId || `mat-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
             name: item.materialeName.trim(),
             unit: item.unit || 'pz',
             defaultPrice: item.unitPrice || 0,
             category: 'Edili'
-          };
-          await onAddMateriale(newMat);
+          });
         }
       }
+      if (newMatsToCreate.length > 0) {
+        await Promise.all(newMatsToCreate.map(m => onAddMateriale(m)));
+      }
 
-      // Authorized rule: consider the sum of all material items as the verified document total
-      const itemsSum = parseFloat(docForm.items.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
+      // Calculate sum of valid items
+      const itemsSum = parseFloat(validItems.reduce((acc, i) => acc + (Number(i.totalPrice) || 0), 0).toFixed(2));
       const finalTotal = itemsSum > 0 ? itemsSum : (docForm.parsedDocumentTotal || 0);
 
-      // Automatic update / creation in Archivio Fornitori
-      const cleanSupplier = docForm.supplier.trim();
-      if (cleanSupplier && onSaveFornitore) {
-        const existingFornitore = (fornitori || []).find(f => f.name.trim().toLowerCase() === cleanSupplier.toLowerCase());
-        const now = new Date().toISOString();
-        if (existingFornitore) {
-          const updatedFornitore: Fornitore = {
-            ...existingFornitore,
-            name: existingFornitore.name || cleanSupplier,
-            totalOrdersCount: (existingFornitore.totalOrdersCount || 0) + 1,
-            totalSpent: parseFloat(((existingFornitore.totalSpent || 0) + finalTotal).toFixed(2)),
-            lastOrderDate: docForm.date || now.split('T')[0],
-            updatedAt: now,
-          };
-          await onSaveFornitore(updatedFornitore);
-        } else {
-          const newFornitore: Fornitore = {
-            id: `forn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            name: cleanSupplier,
-            totalOrdersCount: 1,
-            totalSpent: finalTotal,
-            lastOrderDate: docForm.date || now.split('T')[0],
-            category: 'Materiali Edili',
-            createdAt: now,
-            updatedAt: now,
-          };
-          await onSaveFornitore(newFornitore);
-        }
-      }
-
-      // Check if all items go to same cantiere or are split
-      const destinations: string[] = Array.from(new Set(docForm.items.map(i => i.destinationCantiereId || 'centrale')));
+      // Check destinations
+      const destinations: string[] = Array.from(new Set(validItems.map(i => i.destinationCantiereId || 'centrale')));
       const isSplit = destinations.length > 1;
       const primaryDestination: string = isSplit ? 'misto' : (destinations[0] || 'centrale');
 
@@ -548,7 +563,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         totalAmount: finalTotal,
         imponibile: finalTotal,
         documentTotalOriginal: docForm.parsedDocumentTotal,
-        summaryDescription: docForm.summaryDescription || docForm.items.map(i => `${i.materialeName} (${i.quantity} ${i.unit})`).join(', '),
+        summaryDescription: docForm.summaryDescription || validItems.map(i => `${i.materialeName} (${i.quantity} ${i.unit})`).join(', '),
         notes: `Caricata da ${currentUser.name}`,
         acceptanceNote: docForm.acceptanceNote,
         destinationCantiereId: primaryDestination,
@@ -556,7 +571,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
         fileName: uploadedPdfName || undefined,
         status: initialDocStatus,
         createdAt: new Date().toISOString(),
-        items: docForm.items.map(item => {
+        items: validItems.map(item => {
           const qty = Number(item.quantity) || 0;
           const uPrice = Number(item.unitPrice) || 0;
           const disc = item.discount ? String(item.discount).trim() : '';
@@ -569,43 +584,51 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             materialeId: item.materialeId || `mat-${Date.now()}`,
             materialeName: item.materialeName.trim(),
             quantity: qty,
-            unit: item.unit,
+            unit: item.unit || 'pz',
             unitPrice: resolved.unitPrice,
             discount: resolved.discount,
             totalPrice: resolved.totalPrice,
             vatRate: vat,
-            destinationCantiereId: item.destinationCantiereId,
+            destinationCantiereId: item.destinationCantiereId || primaryDestination,
             status: item.destinationCantiereId === 'centrale' || initialDocStatus === 'accettata' ? 'accettata' : 'in_attesa',
           };
         })
       };
 
       await onSaveDocument(newDoc);
+
+      // Async/non-blocking supplier archive record
+      const cleanSupplier = docForm.supplier.trim();
+      if (cleanSupplier && onSaveFornitore) {
+        const existingFornitore = (fornitori || []).find(f => f.name.trim().toLowerCase() === cleanSupplier.toLowerCase());
+        const now = new Date().toISOString();
+        if (existingFornitore) {
+          const updatedFornitore: Fornitore = {
+            ...existingFornitore,
+            name: existingFornitore.name || cleanSupplier,
+            totalOrdersCount: (existingFornitore.totalOrdersCount || 0) + 1,
+            totalSpent: parseFloat(((existingFornitore.totalSpent || 0) + finalTotal).toFixed(2)),
+            lastOrderDate: docForm.date || now.split('T')[0],
+            updatedAt: now,
+          };
+          onSaveFornitore(updatedFornitore).catch(e => console.warn('Supplier async update:', e));
+        } else {
+          const newFornitore: Fornitore = {
+            id: `forn-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            name: cleanSupplier,
+            totalOrdersCount: 1,
+            totalSpent: finalTotal,
+            lastOrderDate: docForm.date || now.split('T')[0],
+            category: 'Materiali Edili',
+            createdAt: now,
+            updatedAt: now,
+          };
+          onSaveFornitore(newFornitore).catch(e => console.warn('Supplier async creation:', e));
+        }
+      }
+
       setShowUploadModal(false);
-      // Reset form
-      setDocForm({
-        type: 'bolla',
-        number: '',
-        date: new Date().toISOString().split('T')[0],
-        supplier: '',
-        acceptanceNote: 'Verificare integrità materiali ed esattezza quantità allo scarico.',
-        defaultDestination: cantieri[0]?.id || 'centrale',
-        status: 'in_attesa_accettazione',
-        summaryDescription: '',
-        items: [
-          {
-            materialeId: '',
-            materialeName: '',
-            quantity: 1,
-            unit: 'pz',
-            unitPrice: 0,
-            destinationCantiereId: cantieri[0]?.id || 'centrale',
-          }
-        ]
-      });
-      setUploadedPdfDataUrl(null);
-      setUploadedPdfName(null);
-      setExtractedNotice(null);
+      resetDocForm();
     } catch (err: any) {
       console.error('Error saving document:', err);
       alert(`Errore durante il salvataggio della bolla: ${err?.message || err}`);
@@ -782,9 +805,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
           <button
             onClick={() => {
-              setUploadedPdfName(null);
-              setUploadedPdfDataUrl(null);
-              setExtractedNotice(null);
+              resetDocForm();
               setShowUploadModal(true);
             }}
             className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-6 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-xl shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
