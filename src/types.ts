@@ -342,3 +342,30 @@ export interface CantiereChatMessage {
   audioDurationSeconds?: number;
 }
 
+export type BadgeType = 'entrata' | 'uscita';
+
+export interface BadgeGPSLocation {
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  altitude?: number | null;
+  address?: string;
+  mapsUrl?: string;
+}
+
+export interface TimbraturaBadge {
+  id: string;
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  cantiereId: string;
+  cantiereName: string;
+  type: BadgeType; // 'entrata' | 'uscita'
+  timestamp: string; // ISO string
+  date: string; // YYYY-MM-DD (es. 2026-09-18)
+  time: string; // HH:mm:ss (es. 07:30:15)
+  location?: BadgeGPSLocation;
+  notes?: string;
+  deviceInfo?: string;
+}
+

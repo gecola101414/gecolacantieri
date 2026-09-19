@@ -7,7 +7,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
   Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument,
-  CantiereChatMessage, CantiereDocumentoTecnico, Fornitore
+  CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge
 } from '../types';
 
 // Generic error handler as required by skill
@@ -1154,6 +1154,37 @@ export const firestoreService = {
       };
       await setDoc(doc(db, path, newId), sanitizeData(newSupplier));
       return newSupplier;
+    }
+  },
+
+  // Timbrature / Badge Presenze (GPS Clock In/Out)
+  async getTimbrature(companyId: string): Promise<TimbraturaBadge[]> {
+    const path = `companies/${companyId}/timbrature`;
+    try {
+      const q = query(collection(db, path), orderBy('timestamp', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as TimbraturaBadge));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async saveTimbratura(companyId: string, timbratura: TimbraturaBadge): Promise<void> {
+    const path = `companies/${companyId}/timbrature/${timbratura.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'timbrature', timbratura.id), sanitizeData(timbratura));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteTimbratura(companyId: string, timbraturaId: string): Promise<void> {
+    const path = `companies/${companyId}/timbrature/${timbraturaId}`;
+    try {
+      await deleteDoc(doc(db, 'companies', companyId, 'timbrature', timbraturaId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
     }
   }
 };

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS, TimbraturaBadge } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -13,6 +13,7 @@ import { firestoreService } from '../lib/firestoreService';
 import { PhotoLightbox } from './PhotoLightbox';
 import { BolleManager } from './BolleManager';
 import { CantiereHub } from './CantiereHub';
+import { BadgeManager } from './BadgeManager';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -59,6 +60,9 @@ interface AdminDashboardProps {
   fornitori?: Fornitore[];
   onSaveFornitore?: (f: Fornitore) => Promise<void>;
   onDeleteFornitore?: (fid: string) => Promise<void>;
+  timbrature?: TimbraturaBadge[];
+  onSaveTimbratura?: (t: TimbraturaBadge) => Promise<void>;
+  onDeleteTimbratura?: (tid: string) => Promise<void>;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -97,6 +101,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   fornitori = [],
   onSaveFornitore = async () => {},
   onDeleteFornitore = async () => {},
+  timbrature = [],
+  onSaveTimbratura = async () => {},
+  onDeleteTimbratura = async () => {},
 }) => {
   // Modals
   const [showAddCantiereModal, setShowAddCantiereModal] = useState(false);
@@ -844,6 +851,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     })}
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {/* BADGE PRESENZE GPS TAB */}
+            {activeTab === 'badge' && (
+              <motion.div 
+                key="badge"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <BadgeManager
+                  currentUser={currentUser}
+                  cantieri={cantieri}
+                  users={users}
+                  timbrature={timbrature}
+                  onSaveTimbratura={onSaveTimbratura}
+                  onDeleteTimbratura={onDeleteTimbratura}
+                />
               </motion.div>
             )}
 

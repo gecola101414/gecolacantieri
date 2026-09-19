@@ -11,7 +11,7 @@ import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
 import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -40,9 +40,10 @@ export default function App() {
   const [documents, setDocuments] = useState<MaterialDocument[]>([]);
   const [chatMessages, setChatMessages] = useState<CantiereChatMessage[]>([]);
   const [technicalDocs, setTechnicalDocs] = useState<CantiereDocumentoTecnico[]>([]);
+  const [timbrature, setTimbrature] = useState<TimbraturaBadge[]>([]);
 
   const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
-  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
+  const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'badge' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Transfer Code Logic (accessible from mobile top bar)
@@ -173,6 +174,10 @@ export default function App() {
       setFornitori(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Fornitore)));
     });
 
+    const unsubTimbrature = onSnapshot(collection(db, 'companies', company.id, 'timbrature'), (snap) => {
+      setTimbrature(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimbraturaBadge)));
+    });
+
     setIsCloudLoading(false);
 
     return () => {
@@ -189,6 +194,7 @@ export default function App() {
       unsubChat();
       unsubArchivio();
       unsubFornitori();
+      unsubTimbrature();
     };
   }, [company?.id]);
 
@@ -327,6 +333,14 @@ export default function App() {
       if (!company) return;
       await firestoreService.deleteFornitore(company.id, fid);
     },
+    saveTimbratura: async (t: TimbraturaBadge) => {
+      if (!company) return;
+      await firestoreService.saveTimbratura(company.id, t);
+    },
+    deleteTimbratura: async (tid: string) => {
+      if (!company) return;
+      await firestoreService.deleteTimbratura(company.id, tid);
+    },
   };
 
   if (isInitializing) {
@@ -434,12 +448,16 @@ export default function App() {
                   documents={documents}
                   chatMessages={chatMessages}
                   technicalDocs={technicalDocs}
+                  users={users}
+                  timbrature={timbrature}
                   onAddRapportino={cloudHandlers.saveRapportino}
                   onCancelRapportino={cloudHandlers.cancelRapportino}
                   onAcceptTransfer={cloudHandlers.acceptTransfer}
                   onSendMessage={cloudHandlers.sendChatMessage}
                   onSaveTechnicalDoc={cloudHandlers.saveTechnicalDoc}
                   onDeleteTechnicalDoc={cloudHandlers.deleteTechnicalDoc}
+                  onSaveTimbratura={cloudHandlers.saveTimbratura}
+                  onDeleteTimbratura={cloudHandlers.deleteTimbratura}
                 />
               </motion.div>
             ) : (
@@ -486,6 +504,9 @@ export default function App() {
                   fornitori={fornitori}
                   onSaveFornitore={cloudHandlers.saveFornitore}
                   onDeleteFornitore={cloudHandlers.deleteFornitore}
+                  timbrature={timbrature}
+                  onSaveTimbratura={cloudHandlers.saveTimbratura}
+                  onDeleteTimbratura={cloudHandlers.deleteTimbratura}
                 />
               </motion.div>
             )}

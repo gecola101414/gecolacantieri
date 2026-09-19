@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, TimbraturaBadge } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
@@ -12,6 +12,7 @@ import { compressPhoto } from '../utils/imageCompressor';
 import { PhotoLightbox } from './PhotoLightbox';
 import { Logo, FooterBranding } from './Branding';
 import { CantiereHub } from './CantiereHub';
+import { BadgeManager } from './BadgeManager';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -33,12 +34,16 @@ interface MobileRapportinoViewProps {
   documents?: MaterialDocument[];
   chatMessages?: CantiereChatMessage[];
   technicalDocs?: CantiereDocumentoTecnico[];
+  users?: UserAccount[];
+  timbrature?: TimbraturaBadge[];
   onAddRapportino: (r: Rapportino) => void;
   onCancelRapportino?: (rapportinoId: string, motivo: string) => Promise<void>;
   onAcceptTransfer: (moveId: string) => Promise<void>;
   onSendMessage?: (msg: CantiereChatMessage) => Promise<void>;
   onSaveTechnicalDoc?: (doc: CantiereDocumentoTecnico) => Promise<void>;
   onDeleteTechnicalDoc?: (docId: string) => Promise<void>;
+  onSaveTimbratura?: (t: TimbraturaBadge) => Promise<void>;
+  onDeleteTimbratura?: (tid: string) => Promise<void>;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
@@ -52,14 +57,18 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   documents = [],
   chatMessages = [],
   technicalDocs = [],
+  users = [],
+  timbrature = [],
   onAddRapportino,
   onCancelRapportino,
   onAcceptTransfer,
   onSendMessage = async () => {},
   onSaveTechnicalDoc = async () => {},
   onDeleteTechnicalDoc = async () => {},
+  onSaveTimbratura = async () => {},
+  onDeleteTimbratura = async () => {},
 }) => {
-  const [step, setStep] = useState<'list' | 'create' | 'hub'>('list');
+  const [step, setStep] = useState<'list' | 'create' | 'hub' | 'badge'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
   const [hubInitialTab, setHubInitialTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>('materiali');
   
@@ -488,6 +497,30 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               initialTab={hubInitialTab}
             />
           </motion.div>
+        ) : step === 'badge' ? (
+          <motion.div
+            key="badge"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="w-full space-y-4"
+          >
+            <button
+              onClick={() => setStep('list')}
+              className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white px-4 py-2.5 rounded-2xl bg-slate-900 border border-slate-800 transition-all cursor-pointer shadow-md"
+            >
+              <ArrowLeft className="w-4 h-4" /> Torna al Menu Principale
+            </button>
+
+            <BadgeManager
+              currentUser={currentUser}
+              cantieri={cantieri}
+              users={users}
+              timbrature={timbrature}
+              onSaveTimbratura={onSaveTimbratura}
+              onDeleteTimbratura={onDeleteTimbratura}
+            />
+          </motion.div>
         ) : step === 'list' ? (
           <motion.div 
             key="list"
@@ -496,6 +529,35 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6 w-full max-w-full overflow-x-hidden"
           >
+              {/* PROMINENT BADGE TIMBRATURA BUTTON */}
+              <button
+                type="button"
+                onClick={() => setStep('badge')}
+                className="w-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 text-slate-950 p-4 sm:p-5 rounded-[28px] shadow-xl border border-amber-300 flex items-center justify-between group transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-slate-950 text-amber-400 flex items-center justify-center shrink-0 shadow-lg group-hover:scale-105 transition-transform">
+                    <Clock className="w-6 h-6 stroke-[2.5]" />
+                  </div>
+                  <div className="text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-wider bg-slate-950 text-white px-2 py-0.5 rounded-md">
+                        Geolocalizzazione GPS
+                      </span>
+                    </div>
+                    <h3 className="text-base font-black text-slate-950 leading-tight mt-0.5">
+                      Badge Presenze Cantiere
+                    </h3>
+                    <p className="text-[11px] font-bold text-slate-800 opacity-90">
+                      Timbra Entrata / Uscita Cantiere con posizione
+                    </p>
+                  </div>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-950/10 flex items-center justify-center shrink-0 group-hover:bg-slate-950 group-hover:text-amber-400 transition-colors">
+                  <ChevronRight className="w-5 h-5 text-slate-950 group-hover:text-amber-400" />
+                </div>
+              </button>
+
               {/* 4 PROMINENT QUICK ACCESS FUNCTION CARDS FOR OPERATOR MOBILE */}
               <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-[28px] shadow-xl border border-slate-800 space-y-3.5">
                 <div className="flex items-center justify-between">
