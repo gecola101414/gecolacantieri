@@ -302,6 +302,31 @@ export interface MaterialDocument {
   createdAt?: string;
 }
 
+export interface MaterialRequestItem {
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  unit: string;
+  notes?: string;
+}
+
+export type MaterialRequestStatus = 'bozza' | 'inviata' | 'approvata' | 'ordinata' | 'rifiutata' | 'evasa';
+
+export interface MaterialRequest {
+  id: string;
+  cantiereId: string;
+  cantiereName: string;
+  userId: string;
+  userName: string;
+  date: string;
+  items: MaterialRequestItem[];
+  status: MaterialRequestStatus;
+  notes?: string;
+  urgent?: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export type MovementType = 'carico_magazzino' | 'trasferimento_cantiere' | 'scarico_rapportino' | 'reso_magazzino';
 
 export interface StockMovement {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS, ROLE_DESCRIPTIONS, TimbraturaBadge } from '../types';
+import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, Company, Materiale, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, UserRole, UserPermissions, DEFAULT_ROLE_PERMISSIONS, ROLE_LABELS, ROLE_DESCRIPTIONS, TimbraturaBadge, MaterialRequest, MaterialRequestStatus } from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
@@ -52,6 +52,8 @@ interface AdminDashboardProps {
   currentUser: UserAccount;
   activeTab: string;
   setActiveTab: (tab: any) => void;
+  materialRequests?: MaterialRequest[];
+  onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
   chatMessages?: CantiereChatMessage[];
   technicalDocs?: CantiereDocumentoTecnico[];
   onSendMessage?: (msg: CantiereChatMessage) => Promise<void>;
@@ -93,6 +95,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   activeTab,
   setActiveTab,
+  materialRequests = [],
+  onUpdateMaterialRequestStatus = async () => {},
   chatMessages = [],
   technicalDocs = [],
   onSendMessage = async () => {},
@@ -1204,6 +1208,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onAcceptDocument={onAcceptDocument || (async () => {})}
                   onAcceptTransfer={onAcceptTransfer || (async () => {})}
                   onAddMateriale={async (m) => onAddMateriale(m)}
+                  materialRequests={materialRequests}
+                  onUpdateMaterialRequestStatus={onUpdateMaterialRequestStatus}
                 />
               </motion.div>
             )}

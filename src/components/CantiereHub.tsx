@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Cantiere, Personale, Mezzo, Rapportino, StockMovement, MaterialDocument, 
-  UserAccount, Company, CantiereChatMessage, CantiereDocumentoTecnico, TechnicalDocCategory 
+  UserAccount, Company, CantiereChatMessage, CantiereDocumentoTecnico, TechnicalDocCategory,
+  MaterialRequest, MaterialRequestStatus, Materiale
 } from '../types';
 import { 
   Building2, HardHat, FileText, Box, MessageSquare, FolderArchive, ArrowLeft,
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
-  DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2
+  DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2,
+  PackageCheck, ShoppingBag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { MaterialRequestManager } from './MaterialRequestManager';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -58,6 +61,11 @@ interface CantiereHubProps {
   onClose: () => void;
   onOpenPhotoLightbox?: (photoUrl: string) => void;
   initialTab?: 'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio';
+  materialRequests?: MaterialRequest[];
+  onSaveMaterialRequest?: (r: MaterialRequest) => Promise<void>;
+  onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
+  materialiArchive?: Materiale[];
+  onAcceptDocument?: (docId: string) => Promise<void>;
 }
 
 export const CantiereHub: React.FC<CantiereHubProps> = ({
@@ -80,6 +88,11 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   onClose,
   onOpenPhotoLightbox,
   initialTab = 'materiali',
+  materialRequests = [],
+  onSaveMaterialRequest = async (_r: MaterialRequest) => {},
+  onUpdateMaterialRequestStatus = async (_rid: string, _status: MaterialRequestStatus) => {},
+  materialiArchive = [],
+  onAcceptDocument = async (_docId: string) => {},
 }) => {
   const isReadOnly = currentUser.role === 'dirigente' || currentUser.permissions?.canEdit === false;
   const canUploadDocs = !isReadOnly && currentUser.permissions?.documentale !== false && currentUser.role !== 'lavoratore';
@@ -111,7 +124,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   const [isUploading, setIsUploading] = useState(false);
 
   // Material view sub-filter
-  const [materialFilter, setMaterialFilter] = useState<'tutti' | 'bolle' | 'giacenza' | 'usati'>('tutti');
+  const [materialFilter, setMaterialFilter] = useState<'tutti' | 'bolle' | 'giacenza' | 'usati' | 'richieste'>('tutti');
 
   // Filter cantiere-specific data
   const cantiereRapportini = rapportini
@@ -217,6 +230,9 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
     d.destinationCantiereId === cantiere.id || 
     d.items.some(i => i.destinationCantiereId === cantiere.id)
   );
+
+  const pendingBolle = cantiereBolle.filter(d => d.status === 'in_attesa_accettazione' || d.status === 'parzialmente_accettata');
+  const cantiereRequests = materialRequests.filter(r => r.cantiereId === cantiere.id);
 
   // 2. Materiali impiegati nei rapportini di questo cantiere
   const usedMaterialsMap = new Map<string, { name: string; quantity: number; unit: string; count: number }>();
@@ -527,31 +543,73 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
             className="space-y-6 w-full max-w-full"
           >
             {/* KPI Summary Cards */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Giacenza Cantiere</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{cantiereStock.length} Voci</p>
-                <p className="text-[11px] font-bold text-amber-600 mt-0.5">Valore: €{totalStockValore.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Giacenza</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereStock.length}</p>
+                <p className="text-[10px] font-bold text-amber-600 mt-0.5">€{totalStockValore.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bolle Consegnate</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{cantiereBolle.length} Documenti</p>
-                <p className="text-[11px] font-bold text-slate-500 mt-0.5">Forniture arrivate</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bolle</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereBolle.length}</p>
+                {pendingBolle.length > 0 && (
+                  <p className="text-[10px] font-bold text-rose-500 mt-0.5 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {pendingBolle.length} da accettare
+                  </p>
+                )}
               </div>
-              <div className="col-span-2 sm:col-span-1 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Materiali Impiegati</p>
-                <p className="text-xl font-black text-emerald-600 mt-1">{cantiereMaterialiUsati.length} Tipologie</p>
-                <p className="text-[11px] font-bold text-slate-500 mt-0.5">Da rapportini validi</p>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Richieste</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereRequests.length}</p>
+                <p className="text-[10px] font-bold text-blue-500 mt-0.5">Approvvigionamento</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Impiegati</p>
+                <p className="text-xl font-black text-emerald-600 mt-1">{cantiereMaterialiUsati.length}</p>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Da rapportini</p>
               </div>
             </div>
+
+            {/* Pending Bolle Alert Section */}
+            {pendingBolle.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-[28px] space-y-3">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                  <h4 className="text-xs font-black uppercase tracking-wider">Bolle in attesa di accettazione</h4>
+                </div>
+                <div className="space-y-2">
+                  {pendingBolle.map(doc => (
+                    <div key={doc.id} className="bg-white p-3 rounded-2xl border border-amber-200/60 shadow-sm flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] font-black text-slate-500 uppercase">N. {doc.number}</span>
+                          <span className="text-[10px] font-bold text-slate-800 truncate">{doc.supplier}</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                          {doc.items.length} voci • €{doc.totalAmount?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => onAcceptDocument(doc.id)}
+                        className="bg-slate-950 text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 active:scale-95 transition-all"
+                      >
+                        <PackageCheck className="w-4 h-4 text-amber-400" />
+                        Prendi in Carico
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Filter Toggle */}
             <div className="flex flex-wrap gap-2 pt-1">
               {[
-                { id: 'tutti', label: 'Tutti i Materiali' },
-                { id: 'bolle', label: `Bolle Fornitori (${cantiereBolle.length})` },
-                { id: 'giacenza', label: `Giacenza Attuale (${cantiereStock.length})` },
-                { id: 'usati', label: `Impiegati nei Rapportini (${cantiereMaterialiUsati.length})` },
+                { id: 'tutti', label: 'Tutti' },
+                { id: 'giacenza', label: `Giacenza (${cantiereStock.length})` },
+                { id: 'bolle', label: `Bolle (${cantiereBolle.length})` },
+                { id: 'richieste', label: `Richieste (${cantiereRequests.length})` },
+                { id: 'usati', label: `Impiegati (${cantiereMaterialiUsati.length})` },
               ].map(f => (
                 <button
                   key={f.id}
@@ -706,38 +764,16 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
               </section>
             )}
 
-            {/* 3. Materiali impiegati nei rapportini */}
-            {(materialFilter === 'tutti' || materialFilter === 'usati') && (
-              <section className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-blue-500" />
-                    Materiali Impiegati nei Lavori
-                  </h3>
-                  <span className="text-[10px] font-bold text-slate-400">{cantiereMaterialiUsati.length} voci</span>
-                </div>
-
-                {cantiereMaterialiUsati.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400 font-medium">
-                    Nessun materiale ancora segnalato come impiegato nei rapportini di questo cantiere.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {cantiereMaterialiUsati.map((mu, idx) => (
-                      <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">{mu.name}</h4>
-                          <p className="text-[10px] text-slate-400 font-medium">Utilizzato in {mu.count} rapportin{mu.count === 1 ? 'o' : 'i'}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-base font-black text-slate-900">{mu.quantity} {mu.unit}</p>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase">Consumato</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
+            {/* 4. Richieste Materiali */}
+            {(materialFilter === 'tutti' || materialFilter === 'richieste') && (
+              <MaterialRequestManager
+                cantiere={cantiere}
+                currentUser={currentUser}
+                materialiArchive={materialiArchive}
+                requests={cantiereRequests}
+                onSaveRequest={onSaveMaterialRequest}
+                onUpdateStatus={onUpdateMaterialRequestStatus}
+              />
             )}
           </motion.div>
         )}

@@ -7,7 +7,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   Company, UserAccount, Cantiere, Personale, Mezzo, 
   Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument,
-  CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge
+  CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge,
+  MaterialRequest, MaterialRequestStatus
 } from '../types';
 
 // Generic error handler as required by skill
@@ -771,32 +772,35 @@ export const firestoreService = {
         acceptedBy: acceptedByName || 'Capocantiere'
       });
 
-      // 2. Carico su Cantiere di Destinazione
-      const cantiere = await this.getCantiereById(companyId, move.toId);
-      if (cantiere) {
-        const stock = cantiere.stock || [];
-        const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
-        const totalAddedCost = (move.costoUnitario || 0) * move.quantity;
+      // 2. Carico su Cantiere di Destinazione - ONLY if not already charged from a Document
+      // If it has a documentId, it was already charged in saveMaterialDocument
+      if (!move.documentId) {
+        const cantiere = await this.getCantiereById(companyId, move.toId);
+        if (cantiere) {
+          const stock = cantiere.stock || [];
+          const itemIdx = stock.findIndex(i => i.materialeId === move.materialeId);
+          const totalAddedCost = (move.costoUnitario || 0) * move.quantity;
 
-        if (itemIdx >= 0) {
-          stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + move.quantity;
-          stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + totalAddedCost;
-        } else {
-          stock.push({
-            materialeId: move.materialeId,
-            materialeName: move.materialeName,
-            quantity: move.quantity,
-            unit: 'u',
-            totalCost: totalAddedCost
+          if (itemIdx >= 0) {
+            stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + move.quantity;
+            stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + totalAddedCost;
+          } else {
+            stock.push({
+              materialeId: move.materialeId,
+              materialeName: move.materialeName,
+              quantity: move.quantity,
+              unit: 'u',
+              totalCost: totalAddedCost
+            });
+          }
+
+          const newTotalMaterialCost = (cantiere.totalMaterialCost || 0) + totalAddedCost;
+
+          await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
+            stock: sanitizeData(stock),
+            totalMaterialCost: newTotalMaterialCost
           });
         }
-
-        const newTotalMaterialCost = (cantiere.totalMaterialCost || 0) + totalAddedCost;
-
-        await updateDoc(doc(db, `companies/${companyId}/cantieri`, move.toId), { 
-          stock: sanitizeData(stock),
-          totalMaterialCost: newTotalMaterialCost
-        });
       }
 
       // 3. Update related MaterialDocument if present
@@ -804,7 +808,7 @@ export const firestoreService = {
         await this.syncDocumentAcceptanceState(companyId, move.documentId);
       }
 
-      console.log(`Transfer/Delivery ${moveId} accepted and added to cantiere ${move.toId}`);
+      console.log(`Transfer/Delivery ${moveId} accepted and status updated.`);
     } catch (e) {
       console.error('Error accepting transfer:', e);
       throw e;
@@ -976,32 +980,35 @@ export const firestoreService = {
 
         await this.addMovement(companyId, movData);
 
-        // If directly accepted during creation for a cantiere
-        if (!isCentral && docData.status === 'accettata') {
-          // Immediately update cantiere stock and cost
-          const cantiere = await this.getCantiereById(companyId, destination);
-          if (cantiere) {
-            const stock = cantiere.stock || [];
-            const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
-            const totalAddedCost = item.quantity * item.unitPrice;
+        // ASYNC CHARGE TO CANTIERE: hitting the account immediately as per user request
+        if (!isCentral) {
+          try {
+            const cantiere = await this.getCantiereById(companyId, destination);
+            if (cantiere) {
+              const stock = cantiere.stock || [];
+              const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
+              const totalAddedCost = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
 
-            if (itemIdx >= 0) {
-              stock[itemIdx].quantity = (stock[itemIdx].quantity || 0) + item.quantity;
-              stock[itemIdx].totalCost = (stock[itemIdx].totalCost || 0) + totalAddedCost;
-            } else {
-              stock.push({
-                materialeId: item.materialeId || `mat-${idx}`,
-                materialeName: item.materialeName,
-                quantity: item.quantity,
-                unit: item.unit || 'u',
-                totalCost: totalAddedCost
+              if (itemIdx >= 0) {
+                stock[itemIdx].quantity = (Number(stock[itemIdx].quantity) || 0) + (Number(item.quantity) || 0);
+                stock[itemIdx].totalCost = (Number(stock[itemIdx].totalCost) || 0) + totalAddedCost;
+              } else {
+                stock.push({
+                  materialeId: item.materialeId || `mat-${idx}`,
+                  materialeName: item.materialeName,
+                  quantity: item.quantity,
+                  unit: item.unit || 'u',
+                  totalCost: totalAddedCost
+                });
+              }
+
+              await updateDoc(doc(db, `companies/${companyId}/cantieri`, destination), {
+                stock: sanitizeData(stock),
+                totalMaterialCost: (Number(cantiere.totalMaterialCost) || 0) + totalAddedCost
               });
             }
-
-            await updateDoc(doc(db, `companies/${companyId}/cantieri`, destination), {
-              stock: sanitizeData(stock),
-              totalMaterialCost: (cantiere.totalMaterialCost || 0) + totalAddedCost
-            });
+          } catch (cantiereErr) {
+            console.error('Error charging cantiere account from document:', cantiereErr);
           }
         }
       }
@@ -1186,6 +1193,40 @@ export const firestoreService = {
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
-  }
+  },
+
+  // Material Requests
+  async saveMaterialRequest(companyId: string, request: MaterialRequest): Promise<void> {
+    const path = `companies/${companyId}/materialRequests/${request.id}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'materialRequests', request.id), sanitizeData(request));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async getMaterialRequests(companyId: string): Promise<MaterialRequest[]> {
+    const path = `companies/${companyId}/materialRequests`;
+    try {
+      const q = query(collection(db, path), orderBy('date', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as MaterialRequest));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async updateMaterialRequestStatus(companyId: string, requestId: string, status: MaterialRequestStatus): Promise<void> {
+    const path = `companies/${companyId}/materialRequests/${requestId}`;
+    try {
+      await updateDoc(doc(db, path), { 
+        status,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+    }
+  },
 };
 

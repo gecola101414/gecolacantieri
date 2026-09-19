@@ -1,12 +1,15 @@
 import React, { useState, useRef } from 'react';
-import { MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount, Fornitore } from '../types';
+import { 
+  MaterialDocument, DocumentItem, Cantiere, Materiale, StockMovement, UserAccount, Fornitore,
+  MaterialRequest, MaterialRequestStatus
+} from '../types';
 import { extractTextFromPdf, parseBollaOrFatturaText, ExtractedDocumentData } from '../utils/pdfExtractor';
 import { formatItalianDate } from '../utils/dateUtils';
 import { 
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
   ArrowRightLeft, Sparkles, Loader2, Send, ChevronDown, Check,
-  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag
+  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag, Box
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -24,6 +27,8 @@ interface BolleManagerProps {
   onAcceptDocument: (docId: string) => Promise<void>;
   onAcceptTransfer: (moveId: string) => Promise<void>;
   onAddMateriale: (m: Materiale) => Promise<void>;
+  materialRequests?: MaterialRequest[];
+  onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
 }
 
 export const BolleManager: React.FC<BolleManagerProps> = ({
@@ -40,6 +45,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   onAcceptDocument,
   onAcceptTransfer,
   onAddMateriale,
+  materialRequests = [],
+  onUpdateMaterialRequestStatus = async (_rid: string, _status: MaterialRequestStatus) => {},
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedType, setSelectedType] = useState<'all' | 'bolla' | 'fattura'>('all');
@@ -774,6 +781,93 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
   return (
     <div className="space-y-8">
+      {/* Material Requests Section (NEW) */}
+      {materialRequests.some(r => r.status === 'pending') && (
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-900 rounded-[32px] p-6 border border-slate-800 shadow-xl overflow-hidden relative"
+        >
+          <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+            <Sparkles className="w-24 h-24 text-amber-500" />
+          </div>
+          
+          <div className="flex items-center justify-between mb-6 relative z-10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-500 rounded-2xl flex items-center justify-center">
+                <Box className="w-5 h-5 text-slate-950" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-white">Richieste Materiali dai Cantieri</h3>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                  Nuovi ordini da approvare e preparare per la consegna
+                </p>
+              </div>
+            </div>
+            <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter shadow-lg shadow-amber-500/20">
+              {materialRequests.filter(r => r.status === 'pending').length} In Attesa
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 relative z-10">
+            {materialRequests.filter(r => r.status === 'pending').map(request => {
+              const cantiere = cantieri.find(c => c.id === request.cantiereId);
+              return (
+                <div key={request.id} className="bg-slate-800/50 border border-slate-700 p-5 rounded-2xl flex flex-col justify-between group hover:border-amber-500/50 transition-all">
+                  <div>
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-slate-700 flex items-center justify-center">
+                          <Building2 className="w-4 h-4 text-slate-300" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-white truncate max-w-[120px]">{cantiere?.name || 'Cantiere'}</h4>
+                          <p className="text-[9px] text-slate-500 font-bold uppercase">{request.userName}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] font-black text-slate-500 uppercase">{formatItalianDate(request.date)}</p>
+                        <p className="text-[8px] font-bold text-slate-600">{request.id.slice(-6).toUpperCase()}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 mb-4">
+                      {request.items.map((item, idx) => (
+                        <div key={idx} className="flex items-center justify-between bg-slate-900/50 p-2 rounded-lg text-[10px] border border-slate-800/50">
+                          <span className="font-bold text-slate-200 truncate pr-2">{item.materialeName}</span>
+                          <span className="font-black text-amber-500 whitespace-nowrap">{item.quantity} {item.unit}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {request.notes && (
+                      <div className="text-[9px] text-slate-400 italic bg-slate-900/30 p-2 rounded-lg mb-4 line-clamp-2">
+                        "{request.notes}"
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => onUpdateMaterialRequestStatus(request.id, 'rifiutata')}
+                      className="flex-1 bg-slate-900 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 py-2 rounded-xl text-[10px] font-bold uppercase transition-all"
+                    >
+                      Rifiuta
+                    </button>
+                    <button 
+                      onClick={() => onUpdateMaterialRequestStatus(request.id, 'approvata')}
+                      className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 py-2 rounded-xl text-[10px] font-bold uppercase transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/10"
+                    >
+                      <Check className="w-3.5 h-3.5" /> Approva
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
       {/* Top Header & Quick Actions */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>

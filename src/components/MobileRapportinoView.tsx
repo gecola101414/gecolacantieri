@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement, MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, TimbraturaBadge } from '../types';
+import { 
+  Cantiere, Personale, Mezzo, Rapportino, UserAccount, Company, TransferCode, StockMovement, 
+  MaterialDocument, CantiereChatMessage, CantiereDocumentoTecnico, TimbraturaBadge,
+  MaterialRequest, MaterialRequestStatus, Materiale
+} from '../types';
 import { 
   Building2, HardHat, Wrench, FileText, Plus, Camera, Send, Clock, 
   MapPin, CheckCircle2, AlertCircle, ChevronRight, Fuel, User, 
@@ -44,6 +48,11 @@ interface MobileRapportinoViewProps {
   onDeleteTechnicalDoc?: (docId: string) => Promise<void>;
   onSaveTimbratura?: (t: TimbraturaBadge) => Promise<void>;
   onDeleteTimbratura?: (tid: string) => Promise<void>;
+  materialRequests?: MaterialRequest[];
+  onSaveMaterialRequest?: (r: MaterialRequest) => Promise<void>;
+  onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
+  materialiArchive?: Materiale[];
+  onAcceptDocument?: (docId: string) => Promise<void>;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
@@ -67,6 +76,11 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   onDeleteTechnicalDoc = async () => {},
   onSaveTimbratura = async () => {},
   onDeleteTimbratura = async () => {},
+  materialRequests = [],
+  onSaveMaterialRequest = async (_r: MaterialRequest) => {},
+  onUpdateMaterialRequestStatus = async (_rid: string, _status: MaterialRequestStatus) => {},
+  materialiArchive = [],
+  onAcceptDocument = async (_docId: string) => {},
 }) => {
   const [step, setStep] = useState<'list' | 'create' | 'hub' | 'badge'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
@@ -495,6 +509,11 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               onClose={() => setStep('list')}
               onOpenPhotoLightbox={(url) => setPreviewPhoto(url)}
               initialTab={hubInitialTab}
+              materialRequests={materialRequests}
+              onSaveMaterialRequest={onSaveMaterialRequest}
+              onUpdateMaterialRequestStatus={onUpdateMaterialRequestStatus}
+              materialiArchive={materialiArchive}
+              onAcceptDocument={onAcceptDocument}
             />
           </motion.div>
         ) : step === 'badge' ? (

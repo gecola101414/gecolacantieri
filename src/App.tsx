@@ -11,7 +11,7 @@ import { MobileRapportinoView } from './components/MobileRapportinoView';
 import { AuthScreen } from './components/AuthScreen';
 import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
-import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge } from './types';
+import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge, MaterialRequest, MaterialRequestStatus } from './types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Building2, Loader2, Globe } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
@@ -41,6 +41,7 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<CantiereChatMessage[]>([]);
   const [technicalDocs, setTechnicalDocs] = useState<CantiereDocumentoTecnico[]>([]);
   const [timbrature, setTimbrature] = useState<TimbraturaBadge[]>([]);
+  const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([]);
 
   const isPeripheralRole = (role?: string) => {
     return role === 'capo_cantiere' || role === 'dirigente' || role === 'operativo' || role === 'lavoratore';
@@ -184,6 +185,10 @@ export default function App() {
       setTimbrature(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as TimbraturaBadge)));
     });
 
+    const unsubMaterialRequests = onSnapshot(collection(db, 'companies', company.id, 'materialRequests'), (snap) => {
+      setMaterialRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialRequest)));
+    });
+
     setIsCloudLoading(false);
 
     return () => {
@@ -201,6 +206,7 @@ export default function App() {
       unsubArchivio();
       unsubFornitori();
       unsubTimbrature();
+      unsubMaterialRequests();
     };
   }, [company?.id]);
 
@@ -347,6 +353,14 @@ export default function App() {
       if (!company) return;
       await firestoreService.deleteTimbratura(company.id, tid);
     },
+    saveMaterialRequest: async (r: MaterialRequest) => {
+      if (!company) return;
+      await firestoreService.saveMaterialRequest(company.id, r);
+    },
+    updateMaterialRequestStatus: async (rid: string, status: MaterialRequestStatus) => {
+      if (!company) return;
+      await firestoreService.updateMaterialRequestStatus(company.id, rid, status);
+    },
   };
 
   if (isInitializing) {
@@ -456,6 +470,7 @@ export default function App() {
                   technicalDocs={technicalDocs}
                   users={users}
                   timbrature={timbrature}
+                  materialRequests={materialRequests}
                   onAddRapportino={cloudHandlers.saveRapportino}
                   onCancelRapportino={cloudHandlers.cancelRapportino}
                   onAcceptTransfer={cloudHandlers.acceptTransfer}
@@ -464,6 +479,10 @@ export default function App() {
                   onDeleteTechnicalDoc={cloudHandlers.deleteTechnicalDoc}
                   onSaveTimbratura={cloudHandlers.saveTimbratura}
                   onDeleteTimbratura={cloudHandlers.deleteTimbratura}
+                  onSaveMaterialRequest={cloudHandlers.saveMaterialRequest}
+                  onUpdateMaterialRequestStatus={cloudHandlers.updateMaterialRequestStatus}
+                  materialiArchive={materiali}
+                  onAcceptDocument={cloudHandlers.acceptEntireDocument}
                 />
               </motion.div>
             ) : (
@@ -513,6 +532,9 @@ export default function App() {
                   timbrature={timbrature}
                   onSaveTimbratura={cloudHandlers.saveTimbratura}
                   onDeleteTimbratura={cloudHandlers.deleteTimbratura}
+                  materialRequests={materialRequests}
+                  onSaveMaterialRequest={cloudHandlers.saveMaterialRequest}
+                  onUpdateMaterialRequestStatus={cloudHandlers.updateMaterialRequestStatus}
                 />
               </motion.div>
             )}
