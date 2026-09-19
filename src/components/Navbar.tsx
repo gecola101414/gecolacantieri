@@ -97,8 +97,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {/* View Toggle (Admin Only) */}
-            {currentUser.role === 'admin' && (
+            {/* View Toggle (Admin & Amministrativo Only) */}
+            {(currentUser.role === 'admin' || currentUser.role === 'amministrativo_contabile') && (
               <button
                 onClick={() => setIsMobileView(!isMobileView)}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-xs font-bold transition-all ${
@@ -106,10 +106,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     ? 'bg-amber-500 text-slate-950 shadow-md font-black' 
                     : 'bg-slate-900/80 text-slate-400 hover:text-white border border-white/10'
                 }`}
-                title={isMobileView ? 'Passa alla Dashboard Admin' : 'Passa alla Vista Operativa Mobile'}
+                title={isMobileView ? 'Passa alla Vista Amministratore Server' : 'Passa alla Vista Periferica Cantiere'}
               >
                 <Smartphone className="w-4 h-4 shrink-0" />
-                <span className="hidden sm:inline text-[10px]">{isMobileView ? 'Admin' : 'Operativo'}</span>
+                <span className="hidden sm:inline text-[10px]">{isMobileView ? 'Server' : 'Periferica'}</span>
               </button>
             )}
 

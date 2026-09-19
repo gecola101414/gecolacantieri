@@ -460,7 +460,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
 
   const validiCount = userRapportini.filter(r => r.status !== 'annullato').length;
   const annullatiCount = userRapportini.filter(r => r.status === 'annullato').length;
-  const filteredCantieri = currentUser.role === 'admin' 
+  const filteredCantieri = (currentUser.role === 'admin' || currentUser.role === 'dirigente' || currentUser.role === 'amministrativo_contabile' || !currentUser.cantieriAccreditati || currentUser.cantieriAccreditati.length === 0)
     ? cantieri 
     : cantieri.filter(c => (currentUser.cantieriAccreditati || []).includes(c.id));
 

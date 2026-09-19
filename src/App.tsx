@@ -42,7 +42,13 @@ export default function App() {
   const [technicalDocs, setTechnicalDocs] = useState<CantiereDocumentoTecnico[]>([]);
   const [timbrature, setTimbrature] = useState<TimbraturaBadge[]>([]);
 
-  const [isMobileView, setIsMobileView] = useState<boolean>(initialLocalData.currentUser?.role === 'operativo');
+  const isPeripheralRole = (role?: string) => {
+    return role === 'capo_cantiere' || role === 'dirigente' || role === 'operativo' || role === 'lavoratore';
+  };
+
+  const [isMobileView, setIsMobileView] = useState<boolean>(
+    initialLocalData.currentUser ? isPeripheralRole(initialLocalData.currentUser.role) : false
+  );
   const [activeTab, setActiveTab] = useState<'panoramica' | 'cantieri' | 'badge' | 'personale' | 'mezzi' | 'rapportini' | 'utenti' | 'materiali' | 'contabilita'>('panoramica');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -99,7 +105,7 @@ export default function App() {
   useEffect(() => { 
     saveLocalUser(currentUser); 
     if (currentUser) {
-      setIsMobileView(currentUser.role === 'operativo');
+      setIsMobileView(isPeripheralRole(currentUser.role));
     }
   }, [currentUser]);
 
@@ -402,7 +408,7 @@ export default function App() {
       )}
 
       {/* Sidebar for Desktop Admin/Tecnico View */}
-      {currentUser.role !== 'operativo' && !isMobileView && (
+      {!isPeripheralRole(currentUser.role) && !isMobileView && (
         <Sidebar 
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -429,7 +435,7 @@ export default function App() {
 
         <main className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full bg-slate-50">
           <AnimatePresence mode="wait">
-            {isMobileView || currentUser.role === 'operativo' ? (
+            {isMobileView || isPeripheralRole(currentUser.role) ? (
               <motion.div
                 key="mobile"
                 initial={{ opacity: 0, y: 10 }}
