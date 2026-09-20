@@ -807,6 +807,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     {cantieri.map(c => {
                       const statusColor = c.status === 'in_corso' ? 'bg-emerald-500' : c.status === 'sospeso' ? 'bg-amber-500' : 'bg-slate-400';
 
+                      // Calcolo esatto del valore dei materiali assegnati dall'amministrazione a questo cantiere
+                      const cantiereAssignedMaterialsCost = (documents || [])
+                        .filter(d => d.status !== 'annullato')
+                        .reduce((acc, doc) => {
+                          const docItemsCost = (doc.items || []).reduce((itemAcc, item) => {
+                            const isAssigned = item.destinationCantiereId === c.id || (!item.destinationCantiereId && doc.destinationCantiereId === c.id);
+                            if (isAssigned) {
+                              const itemTot = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+                              return itemAcc + itemTot;
+                            }
+                            return itemAcc;
+                          }, 0);
+                          return acc + docItemsCost;
+                        }, 0) + (movements || [])
+                        .filter(m => m.toId === c.id && !m.documentId && (m.type === 'trasferimento_cantiere' || m.type === 'carico_cantiere'))
+                        .reduce((acc, m) => acc + ((Number(m.quantity) || 0) * (Number(m.costoUnitario) || 0)), 0);
+
+                      const effectiveMaterialCost = cantiereAssignedMaterialsCost > 0 ? cantiereAssignedMaterialsCost : (Number(c.totalMaterialCost) || 0);
+
+                      // Calcolo ore e costi personale dai rapportini
+                      const cantiereRapportini = (rapportini || []).filter(r => r.cantiereId === c.id && r.status !== 'annullato');
+                      const cantiereHoursFromRap = cantiereRapportini.reduce((sum, r) => {
+                        const rapHours = (r.personnelHours || []).reduce((hSum, ph) => hSum + (Number(ph.hours) || 0), 0);
+                        return sum + rapHours;
+                      }, 0);
+                      const effectiveHours = cantiereHoursFromRap > 0 ? cantiereHoursFromRap : (c.totalWorkHours || 0);
+
+                      const cantiereLaborCostFromRap = cantiereRapportini.reduce((sum, r) => {
+                        const rapLabor = (r.personnelHours || []).reduce((lSum, ph) => {
+                          const pers = personale.find(p => p.id === ph.personnelId);
+                          const rate = pers?.hourlyRate || 25;
+                          return lSum + ((Number(ph.hours) || 0) * rate);
+                        }, 0);
+                        return sum + rapLabor;
+                      }, 0);
+                      const effectivePersonnelCost = cantiereLaborCostFromRap > 0 ? cantiereLaborCostFromRap : (Number(c.totalPersonnelCost) || 0);
+
+                      const totalCost = effectiveMaterialCost + effectivePersonnelCost;
+
                       return (
                         <div key={c.id} className="bg-white rounded-[32px] p-8 border border-slate-200 shadow-sm flex flex-col justify-between group hover:shadow-xl hover:border-amber-500/20 transition-all duration-300">
                           <div>
@@ -825,14 +864,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <MapPin className="w-3.5 h-3.5" /> {c.address}
                             </div>
 
-                            <div className="flex items-center gap-6 mb-6">
+                            <div className="grid grid-cols-3 gap-2 mb-6 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
                               <div>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Ore Lavorate</p>
-                                <p className="text-sm font-black text-slate-900">{c.totalWorkHours || 0}h</p>
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Ore Lavoro</p>
+                                <p className="text-sm font-black text-slate-900">{effectiveHours}h</p>
+                                <p className="text-[9px] font-medium text-slate-400">€{effectivePersonnelCost.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m.o.</p>
                               </div>
                               <div>
-                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Costo Totale</p>
-                                <p className="text-sm font-black text-emerald-600">€{((c.totalMaterialCost || 0) + (c.totalPersonnelCost || 0)).toLocaleString()}</p>
+                                <p className="text-[9px] font-bold text-amber-600 uppercase tracking-widest mb-0.5">Mat. Assegnati</p>
+                                <p className="text-sm font-black text-amber-600">€{effectiveMaterialCost.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                <p className="text-[9px] font-medium text-slate-400">da bolle/ddt</p>
+                              </div>
+                              <div>
+                                <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest mb-0.5">Costo Totale</p>
+                                <p className="text-sm font-black text-emerald-700">€{totalCost.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                <p className="text-[9px] font-medium text-slate-400">materiali + ore</p>
                               </div>
                             </div>
                           </div>

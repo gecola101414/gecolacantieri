@@ -1,5 +1,6 @@
 import React from 'react';
 import { Globe } from 'lucide-react';
+import { APP_VERSION, APP_LAST_UPDATE } from '../version';
 
 export const Logo: React.FC<{ className?: string, iconOnly?: boolean }> = ({ className = "h-8", iconOnly = false }) => {
   return (
@@ -15,8 +16,14 @@ export const Logo: React.FC<{ className?: string, iconOnly?: boolean }> = ({ cla
           <h1 className="text-xl font-black tracking-tighter text-white leading-none">
             GECOLA<span className="text-amber-500">CANTIERI</span>
           </h1>
-          <p className="text-[11px] font-black text-amber-400/90 tracking-wider mt-1 text-left">
-            2026 @ AETERNA - MILANO
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            <p className="text-[10px] sm:text-[11px] font-mono font-bold text-amber-400 tracking-tight leading-none text-left whitespace-nowrap">
+              Ultimo agg: {APP_LAST_UPDATE}
+            </p>
+          </div>
+          <p className="text-[9px] font-bold text-slate-400/80 tracking-wider text-left mt-0.5">
+            v{APP_VERSION} • 2026 @ AETERNA - MILANO
           </p>
         </div>
       )}

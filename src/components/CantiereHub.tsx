@@ -9,7 +9,7 @@ import {
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
   DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2,
-  PackageCheck, ShoppingBag, Check, Layers
+  PackageCheck, ShoppingBag, Check, Layers, ShoppingCart
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MaterialRequestManager } from './MaterialRequestManager';
@@ -253,26 +253,101 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   });
   const cantiereMaterialiUsati = Array.from(usedMaterialsMap.values());
 
-  // 3. Giacenza attuale (CALCOLATA: Carico - Consumo)
-  const inventoryMap = new Map<string, StockItem>();
+  // Calcolo valore totale materiali assegnati dall'amministrazione a questo cantiere
+  const assignedMaterialsTotal = documents
+    .filter(d => d.status !== 'annullato')
+    .reduce((totalAcc, doc) => {
+      const docItemsSum = (doc.items || []).reduce((itemAcc, item) => {
+        const isAssignedToThis = item.destinationCantiereId === cantiere.id || 
+          (!item.destinationCantiereId && doc.destinationCantiereId === cantiere.id);
+        if (isAssignedToThis) {
+          const itemVal = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+          return itemAcc + itemVal;
+        }
+        return itemAcc;
+      }, 0);
+      return totalAcc + docItemsSum;
+    }, 0) + (movements || [])
+    .filter(m => m.toId === cantiere.id && !m.documentId && (m.type === 'trasferimento_cantiere' || m.type === 'carico_cantiere'))
+    .reduce((acc, m) => acc + ((Number(m.quantity) || 0) * (Number(m.costoUnitario) || 0)), 0);
 
-  // A. Add everything from Accepted Documents (Carico)
-  cantiereBolle.filter(d => d.status === 'accettata').forEach(doc => {
+  // 3. Giacenza attuale (CALCOLATA: Carico - Consumo)
+  interface ExtendedStockItem extends StockItem {
+    caricoValore?: number;
+    unitPrice?: number;
+    valoreResiduo?: number;
+  }
+  const inventoryMap = new Map<string, ExtendedStockItem>();
+
+  // A. Add everything from Documents assigned to this cantiere (Carico)
+  documents.filter(d => d.status !== 'annullato').forEach(doc => {
     doc.items.forEach(item => {
+      const isAssigned = item.destinationCantiereId === cantiere.id || 
+        (!item.destinationCantiereId && doc.destinationCantiereId === cantiere.id);
+      if (!isAssigned) return;
+
       const existing = inventoryMap.get(item.materialeId) || {
         materialeId: item.materialeId,
         materialeName: item.materialeName,
         quantity: 0,
-        unit: item.unit,
+        unit: item.unit || 'pz',
         totalCost: 0,
         carico: 0,
-        consumo: 0
+        consumo: 0,
+        caricoValore: 0,
+        unitPrice: Number(item.unitPrice) || 0,
+        valoreResiduo: 0
       };
-      existing.carico = (existing.carico || 0) + (item.quantity || 0);
-      existing.quantity += (item.quantity || 0);
-      existing.totalCost += (item.totalPrice || 0);
+      const qty = Number(item.quantity) || 0;
+      const lineCost = Number(item.totalPrice) || (qty * (Number(item.unitPrice) || 0));
+      
+      existing.carico = (existing.carico || 0) + qty;
+      existing.quantity += qty;
+      existing.caricoValore = (existing.caricoValore || 0) + lineCost;
+      if (existing.carico > 0) {
+        existing.unitPrice = existing.caricoValore / existing.carico;
+      }
       inventoryMap.set(item.materialeId, existing);
     });
+  });
+
+  // Include transfers from movements
+  (movements || []).filter(m => m.toId === cantiere.id && !m.documentId && (m.type === 'trasferimento_cantiere' || m.type === 'carico_cantiere')).forEach(m => {
+    const existing = inventoryMap.get(m.materialeId) || {
+      materialeId: m.materialeId,
+      materialeName: m.materialeName,
+      quantity: 0,
+      unit: m.unit || 'pz',
+      totalCost: 0,
+      carico: 0,
+      consumo: 0,
+      caricoValore: 0,
+      unitPrice: Number(m.costoUnitario) || 0,
+      valoreResiduo: 0
+    };
+    const qty = Number(m.quantity) || 0;
+    const lineCost = qty * (Number(m.costoUnitario) || 0);
+    existing.carico = (existing.carico || 0) + qty;
+    existing.quantity += qty;
+    existing.caricoValore = (existing.caricoValore || 0) + lineCost;
+    if (existing.carico > 0) {
+      existing.unitPrice = existing.caricoValore / existing.carico;
+    }
+    inventoryMap.set(m.materialeId, existing);
+  });
+
+  // If cantiere.stock has items that were initialized directly
+  (cantiere.stock || []).forEach(s => {
+    if (!inventoryMap.has(s.materialeId)) {
+      inventoryMap.set(s.materialeId, {
+        ...s,
+        carico: s.carico || s.quantity,
+        consumo: s.consumo || 0,
+        caricoValore: s.totalCost || 0,
+        unitPrice: s.carico ? (s.totalCost / s.carico) : 0,
+        valoreResiduo: s.totalCost || 0
+      });
+    }
   });
 
   // B. Subtract everything from Rapportini (Consumo)
@@ -282,19 +357,30 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
         materialeId: m.materialeId,
         materialeName: m.materialeName,
         quantity: 0,
-        unit: m.unit,
+        unit: m.unit || 'pz',
         totalCost: 0,
         carico: 0,
-        consumo: 0
+        consumo: 0,
+        caricoValore: 0,
+        unitPrice: 0,
+        valoreResiduo: 0
       };
-      existing.consumo = (existing.consumo || 0) + (m.quantity || 0);
-      existing.quantity -= (m.quantity || 0);
+      const qtyUsed = Number(m.quantity) || 0;
+      existing.consumo = (existing.consumo || 0) + qtyUsed;
+      existing.quantity -= qtyUsed;
       inventoryMap.set(m.materialeId, existing);
     });
   });
 
+  // Calculate residual value
+  inventoryMap.forEach(item => {
+    const up = item.unitPrice || 0;
+    item.valoreResiduo = Math.max(0, item.quantity * up);
+    item.totalCost = item.valoreResiduo;
+  });
+
   const cantiereInventory = [...Array.from(inventoryMap.values()), ...manualItems].sort((a, b) => a.materialeName.localeCompare(b.materialeName));
-  const totalInventoryValore = cantiereInventory.reduce((acc, s) => acc + (s.totalCost || 0), 0);
+  const totalInventoryValore = cantiereInventory.reduce((acc, s) => acc + (s.valoreResiduo || s.totalCost || 0), 0);
 
   const handleToggleOrderItem = (materialeId: string) => {
     setOrderItems(prev => {
@@ -302,7 +388,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
       if (next.has(materialeId)) {
         next.delete(materialeId);
       } else {
-        next.set(materialeId, 0);
+        next.set(materialeId, 1);
       }
       return next;
     });
@@ -311,7 +397,19 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   const handleUpdateOrderQuantity = (materialeId: string, qty: number) => {
     setOrderItems(prev => {
       const next = new Map(prev);
-      next.set(materialeId, qty);
+      if (qty <= 0) {
+        next.delete(materialeId);
+      } else {
+        next.set(materialeId, qty);
+      }
+      return next;
+    });
+  };
+
+  const handleRemoveOrderItem = (materialeId: string) => {
+    setOrderItems(prev => {
+      const next = new Map(prev);
+      next.delete(materialeId);
       return next;
     });
   };
@@ -649,28 +747,30 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
             {/* KPI Summary Cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Giacenza</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{cantiereInventory.length}</p>
-                <p className="text-[10px] font-bold text-amber-600 mt-0.5">€{totalInventoryValore.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Mat. Assegnati</p>
+                <p className="text-xl font-black text-slate-900 mt-1">€{assignedMaterialsTotal.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Valore da Amministrazione</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bolle</p>
+                <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Giacenza Attuale</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereInventory.length} Voci</p>
+                <p className="text-[10px] font-bold text-emerald-600 mt-0.5">Valore: €{totalInventoryValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bolle / Forniture</p>
                 <p className="text-xl font-black text-slate-900 mt-1">{cantiereBolle.length}</p>
-                {pendingBolle.length > 0 && (
+                {pendingBolle.length > 0 ? (
                   <p className="text-[10px] font-bold text-rose-500 mt-0.5 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" /> {pendingBolle.length} da accettare
                   </p>
+                ) : (
+                  <p className="text-[10px] font-bold text-slate-400 mt-0.5">Tutte caricate</p>
                 )}
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Richieste</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{cantiereRequests.length}</p>
-                <p className="text-[10px] font-bold text-blue-500 mt-0.5">Approvvigionamento</p>
-              </div>
-              <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Impiegati</p>
-                <p className="text-xl font-black text-emerald-600 mt-1">{cantiereMaterialiUsati.length}</p>
-                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Da rapportini</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Consumo Rapportini</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereMaterialiUsati.length}</p>
+                <p className="text-[10px] font-bold text-slate-500 mt-0.5">Materiali impiegati</p>
               </div>
             </div>
 
@@ -791,76 +891,232 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                   </h3>
                 </div>
 
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                        {isOrdering && <th className="px-4 py-3 text-center w-12">Ordine</th>}
-                        <th className="px-4 py-3">Materiale</th>
-                        <th className="px-4 py-3 text-center">U.M.</th>
-                        <th className="px-4 py-3 text-right">Carico (+)</th>
-                        <th className="px-4 py-3 text-right">Consumo (-)</th>
-                        <th className="px-4 py-3 text-right">Giacenza (=)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {cantiereInventory.length === 0 ? (
-                        <tr>
-                          <td colSpan={isOrdering ? 6 : 5} className="px-4 py-12 text-center text-xs text-slate-400 font-medium italic">
-                            Nessun materiale caricato o utilizzato in questo cantiere.
-                          </td>
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto relative custom-scrollbar">
+                    <table className="w-full text-left border-separate border-spacing-0 min-w-[1050px]">
+                      <thead>
+                        <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          {/* Colonna Descrizione FISSA a sinistra durante lo scroll orizzontale */}
+                          <th className="sticky left-0 z-30 bg-slate-100/95 backdrop-blur-xs px-5 py-3.5 text-xs font-black uppercase tracking-wider text-slate-700 min-w-[260px] sm:min-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]">
+                            Materiale / Descrizione
+                          </th>
+                          <th className="px-3.5 py-3.5 text-center text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[80px]">
+                            U.M.
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[110px]">
+                            Valore Unit.
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-emerald-600 border-b border-slate-100 min-w-[110px]">
+                            Carico (+)
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-emerald-700 border-b border-slate-100 min-w-[120px]">
+                            Val. Carico
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[110px]">
+                            Consumo (-)
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-slate-900 border-b border-slate-100 min-w-[120px]">
+                            Giacenza (=)
+                          </th>
+                          <th className="px-3.5 py-3.5 text-right text-xs font-black uppercase tracking-wider text-slate-700 border-b border-slate-100 min-w-[120px]">
+                            Val. Residuo
+                          </th>
+                          <th className="px-3.5 py-3.5 text-center text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[120px]">
+                            Stato Scorta
+                          </th>
+                          {/* Colonna Colorata messa alla fine quando si apre un ordine */}
+                          {isOrdering && (
+                            <th className="px-5 py-3.5 text-center text-xs font-black uppercase tracking-wider bg-amber-500 text-slate-950 border-b border-l-2 border-amber-600 shadow-md min-w-[260px]">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <ShoppingCart className="w-4 h-4 text-slate-950" />
+                                <span>Quantità da Ordinare</span>
+                              </div>
+                            </th>
+                          )}
                         </tr>
-                      ) : (
-                        cantiereInventory.map((item) => (
-                          <tr key={item.materialeId} className={`hover:bg-slate-50/50 transition-all ${isOrdering && orderItems.has(item.materialeId) ? 'bg-emerald-50/30' : ''}`}>
-                            {isOrdering && (
-                              <td className="px-4 py-3 text-center">
-                                <div className="flex flex-col items-center gap-2">
-                                  <button
-                                    onClick={() => handleToggleOrderItem(item.materialeId)}
-                                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                                      orderItems.has(item.materialeId) 
-                                        ? 'bg-emerald-500 text-white shadow-md' 
-                                        : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
-                                    }`}
-                                  >
-                                    <Check className="w-4 h-4 stroke-[3]" />
-                                  </button>
-                                  {orderItems.has(item.materialeId) && (
-                                    <input 
-                                      type="number"
-                                      placeholder="Q.tà"
-                                      className="w-16 bg-white border border-emerald-200 rounded-md py-1 text-[10px] text-center font-black text-emerald-900 outline-none"
-                                      value={orderItems.get(item.materialeId) || ''}
-                                      onChange={e => handleUpdateOrderQuantity(item.materialeId, parseFloat(e.target.value) || 0)}
-                                    />
-                                  )}
-                                </div>
-                              </td>
-                            )}
-                            <td className="px-4 py-4">
-                              <p className="text-sm font-bold text-slate-900 leading-tight">{item.materialeName}</p>
-                              <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">ID: {item.materialeId.slice(-8).toUpperCase()}</p>
-                            </td>
-                            <td className="px-4 py-4 text-center">
-                              <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{item.unit}</span>
-                            </td>
-                            <td className="px-4 py-4 text-right">
-                              <span className="text-xs font-bold text-slate-900">{item.carico?.toLocaleString() || 0}</span>
-                            </td>
-                            <td className="px-4 py-4 text-right">
-                              <span className="text-xs font-bold text-slate-500">{item.consumo?.toLocaleString() || 0}</span>
-                            </td>
-                            <td className="px-4 py-4 text-right">
-                              <span className={`text-sm font-black ${item.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                                {item.quantity.toLocaleString()}
-                              </span>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {cantiereInventory.length === 0 ? (
+                          <tr>
+                            <td colSpan={isOrdering ? 10 : 9} className="px-4 py-12 text-center text-xs text-slate-400 font-medium italic">
+                              Nessun materiale caricato o utilizzato in questo cantiere.
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        ) : (
+                          cantiereInventory.map((item) => {
+                            const isSelectedInOrder = isOrdering && orderItems.has(item.materialeId);
+                            const currentOrderQty = orderItems.get(item.materialeId) || 0;
+                            const isLowStock = item.quantity > 0 && item.quantity <= 5;
+                            const isOutOfStock = item.quantity <= 0;
+
+                            return (
+                              <tr 
+                                key={item.materialeId} 
+                                className={`group hover:bg-slate-50/70 transition-colors ${isSelectedInOrder ? 'bg-amber-50/40' : ''}`}
+                              >
+                                {/* Colonna Descrizione FISSA a sinistra */}
+                                <td className={`sticky left-0 z-20 bg-white group-hover:bg-slate-50 px-5 py-3.5 min-w-[260px] sm:min-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] transition-colors ${
+                                  isSelectedInOrder ? '!bg-amber-50' : ''
+                                }`}>
+                                  <p className="text-sm font-black text-slate-900 leading-snug">{item.materialeName}</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                                      ID: {item.materialeId.slice(-8).toUpperCase()}
+                                    </span>
+                                    {isOutOfStock && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
+                                        Esaurito
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* U.M. */}
+                                <td className="px-3.5 py-3.5 text-center border-b border-slate-100">
+                                  <span className="text-[10px] font-black uppercase text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
+                                    {item.unit}
+                                  </span>
+                                </td>
+
+                                {/* Valore Unitario */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className="text-xs font-mono font-bold text-slate-600">
+                                    €{(item.unitPrice || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+
+                                {/* Carico (+) */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className="text-xs font-bold text-emerald-600">
+                                    +{(item.carico || 0).toLocaleString('it-IT')}
+                                  </span>
+                                </td>
+
+                                {/* Valore Carico (€) */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className="text-xs font-mono font-bold text-emerald-700">
+                                    €{(item.caricoValore || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+
+                                {/* Consumo (-) */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className="text-xs font-bold text-slate-500">
+                                    -{(item.consumo || 0).toLocaleString('it-IT')}
+                                  </span>
+                                </td>
+
+                                {/* Giacenza Attuale (=) */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className={`text-sm font-black ${item.quantity > 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                                    {(item.quantity || 0).toLocaleString('it-IT')}
+                                  </span>
+                                </td>
+
+                                {/* Valore Residuo (€) */}
+                                <td className="px-3.5 py-3.5 text-right border-b border-slate-100">
+                                  <span className="text-xs font-mono font-black text-slate-900">
+                                    €{(item.valoreResiduo || item.totalCost || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </span>
+                                </td>
+
+                                {/* Stato Scorta */}
+                                <td className="px-3.5 py-3.5 text-center border-b border-slate-100">
+                                  {isOutOfStock ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                                      Esaurito
+                                    </span>
+                                  ) : isLowStock ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                      Bassa
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                      Disponibile
+                                    </span>
+                                  )}
+                                </td>
+
+                                {/* ULTERIORE COLONNA COLORATA MESSA ALLA FINE PER L'ORDINE */}
+                                {isOrdering && (
+                                  <td className="px-4 py-3.5 text-center bg-amber-50/90 border-b border-l-2 border-amber-300 min-w-[260px] transition-colors">
+                                    <div className="flex flex-col items-center gap-1.5">
+                                      <p className="text-[10px] font-bold text-amber-900 uppercase tracking-tight">
+                                        Quanto ordinare?
+                                      </p>
+                                      <div className="flex items-center justify-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const nextVal = Math.max(0, currentOrderQty - 1);
+                                            if (nextVal === 0) {
+                                              handleRemoveOrderItem(item.materialeId);
+                                            } else {
+                                              handleUpdateOrderQuantity(item.materialeId, nextVal);
+                                            }
+                                          }}
+                                          className="w-8 h-8 rounded-xl bg-amber-200 hover:bg-amber-300 active:scale-95 text-amber-950 font-black flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                                          title="Diminuisci quantità"
+                                        >
+                                          -
+                                        </button>
+                                        <div className="flex items-center bg-white border-2 border-amber-400 rounded-xl px-2.5 py-1 shadow-xs focus-within:ring-2 focus-within:ring-amber-500">
+                                          <input
+                                            type="number"
+                                            min="0"
+                                            step="any"
+                                            placeholder="0"
+                                            className="w-16 text-center text-xs font-black text-slate-900 outline-none"
+                                            value={isSelectedInOrder && currentOrderQty > 0 ? currentOrderQty : ''}
+                                            onChange={e => {
+                                              const val = parseFloat(e.target.value);
+                                              if (isNaN(val) || val <= 0) {
+                                                handleRemoveOrderItem(item.materialeId);
+                                              } else {
+                                                handleUpdateOrderQuantity(item.materialeId, val);
+                                              }
+                                            }}
+                                          />
+                                          <span className="text-[10px] font-bold text-slate-500 uppercase ml-1 shrink-0">
+                                            {item.unit}
+                                          </span>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            handleUpdateOrderQuantity(item.materialeId, currentOrderQty + 1);
+                                          }}
+                                          className="w-8 h-8 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-slate-950 font-black flex items-center justify-center transition-all cursor-pointer shadow-xs"
+                                          title="Aumenta quantità"
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+
+                                      {isSelectedInOrder && currentOrderQty > 0 && (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-[9px] font-black text-emerald-800 border border-emerald-300">
+                                            <Check className="w-2.5 h-2.5 stroke-[3]" /> Selezionato: {currentOrderQty} {item.unit}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleRemoveOrderItem(item.materialeId)}
+                                            className="text-[9px] font-bold text-rose-600 hover:underline cursor-pointer"
+                                          >
+                                            Azzera
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 {isOrdering && (

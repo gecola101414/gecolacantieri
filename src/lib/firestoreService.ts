@@ -980,36 +980,50 @@ export const firestoreService = {
 
         await this.addMovement(companyId, movData);
 
-        // ASYNC CHARGE TO CANTIERE: hitting the account immediately as per user request
-        if (!isCentral) {
-          try {
-            const cantiere = await this.getCantiereById(companyId, destination);
-            if (cantiere) {
-              const stock = cantiere.stock || [];
-              const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
-              const totalAddedCost = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+      }
 
+      // ASYNC CHARGE TO CANTIERE: hitting the account with the full sum of all assigned materials in this document
+      const cantiereChargeMap = new Map<string, { totalAddedCost: number; items: typeof docData.items }>();
+      for (const item of (docData.items || [])) {
+        const dest = item.destinationCantiereId || docData.destinationCantiereId || 'magazzino_centrale';
+        if (dest && dest !== 'magazzino_centrale') {
+          const entry = cantiereChargeMap.get(dest) || { totalAddedCost: 0, items: [] };
+          const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+          entry.totalAddedCost += itemCost;
+          entry.items.push(item);
+          cantiereChargeMap.set(dest, entry);
+        }
+      }
+
+      for (const [cId, charge] of cantiereChargeMap.entries()) {
+        try {
+          const cantiere = await this.getCantiereById(companyId, cId);
+          if (cantiere) {
+            const stock = [...(cantiere.stock || [])];
+            for (const item of charge.items) {
+              const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+              const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
               if (itemIdx >= 0) {
                 stock[itemIdx].quantity = (Number(stock[itemIdx].quantity) || 0) + (Number(item.quantity) || 0);
-                stock[itemIdx].totalCost = (Number(stock[itemIdx].totalCost) || 0) + totalAddedCost;
+                stock[itemIdx].totalCost = (Number(stock[itemIdx].totalCost) || 0) + itemCost;
               } else {
                 stock.push({
-                  materialeId: item.materialeId || `mat-${idx}`,
+                  materialeId: item.materialeId || `mat-${Date.now()}`,
                   materialeName: item.materialeName,
-                  quantity: item.quantity,
-                  unit: item.unit || 'u',
-                  totalCost: totalAddedCost
+                  quantity: Number(item.quantity) || 0,
+                  unit: item.unit || 'pz',
+                  totalCost: itemCost
                 });
               }
-
-              await updateDoc(doc(db, `companies/${companyId}/cantieri`, destination), {
-                stock: sanitizeData(stock),
-                totalMaterialCost: (Number(cantiere.totalMaterialCost) || 0) + totalAddedCost
-              });
             }
-          } catch (cantiereErr) {
-            console.error('Error charging cantiere account from document:', cantiereErr);
+            const prevCost = Number(cantiere.totalMaterialCost) || 0;
+            await updateDoc(doc(db, `companies/${companyId}/cantieri`, cId), {
+              stock: sanitizeData(stock),
+              totalMaterialCost: prevCost + charge.totalAddedCost
+            });
           }
+        } catch (cantiereErr) {
+          console.error('Error charging cantiere account from document:', cantiereErr);
         }
       }
 
