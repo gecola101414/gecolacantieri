@@ -78,8 +78,9 @@ Il tuo compito è analizzare il documento (Bolla, DDT, Fattura accompagnatoria d
 
 REGOLE CRUCIALI DI ESTRAZIONE:
 1. DISTINGUI TRA DESCRIZIONE E QUANTITÀ: Molti materiali hanno numeri nella descrizione (es. "KERAKOLL H40 25 KG"). Quel "25" fa parte del NOME, NON è la quantità. La quantità vera è in una colonna separata (es. 125,000).
-2. PREZZO UNITARIO: Cerca sempre il prezzo unitario di riga (es. 0,806). Se la colonna PREZZO mostra un valore, estrailo come "unitPrice". NON ARROTONDARE A ZERO i prezzi piccoli (es. 0,806 è un valore fondamentale).
+2. PREZZO UNITARIO (CRITICO): Cerca sempre il prezzo unitario di riga (es. 0,806 o 0,90). Se la colonna PREZZO mostra un valore, estrailo come "unitPrice". NON ARROTONDARE A ZERO i prezzi piccoli. Se vedi "0,90" estrai 0.90, NON 0.
 3. IMPORTO NETTO DI RIGA: È il valore totale della riga (es. 100,80). Deve corrispondere a (Quantità * Prezzo Unitario) - Sconto. Se la colonna IMPORTO mostra un valore, estrailo con precisione.
+4. RIGHE VUOTE: Ignora le righe di solo testo descrittivo che non hanno quantità o prezzi.
 
 REGOLE DI PRECISIONE:
 * Se la descrizione dice "KG 25", è solo il formato del sacco. Guarda le altre colonne per la QUANTITÀ TOTALE (es. 125) e il PREZZO UNITARIO (es. 0,806).
@@ -130,7 +131,7 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta:
 }`;
 
     // Multi-model resilience: try primary model, fall back gracefully if 503/429
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    const candidateModels = ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
     let response: any = null;
     let lastError: any = null;
 

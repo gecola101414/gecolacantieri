@@ -1728,7 +1728,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                           : 'bg-white/80 text-slate-600 hover:bg-white'
                       }`}
                     >
-                      Già Accettata Subito
+                      Conferma e Carica Subito
                     </button>
                   </div>
                 </div>
@@ -1786,9 +1786,9 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                         <span>Salvataggio...</span>
                       </>
                     ) : (
-                      <>
+                        <>
                         <Check className="w-4 h-4" />
-                        <span>Registra e Invia Fornitura</span>
+                        <span>Conferma e Carica Materiali</span>
                       </>
                     )}
                   </button>

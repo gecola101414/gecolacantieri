@@ -235,9 +235,11 @@ export interface ContabilitaEntry {
 export interface StockItem {
   materialeId: string;
   materialeName: string;
-  quantity: number;
+  quantity: number; // Current stock (giacenza)
   unit: string;
   totalCost: number; // Valore economico della giacenza
+  carico?: number; // Total loaded quantity
+  consumo?: number; // Total consumed quantity
 }
 
 export interface Fornitore {
@@ -311,6 +313,28 @@ export interface MaterialRequestItem {
 }
 
 export type MaterialRequestStatus = 'bozza' | 'inviata' | 'approvata' | 'ordinata' | 'rifiutata' | 'evasa';
+
+export interface CantiereOrderItem {
+  materialeId: string;
+  materialeName: string;
+  quantity: number;
+  unit: string;
+  notes?: string;
+}
+
+export type CantiereOrderStatus = 'aperto' | 'chiuso' | 'inviato';
+
+export interface CantiereOrder {
+  id: string;
+  cantiereId: string;
+  userId: string;
+  userName: string;
+  date: string;
+  items: CantiereOrderItem[];
+  status: CantiereOrderStatus;
+  notes?: string;
+  createdAt: string;
+}
 
 export interface MaterialRequest {
   id: string;

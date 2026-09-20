@@ -2,14 +2,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Cantiere, Personale, Mezzo, Rapportino, StockMovement, MaterialDocument, 
   UserAccount, Company, CantiereChatMessage, CantiereDocumentoTecnico, TechnicalDocCategory,
-  MaterialRequest, MaterialRequestStatus, Materiale
+  MaterialRequest, MaterialRequestStatus, Materiale, StockItem
 } from '../types';
 import { 
   Building2, HardHat, FileText, Box, MessageSquare, FolderArchive, ArrowLeft,
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
   DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2,
-  PackageCheck, ShoppingBag
+  PackageCheck, ShoppingBag, Check, Layers
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MaterialRequestManager } from './MaterialRequestManager';
@@ -124,7 +124,13 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   const [isUploading, setIsUploading] = useState(false);
 
   // Material view sub-filter
-  const [materialFilter, setMaterialFilter] = useState<'tutti' | 'bolle' | 'giacenza' | 'usati' | 'richieste'>('tutti');
+  const [materialFilter, setMaterialFilter] = useState<'tutti' | 'bolle' | 'giacenza' | 'usati' | 'richieste'>('giacenza');
+
+  // Ordering workflow state
+  const [isOrdering, setIsOrdering] = useState(false);
+  const [orderItems, setOrderItems] = useState<Map<string, number>>(new Map()); // materialeId -> quantity
+  const [orderNotes, setOrderNotes] = useState('');
+  const [manualItems, setManualItems] = useState<StockItem[]>([]);
 
   // Filter cantiere-specific data
   const cantiereRapportini = rapportini
@@ -247,9 +253,107 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   });
   const cantiereMaterialiUsati = Array.from(usedMaterialsMap.values());
 
-  // 3. Giacenza attuale
-  const cantiereStock = cantiere.stock || [];
-  const totalStockValore = cantiereStock.reduce((acc, s) => acc + (s.totalCost || 0), 0);
+  // 3. Giacenza attuale (CALCOLATA: Carico - Consumo)
+  const inventoryMap = new Map<string, StockItem>();
+
+  // A. Add everything from Accepted Documents (Carico)
+  cantiereBolle.filter(d => d.status === 'accettata').forEach(doc => {
+    doc.items.forEach(item => {
+      const existing = inventoryMap.get(item.materialeId) || {
+        materialeId: item.materialeId,
+        materialeName: item.materialeName,
+        quantity: 0,
+        unit: item.unit,
+        totalCost: 0,
+        carico: 0,
+        consumo: 0
+      };
+      existing.carico = (existing.carico || 0) + (item.quantity || 0);
+      existing.quantity += (item.quantity || 0);
+      existing.totalCost += (item.totalPrice || 0);
+      inventoryMap.set(item.materialeId, existing);
+    });
+  });
+
+  // B. Subtract everything from Rapportini (Consumo)
+  validRapportini.forEach(rap => {
+    (rap.materiali || []).forEach(m => {
+      const existing = inventoryMap.get(m.materialeId) || {
+        materialeId: m.materialeId,
+        materialeName: m.materialeName,
+        quantity: 0,
+        unit: m.unit,
+        totalCost: 0,
+        carico: 0,
+        consumo: 0
+      };
+      existing.consumo = (existing.consumo || 0) + (m.quantity || 0);
+      existing.quantity -= (m.quantity || 0);
+      inventoryMap.set(m.materialeId, existing);
+    });
+  });
+
+  const cantiereInventory = [...Array.from(inventoryMap.values()), ...manualItems].sort((a, b) => a.materialeName.localeCompare(b.materialeName));
+  const totalInventoryValore = cantiereInventory.reduce((acc, s) => acc + (s.totalCost || 0), 0);
+
+  const handleToggleOrderItem = (materialeId: string) => {
+    setOrderItems(prev => {
+      const next = new Map(prev);
+      if (next.has(materialeId)) {
+        next.delete(materialeId);
+      } else {
+        next.set(materialeId, 0);
+      }
+      return next;
+    });
+  };
+
+  const handleUpdateOrderQuantity = (materialeId: string, qty: number) => {
+    setOrderItems(prev => {
+      const next = new Map(prev);
+      next.set(materialeId, qty);
+      return next;
+    });
+  };
+
+  const handleSaveNewOrder = async () => {
+    if (orderItems.size === 0) {
+      alert('Seleziona almeno un materiale per l\'ordine.');
+      return;
+    }
+
+    const newRequest: MaterialRequest = {
+      id: `req-${Date.now()}`,
+      cantiereId: cantiere.id,
+      cantiereName: cantiere.name,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      date: new Date().toISOString().split('T')[0],
+      items: Array.from(orderItems.entries()).map(([mid, qty]) => {
+        const mat = materialiArchive.find(m => m.id === mid) || cantiereInventory.find(i => i.materialeId === mid);
+        return {
+          materialeId: mid,
+          materialeName: mat?.name || mat?.materialeName || 'Materiale',
+          quantity: qty,
+          unit: mat?.unit || 'pz'
+        };
+      }),
+      status: 'pending' as any, // Using existing pending status
+      notes: orderNotes,
+      createdAt: new Date().toISOString()
+    };
+
+    try {
+      await onSaveMaterialRequest(newRequest);
+      setIsOrdering(false);
+      setOrderItems(new Map());
+      setOrderNotes('');
+      alert('Ordine inviato con successo.');
+    } catch (err) {
+      console.error('Error saving order:', err);
+      alert('Errore durante l\'invio dell\'ordine.');
+    }
+  };
 
   // ----------------------------------------------------
   // CHAT AUDIO VOICE RECORDING HANDLERS
@@ -546,8 +650,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Giacenza</p>
-                <p className="text-xl font-black text-slate-900 mt-1">{cantiereStock.length}</p>
-                <p className="text-[10px] font-bold text-amber-600 mt-0.5">€{totalStockValore.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                <p className="text-xl font-black text-slate-900 mt-1">{cantiereInventory.length}</p>
+                <p className="text-[10px] font-bold text-amber-600 mt-0.5">€{totalInventoryValore.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
               </div>
               <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bolle</p>
@@ -594,7 +698,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                         className="bg-slate-950 text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 active:scale-95 transition-all"
                       >
                         <PackageCheck className="w-4 h-4 text-amber-400" />
-                        Prendi in Carico
+                        Conferma e Carica
                       </button>
                     </div>
                   ))}
@@ -602,163 +706,195 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
               </div>
             )}
 
-            {/* Filter Toggle */}
-            <div className="flex flex-wrap gap-2 pt-1">
-              {[
-                { id: 'tutti', label: 'Tutti' },
-                { id: 'giacenza', label: `Giacenza (${cantiereStock.length})` },
-                { id: 'bolle', label: `Bolle (${cantiereBolle.length})` },
-                { id: 'richieste', label: `Richieste (${cantiereRequests.length})` },
-                { id: 'usati', label: `Impiegati (${cantiereMaterialiUsati.length})` },
-              ].map(f => (
+            {/* Filter Toggle & Order Button */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: 'giacenza', label: `Inventario Cantiere (${cantiereInventory.length})` },
+                  { id: 'bolle', label: `Bolle Fornitori (${cantiereBolle.length})` },
+                  { id: 'richieste', label: `Ordini & Richieste (${cantiereRequests.length})` },
+                  { id: 'usati', label: `Consumi Rapportini (${cantiereMaterialiUsati.length})` },
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setMaterialFilter(f.id as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      materialFilter === f.id
+                        ? 'bg-slate-950 text-white shadow-xs'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              {!isReadOnly && materialFilter === 'giacenza' && (
                 <button
-                  key={f.id}
-                  onClick={() => setMaterialFilter(f.id as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    materialFilter === f.id
-                      ? 'bg-slate-950 text-white shadow-xs'
-                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  onClick={() => setIsOrdering(!isOrdering)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all ${
+                    isOrdering 
+                      ? 'bg-rose-500 text-white' 
+                      : 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
                   }`}
                 >
-                  {f.label}
+                  {isOrdering ? (
+                    <> <X className="w-4 h-4" /> Annulla Ordine </>
+                  ) : (
+                    <> <ShoppingBag className="w-4 h-4" /> Apri Nuovo Ordine </>
+                  )}
                 </button>
-              ))}
+              )}
             </div>
 
-            {/* 1. Bolle Fornitori assegnate */}
-            {(materialFilter === 'tutti' || materialFilter === 'bolle') && (
-              <section className="space-y-3">
-                <div className="flex items-center justify-between px-1">
-                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <ReceiptText className="w-4 h-4 text-amber-500" />
-                    Bolle & Forniture Assegnate al Cantiere
-                  </h3>
-                  <span className="text-[10px] font-bold text-slate-400">{cantiereBolle.length} bolle</span>
+            {/* Order Preview Bar */}
+            {isOrdering && orderItems.size > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-emerald-50 border border-emerald-200 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white font-black">
+                    {orderItems.size}
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-emerald-900 uppercase">Ordine in Preparazione</p>
+                    <p className="text-[10px] text-emerald-700">{orderItems.size} materiali selezionati dall'inventario.</p>
+                  </div>
                 </div>
-
-                {cantiereBolle.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400 font-medium">
-                    Nessuna bolla o fornitura registrata direttamente per questo cantiere.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {cantiereBolle.map(doc => {
-                      const cantiereItems = doc.items.filter(i => 
-                        i.destinationCantiereId === cantiere.id || doc.destinationCantiereId === cantiere.id
-                      );
-                      const totalDocNet = cantiereItems.reduce((acc, i) => {
-                        const q = Number(i.quantity) || 1;
-                        const u = Number(i.unitPrice) || 0;
-                        let t = Number(i.totalPrice) || 0;
-                        let d = i.discount ? String(i.discount).trim() : '';
-                        let dPct = 0;
-                        if (d) {
-                          const m = d.match(/([0-9]+(?:[.,][0-9]+)?)/);
-                          if (m) dPct = parseFloat(m[1].replace(',', '.'));
-                        }
-                        if ((t === 0 || (q > 1 && Math.abs(t - u) < 0.01)) && u > 0) {
-                          const gross = q * u;
-                          t = dPct > 0 ? parseFloat((gross * (1 - dPct / 100)).toFixed(2)) : parseFloat(gross.toFixed(2));
-                        }
-                        return acc + t;
-                      }, 0);
-
-                      return (
-                        <div key={doc.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                                  {doc.type.toUpperCase()} N. {doc.number}
-                                </span>
-                                <span className="text-[11px] font-bold text-slate-500">{formatItalianDate(doc.date)}</span>
-                              </div>
-                              <h4 className="text-sm font-black text-slate-900 mt-1">{doc.supplier}</h4>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-sm font-black text-slate-900">€{totalDocNet.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                              <span className={`inline-block text-[9px] font-black uppercase px-2 py-0.5 rounded-full mt-1 ${
-                                doc.status === 'accettata' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                {doc.status === 'accettata' ? 'Accettata' : 'In attesa'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Items breakdown */}
-                          <div className="border-t border-slate-100 pt-2 space-y-1.5">
-                            {cantiereItems.map((item, idx) => {
-                              const q = Number(item.quantity) || 1;
-                              const u = Number(item.unitPrice) || 0;
-                              let t = Number(item.totalPrice) || 0;
-                              let d = item.discount ? String(item.discount).trim() : '';
-                              let dPct = 0;
-                              if (d) {
-                                const m = d.match(/([0-9]+(?:[.,][0-9]+)?)/);
-                                if (m) dPct = parseFloat(m[1].replace(',', '.'));
-                              }
-                              if ((t === 0 || (q > 1 && Math.abs(t - u) < 0.01)) && u > 0) {
-                                const gross = q * u;
-                                t = dPct > 0 ? parseFloat((gross * (1 - dPct / 100)).toFixed(2)) : parseFloat(gross.toFixed(2));
-                              }
-
-                              return (
-                                <div key={idx} className="flex items-center justify-between text-xs py-1 px-2 rounded-lg bg-slate-50">
-                                  <div className="min-w-0 pr-2">
-                                    <p className="font-bold text-slate-800 truncate">{item.materialeName}</p>
-                                    <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
-                                      <span>{item.quantity} {item.unit}</span>
-                                      <span>•</span>
-                                      <span>€{u > 0 ? u.toFixed(2) : '0.00'}/u</span>
-                                      {d && (
-                                        <span className="font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded">
-                                          Sc. {d.includes('%') ? d : `${d}%`}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <span className="font-black text-slate-900 shrink-0">€{t.toFixed(2)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <input 
+                    type="text"
+                    placeholder="Note per l'ordine..."
+                    value={orderNotes}
+                    onChange={e => setOrderNotes(e.target.value)}
+                    className="flex-1 sm:w-64 bg-white border border-emerald-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-emerald-500"
+                  />
+                  <button 
+                    onClick={handleSaveNewOrder}
+                    className="bg-slate-950 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+                  >
+                    Invia Ordine
+                  </button>
+                </div>
+              </motion.div>
             )}
 
-            {/* 2. Giacenza attuale in cantiere */}
-            {(materialFilter === 'tutti' || materialFilter === 'giacenza') && (
+            {/* 1. Inventario Cantiere (Carico - Consumo = Giacenza) */}
+            {(materialFilter === 'giacenza') && (
               <section className="space-y-3">
                 <div className="flex items-center justify-between px-1">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <Box className="w-4 h-4 text-emerald-500" />
-                    Giacenza Disponibile in Cantiere
+                    Inventario di Cantiere (Carico/Consumo)
                   </h3>
-                  <span className="text-[10px] font-bold text-slate-400">{cantiereStock.length} materiali</span>
                 </div>
 
-                {cantiereStock.length === 0 ? (
-                  <div className="bg-white p-6 rounded-2xl border border-dashed border-slate-200 text-center text-xs text-slate-400 font-medium">
-                    Nessun materiale attualmente in giacenza per questo cantiere.
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {cantiereStock.map((s, idx) => (
-                      <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-                        <div>
-                          <h4 className="text-sm font-bold text-slate-900">{s.materialeName}</h4>
-                          <p className="text-[10px] text-slate-400 font-medium">Valore giacenza: €{(s.totalCost || 0).toFixed(2)}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-base font-black text-emerald-600">{s.quantity} {s.unit}</p>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase">Residuo</span>
-                        </div>
-                      </div>
-                    ))}
+                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                        {isOrdering && <th className="px-4 py-3 text-center w-12">Ordine</th>}
+                        <th className="px-4 py-3">Materiale</th>
+                        <th className="px-4 py-3 text-center">U.M.</th>
+                        <th className="px-4 py-3 text-right">Carico (+)</th>
+                        <th className="px-4 py-3 text-right">Consumo (-)</th>
+                        <th className="px-4 py-3 text-right">Giacenza (=)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {cantiereInventory.length === 0 ? (
+                        <tr>
+                          <td colSpan={isOrdering ? 6 : 5} className="px-4 py-12 text-center text-xs text-slate-400 font-medium italic">
+                            Nessun materiale caricato o utilizzato in questo cantiere.
+                          </td>
+                        </tr>
+                      ) : (
+                        cantiereInventory.map((item) => (
+                          <tr key={item.materialeId} className={`hover:bg-slate-50/50 transition-all ${isOrdering && orderItems.has(item.materialeId) ? 'bg-emerald-50/30' : ''}`}>
+                            {isOrdering && (
+                              <td className="px-4 py-3 text-center">
+                                <div className="flex flex-col items-center gap-2">
+                                  <button
+                                    onClick={() => handleToggleOrderItem(item.materialeId)}
+                                    className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                                      orderItems.has(item.materialeId) 
+                                        ? 'bg-emerald-500 text-white shadow-md' 
+                                        : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
+                                    }`}
+                                  >
+                                    <Check className="w-4 h-4 stroke-[3]" />
+                                  </button>
+                                  {orderItems.has(item.materialeId) && (
+                                    <input 
+                                      type="number"
+                                      placeholder="Q.tà"
+                                      className="w-16 bg-white border border-emerald-200 rounded-md py-1 text-[10px] text-center font-black text-emerald-900 outline-none"
+                                      value={orderItems.get(item.materialeId) || ''}
+                                      onChange={e => handleUpdateOrderQuantity(item.materialeId, parseFloat(e.target.value) || 0)}
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                            <td className="px-4 py-4">
+                              <p className="text-sm font-bold text-slate-900 leading-tight">{item.materialeName}</p>
+                              <p className="text-[10px] text-slate-400 font-medium uppercase mt-0.5">ID: {item.materialeId.slice(-8).toUpperCase()}</p>
+                            </td>
+                            <td className="px-4 py-4 text-center">
+                              <span className="text-[10px] font-black uppercase text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{item.unit}</span>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <span className="text-xs font-bold text-slate-900">{item.carico?.toLocaleString() || 0}</span>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <span className="text-xs font-bold text-slate-500">{item.consumo?.toLocaleString() || 0}</span>
+                            </td>
+                            <td className="px-4 py-4 text-right">
+                              <span className={`text-sm font-black ${item.quantity > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                {item.quantity.toLocaleString()}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {isOrdering && (
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
+                    <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">Non trovi il materiale nell'inventario?</p>
+                    <button 
+                      onClick={() => {
+                        const name = prompt('Inserisci il NOME del materiale da ordinare:');
+                        if (name) {
+                          const unit = prompt('Inserisci l\'UNITÀ DI MISURA (es. pz, kg, m):', 'pz') || 'pz';
+                          const id = `manual-${Date.now()}`;
+                          
+                          const manualItem: StockItem = {
+                            materialeId: id,
+                            materialeName: name,
+                            quantity: 0,
+                            unit: unit,
+                            totalCost: 0,
+                            carico: 0,
+                            consumo: 0
+                          };
+                          
+                          setManualItems(prev => [...prev, manualItem]);
+                          setOrderItems(prev => {
+                            const next = new Map(prev);
+                            next.set(id, 1);
+                            return next;
+                          });
+                        }
+                      }}
+                      className="text-xs font-black text-amber-600 hover:underline flex items-center justify-center gap-1.5 mx-auto"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Aggiungi materiale a mano all'ordine
+                    </button>
                   </div>
                 )}
               </section>
