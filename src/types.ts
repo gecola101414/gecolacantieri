@@ -438,3 +438,32 @@ export interface TimbraturaBadge {
   deviceInfo?: string;
 }
 
+export type CompanyEventType = 
+  | 'ordine' 
+  | 'badge' 
+  | 'bolla' 
+  | 'rapportino' 
+  | 'consumo' 
+  | 'documento' 
+  | 'contabilita' 
+  | 'chat'
+  | 'sistema';
+
+export interface CompanyEvent {
+  id: string;
+  type: CompanyEventType;
+  title: string;
+  summary: string;
+  cantiereId?: string;
+  cantiereName?: string;
+  userId?: string;
+  userName: string;
+  userRole?: string;
+  timestamp: string; // ISO string
+  entityId?: string;
+  details?: string;
+  amount?: number;
+  badgeLabel?: string;
+}
+
+

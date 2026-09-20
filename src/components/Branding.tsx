@@ -33,11 +33,17 @@ export const Logo: React.FC<{ className?: string, iconOnly?: boolean }> = ({ cla
 
 export const FooterBranding: React.FC<{ className?: string }> = ({ className = "" }) => {
   return (
-    <div className={`w-full py-6 mt-auto border-t border-slate-100/10 flex items-center justify-start text-left px-2 sm:px-4 ${className}`}>
+    <div className={`w-full py-4 mt-auto border-t border-slate-100/10 flex flex-col gap-1.5 text-left px-2 sm:px-4 ${className}`}>
       <div className="flex items-center gap-2.5 text-left">
         <Globe className="w-4 h-4 text-amber-500 shrink-0" />
-        <span className="text-xs sm:text-sm font-bold tracking-wider text-slate-300">
+        <span className="text-xs font-bold tracking-wider text-slate-300">
           2026 @ AETERNA - MILANO
+        </span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+        <span className="text-[10px] font-mono font-bold text-amber-400">
+          v{APP_VERSION} • {APP_LAST_UPDATE}
         </span>
       </div>
     </div>

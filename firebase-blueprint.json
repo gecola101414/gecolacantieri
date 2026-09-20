@@ -125,6 +125,23 @@
         "mezzoId": { "type": "string" }
       },
       "required": ["id", "cantiereId", "type", "amount", "date", "description"]
+    },
+    "CompanyEvent": {
+      "title": "CompanyEvent",
+      "description": "Operational event log for real-time tracking.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "cantiereId": { "type": "string" },
+        "cantiereName": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "title", "summary", "userName", "timestamp"]
     }
   },
   "firestore": {
@@ -163,6 +180,10 @@
     "/companies/{companyId}/movements/{movementId}": {
       "schema": "object",
       "description": "Inventory movements (loading, transfers, consumption)."
+    },
+    "/companies/{companyId}/eventiOperativi/{eventId}": {
+      "schema": "CompanyEvent",
+      "description": "Operational event log for real-time tracking of site rhythm."
     },
     "/pairingCodes/{code}": {
       "schema": "object",

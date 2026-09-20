@@ -8,7 +8,7 @@ import {
   Company, UserAccount, Cantiere, Personale, Mezzo, 
   Rapportino, ContabilitaEntry, Materiale, TransferCode, StockMovement, MaterialDocument,
   CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge,
-  MaterialRequest, MaterialRequestStatus
+  MaterialRequest, MaterialRequestStatus, CompanyEvent
 } from '../types';
 
 // Generic error handler as required by skill
@@ -1396,5 +1396,50 @@ export const firestoreService = {
       handleFirestoreError(e, OperationType.UPDATE, path);
     }
   },
+
+  // Operational Company Events (Centrale Eventi)
+  async logCompanyEvent(companyId: string, event: CompanyEvent): Promise<void> {
+    const eventId = event.id || `ev-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const path = `companies/${companyId}/eventiOperativi/${eventId}`;
+    try {
+      await setDoc(doc(db, 'companies', companyId, 'eventiOperativi', eventId), sanitizeData({
+        ...event,
+        id: eventId,
+        timestamp: event.timestamp || new Date().toISOString()
+      }));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async getCompanyEvents(companyId: string, limitCount = 50): Promise<CompanyEvent[]> {
+    const path = `companies/${companyId}/eventiOperativi`;
+    try {
+      const q = query(collection(db, path), orderBy('timestamp', 'desc'));
+      const snap = await getDocs(q);
+      return snap.docs.slice(0, limitCount).map(d => ({ id: d.id, ...d.data() } as CompanyEvent));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  subscribeToCompanyEvents(companyId: string, callback: (events: CompanyEvent[]) => void): () => void {
+    const path = `companies/${companyId}/eventiOperativi`;
+    try {
+      const q = query(collection(db, path), orderBy('timestamp', 'desc'));
+      return onSnapshot(q, (snap) => {
+        const events = snap.docs.map(d => ({ id: d.id, ...d.data() } as CompanyEvent));
+        callback(events);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
+        callback([]);
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return () => {};
+    }
+  },
 };
+
 

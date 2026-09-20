@@ -14,6 +14,8 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { BolleManager } from './BolleManager';
 import { CantiereHub } from './CantiereHub';
 import { BadgeManager } from './BadgeManager';
+import { CentraleEventi } from './CentraleEventi';
+import { VersionBadge } from './VersionBadge';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -55,6 +57,7 @@ interface AdminDashboardProps {
   activeTab: string;
   setActiveTab: (tab: any) => void;
   materialRequests?: MaterialRequest[];
+  onSaveMaterialRequest?: (req: MaterialRequest) => Promise<void>;
   onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
   chatMessages?: CantiereChatMessage[];
   technicalDocs?: CantiereDocumentoTecnico[];
@@ -100,6 +103,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   activeTab,
   setActiveTab,
   materialRequests = [],
+  onSaveMaterialRequest = async () => {},
   onUpdateMaterialRequestStatus = async () => {},
   chatMessages = [],
   technicalDocs = [],
@@ -624,12 +628,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <motion.div 
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className="flex items-center gap-3"
+                      className="flex flex-wrap items-center gap-3"
                     >
                       <div className="bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border border-amber-500/20">
                         Admin Console
                       </div>
-                      <div className="h-1 w-8 bg-slate-800 rounded-full"></div>
+                      <VersionBadge variant="pill" />
+                      <div className="h-1 w-8 bg-slate-800 rounded-full hidden sm:block"></div>
                       <span className="text-xs font-bold text-slate-500 uppercase tracking-tighter">BENVENUTO, {currentUser.name.toUpperCase()}</span>
                     </motion.div>
                     <h2 className="text-4xl lg:text-5xl font-bold tracking-tight text-slate-900 leading-[1.1]">
@@ -699,6 +704,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     </motion.div>
                   ))}
                 </div>
+
+                {/* CENTRALE EVENTI OPERATIVI & RITMO DELLA MANOVRA */}
+                <CentraleEventi
+                  company={company}
+                  cantieri={cantieri}
+                  rapportini={rapportini}
+                  documents={documents}
+                  timbrature={timbrature}
+                  materialRequests={materialRequests}
+                  technicalDocs={technicalDocs}
+                  contabilita={contabilita}
+                  users={users}
+                  onSelectCantiere={(c) => setSelectedCantiere(c)}
+                  onOpenRapportino={(r) => setSelectedRapportino(r)}
+                  onOpenDocument={() => setActiveTab('bolle')}
+                  onOpenMaterialRequests={() => setActiveTab('bolle')}
+                />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="bg-white p-8 rounded-[32px] border border-slate-200 shadow-sm">
@@ -2237,6 +2259,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onOpenRapportinoDetail={(r) => setSelectedRapportino(r)}
               onClose={() => setSelectedCantiere(null)}
               onOpenPhotoLightbox={(url) => setAdminLightboxPhoto(url)}
+              materialRequests={materialRequests}
+              onSaveMaterialRequest={onSaveMaterialRequest}
+              onUpdateMaterialRequestStatus={onUpdateMaterialRequestStatus}
+              materialiArchive={materiali}
+              onAcceptDocument={onAcceptDocument}
             />
           </div>
         </div>

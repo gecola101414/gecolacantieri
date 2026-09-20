@@ -17,6 +17,7 @@ import { PhotoLightbox } from './PhotoLightbox';
 import { Logo, FooterBranding } from './Branding';
 import { CantiereHub } from './CantiereHub';
 import { BadgeManager } from './BadgeManager';
+import { VersionBadge } from './VersionBadge';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -548,6 +549,9 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
             exit={{ opacity: 0, y: -10 }}
             className="space-y-6 w-full max-w-full overflow-x-hidden"
           >
+              {/* STATUS AGGIORNAMENTO E VERSIONE */}
+              <VersionBadge variant="banner" className="shadow-sm" />
+
               {/* PROMINENT BADGE TIMBRATURA BUTTON */}
               <button
                 type="button"

@@ -1,11 +1,14 @@
-export const APP_VERSION = "2.6.5";
+export const APP_VERSION = "2.7.0";
+export const APP_BUILD = "20260920.0955";
 export const APP_LAST_UPDATE_DATE = "20/09/2026";
-export const APP_LAST_UPDATE_TIME = "07:45";
-export const APP_LAST_UPDATE = "20/09/2026 ore 07:45";
+export const APP_LAST_UPDATE_TIME = "09:55";
+export const APP_LAST_UPDATE = "20/09/2026 ore 09:55";
+export const APP_VERSION_STRING = "v2.7.0 (20/09/2026 09:55)";
 
 export const APP_RELEASE_NOTES = [
-  "Visualizzazione versione con data e ora ultimo aggiornamento sotto il titolo GECOLA CANTIERI in alto a sinistra",
-  "Risolto baco calcolo valore materiali assegnati: calcolo dinamico e cumulativo della reale somma del valore economico dei materiali assegnati dall'amministrazione al cantiere (senza duplicazioni o valori statici fissi)",
-  "Inventario di cantiere: aggiunta colonna colorata finale dedicata alla richiesta d'ordine (Quanto materiale ordinare) con regolazione rapida quantità e indicatore unità di misura",
-  "Inventario di cantiere: blocco fisso (sticky left-0) della colonna Materiale/Descrizione durante lo scorrimento orizzontale a destra, con ombra e bordo separatore per non dimenticare mai il materiale visualizzato"
+  "Centrale Eventi & Tracciato Ritmo della Manovra Giornaliera nella Panoramica (controllo attività in tempo reale e allerta 'calma piatta')",
+  "Carrello ordini persistente: pulsante carrello sempre in vista con conteggio materiali per rivedere e trasmettere l'ordine all'ufficio",
+  "Scheda materiali continua: navigazione rapida 'Avanti / Prossimo' per inserire più materiali di fila senza dover riaprire la scheda",
+  "Approvazione immediata degli ordini da parte del capocantiere con aggiornamento automatico nell'elenco ordini del cantiere",
+  "Stringa versione dinamica e visibile su desktop e mobile con data e ora dell'ultimo aggiornamento"
 ];

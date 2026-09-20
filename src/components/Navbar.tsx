@@ -3,6 +3,7 @@ import { UserAccount, Company, TransferCode } from '../types';
 import { Building2, Shield, User, Smartphone, Cloud, ChevronDown, CheckCircle2, LogOut, Key, Settings, Bell, Search, Globe, KeyRound, Timer, ShieldCheck, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Logo } from './Branding';
+import { VersionBadge } from './VersionBadge';
 
 interface NavbarProps {
   currentUser: UserAccount;
@@ -73,6 +74,9 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Hub */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+            {/* Version Badge (Desktop pill, mobile compact) */}
+            <VersionBadge variant="pill" className="hidden lg:inline-flex" />
+            <VersionBadge variant="compact" className="lg:hidden inline-flex" />
             
             {/* Codice Personale 4 Cifre */}
             {onGenerateTransferCode && (
