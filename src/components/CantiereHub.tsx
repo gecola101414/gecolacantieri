@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Cantiere, Personale, Mezzo, Rapportino, StockMovement, MaterialDocument, 
   UserAccount, Company, CantiereChatMessage, CantiereDocumentoTecnico, TechnicalDocCategory,
@@ -8,7 +8,7 @@ import {
   Building2, HardHat, FileText, Box, MessageSquare, FolderArchive, ArrowLeft,
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
-  DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2,
+  DollarSign, ReceiptText, ChevronRight, ChevronLeft, X, AlertTriangle, Sparkles, Volume2,
   PackageCheck, ShoppingBag, Check, Layers, ShoppingCart, Maximize2, Minus, History, Undo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -134,6 +134,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
 
   // Ordering workflow state
   const [isOrdering, setIsOrdering] = useState(false);
+  const [showCartModal, setShowCartModal] = useState(false);
   const [orderItems, setOrderItems] = useState<Map<string, number>>(new Map()); // materialeId -> quantity
   const [orderNotes, setOrderNotes] = useState('');
   const [manualItems, setManualItems] = useState<StockItem[]>([]);
@@ -393,6 +394,104 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   const cantiereInventory = [...Array.from(inventoryMap.values()), ...manualItems].sort((a, b) => a.materialeName.localeCompare(b.materialeName));
   const totalInventoryValore = cantiereInventory.reduce((acc, s) => acc + (s.valoreResiduo || s.totalCost || 0), 0);
 
+  // Computed Cart Items & Totals for Cart View Modal
+  const cartItemsList = useMemo(() => {
+    return Array.from(orderItems.entries()).map(([mid, qty]) => {
+      const invItem = cantiereInventory.find(i => i.materialeId === mid);
+      const archItem = materialiArchive.find(m => m.id === mid);
+      const name = invItem?.materialeName || archItem?.name || 'Materiale';
+      const unit = invItem?.unit || archItem?.unit || 'pz';
+      const unitPrice = invItem?.unitPrice || archItem?.prezzoUnitario || 0;
+      const stock = invItem?.quantity ?? 0;
+      const subtotal = unitPrice * qty;
+      return {
+        materialeId: mid,
+        name,
+        unit,
+        quantity: qty,
+        unitPrice,
+        stock,
+        subtotal
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [orderItems, cantiereInventory, materialiArchive]);
+
+  const cartTotalQty = useMemo(() => {
+    return cartItemsList.reduce((sum, it) => sum + it.quantity, 0);
+  }, [cartItemsList]);
+
+  const cartTotalValore = useMemo(() => {
+    return cartItemsList.reduce((sum, it) => sum + it.subtotal, 0);
+  }, [cartItemsList]);
+
+  // Navigation state for Scheda Prodotto / Materiale Modal (Swipe or Prev/Next)
+  const currentMaterialIndex = selectedMaterialCard
+    ? cantiereInventory.findIndex(it => it.materialeId === selectedMaterialCard.materialeId)
+    : -1;
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+
+  const goToPrevMaterial = () => {
+    if (currentMaterialIndex > 0) {
+      const prevItem = cantiereInventory[currentMaterialIndex - 1];
+      setSlideDirection('right');
+      setSelectedMaterialCard(prevItem);
+      setMaterialCardOrderQty(orderItems.get(prevItem.materialeId) || 1);
+    }
+  };
+
+  const goToNextMaterial = () => {
+    if (currentMaterialIndex >= 0 && currentMaterialIndex < cantiereInventory.length - 1) {
+      const nextItem = cantiereInventory[currentMaterialIndex + 1];
+      setSlideDirection('left');
+      setSelectedMaterialCard(nextItem);
+      setMaterialCardOrderQty(orderItems.get(nextItem.materialeId) || 1);
+    }
+  };
+
+  // Touch Swipe detection for mobile (scorrimento con il dito sul cellulare)
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+
+  const handleCardTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleCardTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartYRef.current;
+
+    // Horizontal swipe threshold (predominantly horizontal and >= 40px)
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      if (deltaX < 0) {
+        // Swipe left -> go to next material
+        goToNextMaterial();
+      } else {
+        // Swipe right -> go to previous material
+        goToPrevMaterial();
+      }
+    }
+    touchStartXRef.current = null;
+    touchStartYRef.current = null;
+  };
+
+  // Keyboard navigation (ArrowLeft, ArrowRight, Escape) for the modal
+  useEffect(() => {
+    if (!selectedMaterialCard) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        goToPrevMaterial();
+      } else if (e.key === 'ArrowRight') {
+        goToNextMaterial();
+      } else if (e.key === 'Escape') {
+        setSelectedMaterialCard(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedMaterialCard, currentMaterialIndex, cantiereInventory]);
+
   const handleToggleOrderItem = (materialeId: string) => {
     setOrderItems(prev => {
       const next = new Map(prev);
@@ -457,7 +556,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
       setIsOrdering(false);
       setOrderItems(new Map());
       setOrderNotes('');
-      alert('Ordine inviato con successo.');
+      setShowCartModal(false);
+      alert('Ordine inviato con successo all\'ufficio.');
     } catch (err) {
       console.error('Error saving order:', err);
       alert('Errore durante l\'invio dell\'ordine.');
@@ -841,20 +941,33 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
               </div>
 
               {!isReadOnly && materialFilter === 'giacenza' && (
-                <button
-                  onClick={() => setIsOrdering(!isOrdering)}
-                  className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all ${
-                    isOrdering 
-                      ? 'bg-rose-500 text-white' 
-                      : 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
-                  }`}
-                >
-                  {isOrdering ? (
-                    <> <X className="w-4 h-4" /> Annulla Ordine </>
-                  ) : (
-                    <> <ShoppingBag className="w-4 h-4" /> Apri Nuovo Ordine </>
+                <div className="flex items-center gap-2">
+                  {isOrdering && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCartModal(true)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md active:scale-95 transition-all cursor-pointer"
+                      title="Apri il carrello per vedere i materiali ordinati"
+                    >
+                      <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                      <span>Carrello ({orderItems.size})</span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={() => setIsOrdering(!isOrdering)}
+                    className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer ${
+                      isOrdering 
+                        ? 'bg-rose-500 text-white hover:bg-rose-600' 
+                        : 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20 hover:bg-emerald-400'
+                    }`}
+                  >
+                    {isOrdering ? (
+                      <> <X className="w-4 h-4" /> Chiudi Ordine </>
+                    ) : (
+                      <> <ShoppingBag className="w-4 h-4" /> Apri Nuovo Ordine </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
 
@@ -863,30 +976,59 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-emerald-50 border border-emerald-200 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4"
+                className="bg-emerald-50 border-2 border-emerald-300 p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-500 rounded-full flex items-center justify-center text-white font-black">
-                    {orderItems.size}
-                  </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowCartModal(true)}
+                    className="w-11 h-11 bg-emerald-600 hover:bg-emerald-500 rounded-2xl flex items-center justify-center text-white font-black shadow-md transition-transform active:scale-95 cursor-pointer relative shrink-0"
+                    title="Clicca per aprire il carrello e vedere tutti i materiali"
+                  >
+                    <ShoppingCart className="w-5 h-5 text-amber-300" />
+                    <span className="absolute -top-1.5 -right-1.5 bg-amber-400 text-slate-950 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-xs">
+                      {orderItems.size}
+                    </span>
+                  </button>
                   <div>
-                    <p className="text-xs font-black text-emerald-900 uppercase">Ordine in Preparazione</p>
-                    <p className="text-[10px] text-emerald-700">{orderItems.size} materiali selezionati dall'inventario.</p>
+                    <p className="text-xs font-black text-emerald-950 uppercase tracking-tight flex items-center gap-1.5">
+                      <span>Ordine in Preparazione</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">
+                        {orderItems.size} {orderItems.size === 1 ? 'materiale' : 'materiali'}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-emerald-800">
+                      Hai inserito <strong>{orderItems.size} materiali</strong> nel carrello. Clicca su <strong>Carrello</strong> per controllare e modificare i dettagli.
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
+                <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap sm:flex-nowrap">
                   <input 
                     type="text"
                     placeholder="Note per l'ordine..."
                     value={orderNotes}
                     onChange={e => setOrderNotes(e.target.value)}
-                    className="flex-1 sm:w-64 bg-white border border-emerald-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-emerald-500"
+                    className="flex-1 sm:w-56 bg-white border border-emerald-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-emerald-500"
                   />
+                  
+                  {/* PULSANTE VEDI CARRELLO VICINO A INVIA ORDINE */}
+                  <button 
+                    type="button"
+                    onClick={() => setShowCartModal(true)}
+                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md active:scale-95 transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                    title="Visualizza il carrello con tutti i materiali scelti"
+                  >
+                    <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+                    <span>Carrello ({orderItems.size})</span>
+                  </button>
+
                   <button 
                     onClick={handleSaveNewOrder}
-                    className="bg-slate-950 text-white px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all"
+                    className="bg-slate-950 hover:bg-slate-900 text-white px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                    title="Conferma e invia l'ordine in ufficio"
                   >
-                    Invia Ordine
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Invia Ordine</span>
                   </button>
                 </div>
               </motion.div>
@@ -907,9 +1049,16 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                     <table className="w-full text-left border-separate border-spacing-0 min-w-[1050px]">
                       <thead>
                         <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                          {/* Colonna Descrizione FISSA a sinistra durante lo scroll orizzontale - Ottimizzata Mobile (massimo 1/4 dello schermo con puntini) */}
-                          <th className="sticky left-0 z-30 bg-slate-100/95 backdrop-blur-xs px-2.5 sm:px-5 py-3.5 text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 w-[25vw] max-w-[25vw] min-w-[95px] sm:w-auto sm:min-w-[240px] sm:max-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]">
-                            Materiale / Descrizione
+                          {/* Colonna Descrizione FISSA a sinistra - Troncata a 1/4 schermo solo in fase d'ordine, altrimenti estesa per privilegiare il caricamento/lettura */}
+                          <th className={`sticky left-0 z-30 bg-slate-100/95 backdrop-blur-xs px-2.5 sm:px-4 py-3.5 text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] ${
+                            isOrdering 
+                              ? 'w-[28vw] max-w-[28vw] min-w-[105px] sm:w-auto sm:min-w-[200px] sm:max-w-[260px]' 
+                              : 'min-w-[220px] sm:min-w-[300px] sm:max-w-[420px]'
+                          }`}>
+                            <div className="flex items-center justify-between gap-1">
+                              <span>Materiale</span>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 font-bold uppercase tracking-tight">U.M.</span>
+                            </div>
                           </th>
                           <th className="px-3.5 py-3.5 text-center text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[80px]">
                             U.M.
@@ -965,7 +1114,7 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                                 key={item.materialeId} 
                                 className={`group hover:bg-slate-50/70 transition-colors ${isSelectedInOrder ? 'bg-amber-50/40' : ''}`}
                               >
-                                {/* Colonna Descrizione FISSA a sinistra - Troncata con puntini su mobile (max 1/4 schermo) + Click/Doppio Click per Scheda Prodotto */}
+                                {/* Colonna Descrizione FISSA a sinistra - Troncata solo se isOrdering, altrimenti estesa; include U.M. sempre visibile */}
                                 <td 
                                   onClick={() => {
                                     setSelectedMaterialCard(item);
@@ -975,15 +1124,32 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                                     setSelectedMaterialCard(item);
                                     setMaterialCardOrderQty(orderItems.get(item.materialeId) || 1);
                                   }}
-                                  className={`sticky left-0 z-20 bg-white group-hover:bg-amber-50/50 px-2 sm:px-4 py-2.5 sm:py-3.5 w-[25vw] max-w-[25vw] min-w-[95px] sm:w-auto sm:min-w-[240px] sm:max-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] transition-colors cursor-pointer select-none ${
+                                  className={`sticky left-0 z-20 bg-white group-hover:bg-amber-50/50 px-2.5 sm:px-4 py-2.5 sm:py-3.5 border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] transition-colors cursor-pointer select-none ${
                                     isSelectedInOrder ? '!bg-amber-50' : ''
+                                  } ${
+                                    isOrdering 
+                                      ? 'w-[28vw] max-w-[28vw] min-w-[105px] sm:w-auto sm:min-w-[200px] sm:max-w-[260px]' 
+                                      : 'min-w-[220px] sm:min-w-[300px] sm:max-w-[420px]'
                                   }`}
                                   title="Fai clic o doppio clic per aprire la Scheda Prodotto completa e ordinare"
                                 >
                                   <div className="w-full min-w-0">
-                                    <p className="text-xs sm:text-sm font-black text-slate-900 leading-tight truncate hover:text-amber-600 transition-colors" title={item.materialeName}>
-                                      {item.materialeName}
-                                    </p>
+                                    <div className="flex items-start justify-between gap-1.5">
+                                      <p 
+                                        className={`text-xs sm:text-sm font-black text-slate-900 leading-snug hover:text-amber-600 transition-colors ${
+                                          isOrdering ? 'truncate' : 'line-clamp-2'
+                                        }`} 
+                                        title={item.materialeName}
+                                      >
+                                        {item.materialeName}
+                                      </p>
+
+                                      {/* Unità di Misura SEMPRE visibile nella colonna fissa */}
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-950 border border-amber-300 text-[10px] font-black uppercase shrink-0 shadow-2xs">
+                                        {item.unit}
+                                      </span>
+                                    </div>
+
                                     <div className="flex items-center gap-1.5 mt-1">
                                       <span className="text-[9px] text-amber-600 font-black sm:hidden flex items-center gap-0.5 shrink-0">
                                         <Maximize2 className="w-2.5 h-2.5" /> Scheda
@@ -2057,224 +2223,619 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
         {/* SCHEDA PRODOTTO / MATERIALE MODAL (Doppio Clic o Clic) */}
         {/* ==================================================== */}
         {selectedMaterialCard && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[250] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[250] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedMaterialCard(null);
+            }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xl w-full overflow-hidden my-auto"
+              onTouchStart={handleCardTouchStart}
+              onTouchEnd={handleCardTouchEnd}
+              className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xl w-full overflow-hidden my-auto select-none"
             >
-              {/* Header */}
-              <div className="bg-slate-900 text-white p-5 sm:p-6 flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5">
+              {/* Header con Navigazione Rapida Prev / Next */}
+              <div className="bg-slate-900 text-white p-4 sm:p-6 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider">
-                      Scheda Prodotto
+                      Scheda Materiale
                     </span>
                     <span className="text-[10px] font-mono text-slate-400">
                       ID: {selectedMaterialCard.materialeId.slice(-8).toUpperCase()}
                     </span>
+                    {cantiereInventory.length > 0 && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700">
+                        {currentMaterialIndex + 1} di {cantiereInventory.length}
+                      </span>
+                    )}
                   </div>
-                  <h3 className="text-lg sm:text-xl font-black text-white leading-snug">
+                  <h3 className="text-base sm:text-xl font-black text-white leading-snug truncate" title={selectedMaterialCard.materialeName}>
                     {selectedMaterialCard.materialeName}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-0.5">
                     Cantiere: <span className="text-slate-200 font-bold">{cantiere.name}</span>
                   </p>
                 </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Frecce di navigazione diretta */}
+                  <div className="flex items-center bg-slate-800 rounded-xl p-0.5 border border-slate-700">
+                    <button
+                      type="button"
+                      onClick={goToPrevMaterial}
+                      disabled={currentMaterialIndex <= 0}
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer"
+                      title="Materiale Precedente (oppure scorri col dito a destra)"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToNextMaterial}
+                      disabled={currentMaterialIndex >= cantiereInventory.length - 1}
+                      className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-25 disabled:pointer-events-none transition-colors cursor-pointer"
+                      title="Materiale Successivo (oppure scorri col dito a sinistra)"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedMaterialCard(null)}
+                    className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Chiudi"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Barra interattiva di scorrimento Swipe per Cellulare */}
+              <div className="bg-amber-500/10 border-b border-amber-200/60 px-4 py-2 flex items-center justify-between text-xs text-amber-950 font-bold">
                 <button
-                  onClick={() => setSelectedMaterialCard(null)}
-                  className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
+                  type="button"
+                  onClick={goToPrevMaterial}
+                  disabled={currentMaterialIndex <= 0}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/90 border border-amber-300/80 text-amber-950 disabled:opacity-30 disabled:pointer-events-none hover:bg-amber-100 transition-colors shadow-2xs cursor-pointer text-[11px] font-black"
                 >
-                  <X className="w-5 h-5" />
+                  <ChevronLeft className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>Prec</span>
+                </button>
+
+                <div className="flex items-center gap-1.5 text-center">
+                  <span className="text-amber-700 animate-pulse text-xs">👈</span>
+                  <span className="text-[11px] font-black text-amber-900 tracking-tight">
+                    Scorri con il dito per sfogliare ({currentMaterialIndex + 1}/{cantiereInventory.length})
+                  </span>
+                  <span className="text-amber-700 animate-pulse text-xs">👉</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={goToNextMaterial}
+                  disabled={currentMaterialIndex >= cantiereInventory.length - 1}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/90 border border-amber-300/80 text-amber-950 disabled:opacity-30 disabled:pointer-events-none hover:bg-amber-100 transition-colors shadow-2xs cursor-pointer text-[11px] font-black"
+                >
+                  <span>Succ</span>
+                  <ChevronRight className="w-3.5 h-3.5 stroke-[3]" />
                 </button>
               </div>
 
-              {/* Body */}
-              <div className="p-5 sm:p-6 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
-                {/* Metrics Grid */}
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">
-                    Stato Giacenza & Valore nel Cantiere
-                  </p>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase">Giacenza Attuale</p>
-                      <p className={`text-lg font-black mt-1 ${selectedMaterialCard.quantity > 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-                        {selectedMaterialCard.quantity} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
+              {/* Body con animazione di transizione slide */}
+              <div className="p-4 sm:p-6 space-y-6 max-h-[72vh] overflow-y-auto custom-scrollbar">
+                <motion.div
+                  key={selectedMaterialCard.materialeId}
+                  initial={{ opacity: 0, x: slideDirection === 'left' ? 30 : slideDirection === 'right' ? -30 : 0 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="space-y-6"
+                >
+                  {/* Metrics Grid */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2.5">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                        Stato Giacenza & Valore nel Cantiere
                       </p>
-                    </div>
-
-                    <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200">
-                      <p className="text-[10px] font-bold text-emerald-800 uppercase">Carico (+) Totale</p>
-                      <p className="text-lg font-black text-emerald-700 mt-1">
-                        +{selectedMaterialCard.carico || 0} <span className="text-xs font-bold text-emerald-600">{selectedMaterialCard.unit}</span>
-                      </p>
-                    </div>
-
-                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                      <p className="text-[10px] font-bold text-slate-500 uppercase">Consumo (-) Usato</p>
-                      <p className="text-lg font-black text-slate-700 mt-1">
-                        -{selectedMaterialCard.consumo || 0} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
-                      </p>
-                    </div>
-
-                    <div className="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
-                      <p className="text-[10px] font-bold text-amber-900 uppercase">Valore Residuo</p>
-                      <p className="text-lg font-black text-amber-800 mt-1">
-                        €{(selectedMaterialCard.valoreResiduo || selectedMaterialCard.totalCost || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-2.5 flex items-center justify-between px-2 text-[11px] text-slate-500">
-                    <span>Valore Unitario Medio: <strong>€{(selectedMaterialCard.unitPrice || 0).toFixed(2)}/{selectedMaterialCard.unit}</strong></span>
-                    <span>Totale Valore Caricato: <strong>€{(selectedMaterialCard.caricoValore || 0).toFixed(2)}</strong></span>
-                  </div>
-                </div>
-
-                {/* Direct Order / Material Load Box */}
-                <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 p-5 rounded-3xl border border-amber-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <ShoppingCart className="w-4 h-4 text-amber-700" />
-                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-950">
-                      Richiedi / Ordina Materiale
-                    </h4>
-                  </div>
-                  <p className="text-xs text-amber-900/80 mb-4">
-                    Imposta la quantità da ordinare o richiedere per questo cantiere.
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <div className="flex items-center justify-center bg-white border-2 border-amber-400 rounded-2xl p-1 shadow-xs">
-                      <button
-                        type="button"
-                        onClick={() => setMaterialCardOrderQty(q => Math.max(1, q - 1))}
-                        className="w-9 h-9 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
-                      >
-                        <Minus className="w-4 h-4 stroke-[3]" />
-                      </button>
-                      <input
-                        type="number"
-                        min="1"
-                        value={materialCardOrderQty}
-                        onChange={(e) => setMaterialCardOrderQty(Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-16 text-center font-black text-slate-900 text-sm outline-none bg-transparent"
-                      />
-                      <span className="text-xs font-bold text-slate-500 pr-2 uppercase">
-                        {selectedMaterialCard.unit}
+                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        U.M.: {selectedMaterialCard.unit}
                       </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Giacenza Attuale</p>
+                        <p className={`text-lg font-black mt-1 ${selectedMaterialCard.quantity > 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                          {selectedMaterialCard.quantity} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
+                        </p>
+                      </div>
+
+                      <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200">
+                        <p className="text-[10px] font-bold text-emerald-800 uppercase">Carico (+) Totale</p>
+                        <p className="text-lg font-black text-emerald-700 mt-1">
+                          +{selectedMaterialCard.carico || 0} <span className="text-xs font-bold text-emerald-600">{selectedMaterialCard.unit}</span>
+                        </p>
+                      </div>
+
+                      <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase">Consumo (-) Usato</p>
+                        <p className="text-lg font-black text-slate-700 mt-1">
+                          -{selectedMaterialCard.consumo || 0} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
+                        </p>
+                      </div>
+
+                      <div className="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
+                        <p className="text-[10px] font-bold text-amber-900 uppercase">Valore Residuo</p>
+                        <p className="text-lg font-black text-amber-800 mt-1">
+                          €{(selectedMaterialCard.valoreResiduo || selectedMaterialCard.totalCost || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 flex items-center justify-between px-2 text-[11px] text-slate-500">
+                      <span>Valore Unitario Medio: <strong>€{(selectedMaterialCard.unitPrice || 0).toFixed(2)}/{selectedMaterialCard.unit}</strong></span>
+                      <span>Totale Valore Caricato: <strong>€{(selectedMaterialCard.caricoValore || 0).toFixed(2)}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* Direct Order / Material Load Box */}
+                  <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 sm:p-5 rounded-3xl border border-amber-200">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <ShoppingCart className="w-4 h-4 text-amber-700" />
+                      <h4 className="text-xs font-black uppercase tracking-wider text-amber-950">
+                        Richiedi / Ordina Materiale
+                      </h4>
+                    </div>
+                    <p className="text-xs text-amber-900/80 mb-3.5">
+                      Imposta la quantità da ordinare o richiedere per questo cantiere.
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <div className="flex items-center justify-center bg-white border-2 border-amber-400 rounded-2xl p-1 shadow-xs">
+                        <button
+                          type="button"
+                          onClick={() => setMaterialCardOrderQty(q => Math.max(1, q - 1))}
+                          className="w-9 h-9 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
+                        >
+                          <Minus className="w-4 h-4 stroke-[3]" />
+                        </button>
+                        <input
+                          type="number"
+                          min="1"
+                          value={materialCardOrderQty}
+                          onChange={(e) => setMaterialCardOrderQty(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-16 text-center font-black text-slate-900 text-sm outline-none bg-transparent"
+                        />
+                        <span className="text-xs font-bold text-slate-500 pr-2 uppercase">
+                          {selectedMaterialCard.unit}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setMaterialCardOrderQty(q => q + 1)}
+                          className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
+                        >
+                          <Plus className="w-4 h-4 stroke-[3]" />
+                        </button>
+                      </div>
+
+                      {/* Quick addition buttons */}
+                      <div className="flex items-center justify-center gap-1.5">
+                        {[5, 10, 25, 50].map(qty => (
+                          <button
+                            key={qty}
+                            type="button"
+                            onClick={() => setMaterialCardOrderQty(q => q + qty)}
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-amber-300 text-[11px] font-black text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+                          >
+                            +{qty}
+                          </button>
+                        ))}
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => setMaterialCardOrderQty(q => q + 1)}
-                        className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
+                        onClick={() => {
+                          if (!isOrdering) {
+                            setIsOrdering(true);
+                          }
+                          handleUpdateOrderQuantity(selectedMaterialCard.materialeId, materialCardOrderQty);
+                          setSelectedMaterialCard(null);
+                        }}
+                        className="flex-1 bg-slate-950 hover:bg-slate-900 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
                       >
-                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <Check className="w-4 h-4 stroke-[3] text-amber-400" />
+                        {isOrdering ? 'Aggiorna Ordine' : 'Inserisci nell\'Ordine'}
                       </button>
                     </div>
 
-                    {/* Quick addition buttons */}
-                    <div className="flex items-center justify-center gap-1.5">
-                      {[5, 10, 25, 50].map(qty => (
+                    {orderItems.size > 0 && (
+                      <div className="mt-3 flex items-center justify-between pt-2.5 border-t border-amber-200/80">
+                        <span className="text-[11px] font-bold text-amber-900">
+                          {orderItems.has(selectedMaterialCard.materialeId) 
+                            ? `Già nel Carrello: ${orderItems.get(selectedMaterialCard.materialeId)} ${selectedMaterialCard.unit}`
+                            : `${orderItems.size} materiali attualmente nel carrello`}
+                        </span>
                         <button
-                          key={qty}
                           type="button"
-                          onClick={() => setMaterialCardOrderQty(q => q + qty)}
-                          className="px-2.5 py-1.5 rounded-xl bg-white border border-amber-300 text-[11px] font-black text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+                          onClick={() => {
+                            setSelectedMaterialCard(null);
+                            setShowCartModal(true);
+                          }}
+                          className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
                         >
-                          +{qty}
+                          <ShoppingCart className="w-3.5 h-3.5 stroke-[2.5]" />
+                          <span>Vedi Carrello ({orderItems.size})</span>
                         </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!isOrdering) {
-                          setIsOrdering(true);
-                        }
-                        handleUpdateOrderQuantity(selectedMaterialCard.materialeId, materialCardOrderQty);
-                        setSelectedMaterialCard(null);
-                      }}
-                      className="flex-1 bg-slate-950 hover:bg-slate-900 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-                    >
-                      <Check className="w-4 h-4 stroke-[3] text-amber-400" />
-                      {isOrdering ? 'Aggiorna Ordine' : 'Inserisci nell\'Ordine'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Storico Consegne per questo materiale nel cantiere */}
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2.5">
-                    <History className="w-4 h-4 text-slate-500" />
-                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
-                      Storico Forniture in questo Cantiere
-                    </p>
-                  </div>
-                  {(() => {
-                    const deliveryHistory = cantiereBolle.filter(b => 
-                      (b.items || []).some(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase())
-                    );
-
-                    if (deliveryHistory.length === 0) {
-                      return (
-                        <p className="text-xs text-slate-400 italic p-3 bg-slate-50 rounded-xl">
-                          Nessuna fornitura archiviata specificamente per questo materiale in questo cantiere.
-                        </p>
-                      );
-                    }
-
-                    return (
-                      <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                        {deliveryHistory.map(b => {
-                          const matchedItem = (b.items || []).find(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase());
-                          const isAnnullata = b.status === 'annullato';
-
-                          return (
-                            <div 
-                              key={b.id} 
-                              className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
-                                isAnnullata ? 'bg-rose-50 border-rose-200 text-rose-900 line-through' : 'bg-slate-50 border-slate-200 text-slate-800'
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-black">Bolla N. {b.number}</span>
-                                  <span className="text-[10px] text-slate-400">{formatItalianDate(b.date)}</span>
-                                  {isAnnullata && (
-                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-200 text-rose-800 uppercase">
-                                      Stornata
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-slate-500 mt-0.5">{b.supplier}</p>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-black text-sm text-slate-900">
-                                  +{matchedItem?.quantity || 0} {selectedMaterialCard.unit}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
                       </div>
-                    );
-                  })()}
-                </div>
+                    )}
+                  </div>
+
+                  {/* Storico Consegne per questo materiale nel cantiere */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-2.5">
+                      <History className="w-4 h-4 text-slate-500" />
+                      <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        Storico Forniture in questo Cantiere
+                      </p>
+                    </div>
+                    {(() => {
+                      const deliveryHistory = cantiereBolle.filter(b => 
+                        (b.items || []).some(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase())
+                      );
+
+                      if (deliveryHistory.length === 0) {
+                        return (
+                          <p className="text-xs text-slate-400 italic p-3 bg-slate-50 rounded-xl">
+                            Nessuna fornitura archiviata specificamente per questo materiale in questo cantiere.
+                          </p>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2 max-h-44 overflow-y-auto custom-scrollbar">
+                          {deliveryHistory.map(b => {
+                            const matchedItem = (b.items || []).find(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase());
+                            const isAnnullata = b.status === 'annullato';
+
+                            return (
+                              <div 
+                                key={b.id} 
+                                className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                                  isAnnullata ? 'bg-rose-50 border-rose-200 text-rose-900 line-through' : 'bg-slate-50 border-slate-200 text-slate-800'
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-black">Bolla N. {b.number}</span>
+                                    <span className="text-[10px] text-slate-400">{formatItalianDate(b.date)}</span>
+                                    {isAnnullata && (
+                                      <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-200 text-rose-800 uppercase">
+                                        Stornata
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">{b.supplier}</p>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-black text-sm text-slate-900">
+                                    +{matchedItem?.quantity || 0} {selectedMaterialCard.unit}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </motion.div>
               </div>
 
-              {/* Footer */}
-              <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between">
-                <p className="text-[11px] text-slate-500">
-                  Fai doppio clic o tocca qualsiasi materiale per riaprire questa scheda.
-                </p>
+              {/* Footer con bottoni rapidi e chiusura */}
+              <div className="bg-slate-50 px-4 sm:px-6 py-3.5 border-t border-slate-100 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={goToPrevMaterial}
+                    disabled={currentMaterialIndex <= 0}
+                    className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Prec</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goToNextMaterial}
+                    disabled={currentMaterialIndex >= cantiereInventory.length - 1}
+                    className="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-xl text-xs disabled:opacity-30 disabled:pointer-events-none transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>Succ</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
                 <button
+                  type="button"
                   onClick={() => setSelectedMaterialCard(null)}
                   className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
                   Chiudi
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* PULSANTE FLOTTANTE CARRELLO (Sempre accessibile nello scroll) */}
+        {/* ==================================================== */}
+        {isOrdering && orderItems.size > 0 && !showCartModal && !selectedMaterialCard && (
+          <motion.div
+            initial={{ opacity: 0, y: 25, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 25, scale: 0.9 }}
+            className="fixed bottom-6 right-6 z-[180] shadow-2xl"
+          >
+            <button
+              type="button"
+              onClick={() => setShowCartModal(true)}
+              className="bg-slate-950 hover:bg-slate-900 text-white pl-4 pr-5 py-3.5 rounded-full flex items-center gap-3 border-2 border-amber-400 shadow-2xl active:scale-95 transition-all cursor-pointer group"
+              title="Clicca per aprire il carrello e controllare l'ordine in corso"
+            >
+              <div className="w-8 h-8 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-black text-xs group-hover:scale-110 transition-transform">
+                <ShoppingCart className="w-4 h-4 stroke-[2.5]" />
+              </div>
+              <div className="text-left">
+                <p className="text-[10px] font-black uppercase text-amber-400 tracking-wider leading-none">Carrello Aperto</p>
+                <p className="text-xs font-bold text-white mt-0.5 leading-tight">
+                  {orderItems.size} {orderItems.size === 1 ? 'materiale' : 'materiali'}
+                </p>
+              </div>
+            </button>
+          </motion.div>
+        )}
+
+        {/* ==================================================== */}
+        {/* MODALE CARRELLO ORDINE CANTIERE (Come acquisto online) */}
+        {/* Finché non viene chiuso con 'Chiudi' o 'X', rimane sempre in vista */}
+        {/* ==================================================== */}
+        {showCartModal && (
+          <div 
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[260] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden my-auto flex flex-col max-h-[90vh]"
+            >
+              {/* Header Carrello */}
+              <div className="bg-slate-900 text-white p-5 sm:p-6 flex items-start justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shadow-lg shadow-amber-500/20 shrink-0">
+                    <ShoppingCart className="w-6 h-6 stroke-[2.5]" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-400 text-slate-950">
+                        Carrello Ordine Cantiere
+                      </span>
+                      <span className="text-xs text-amber-300 font-bold">
+                        {cartItemsList.length} {cartItemsList.length === 1 ? 'materiale inserito' : 'materiali inseriti'}
+                      </span>
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black text-white mt-1">
+                      Cosa stai ordinando
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Destinazione: <span className="text-amber-400 font-bold">{cantiere.name}</span> • Richiedente: <span className="text-slate-200 font-semibold">{currentUser.name}</span>
+                    </p>
+                  </div>
+                </div>
+
+                {/* Close Button: chiude la vista del carrello mantenendo i materiali selezionati */}
+                <button
+                  type="button"
+                  onClick={() => setShowCartModal(false)}
+                  className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                  title="Chiudi visualizzazione carrello (l'ordine rimane salvato per continuare ad aggiungere)"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Body Carrello: Lista materiali con quantità modificabili e rimozione */}
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
+                {cartItemsList.length === 0 ? (
+                  <div className="text-center py-12 px-4 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                    <ShoppingCart className="w-16 h-16 text-slate-300 mx-auto mb-3 stroke-[1.5]" />
+                    <h4 className="text-base font-black text-slate-800">Il carrello è attualmente vuoto</h4>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-5 leading-relaxed">
+                      Non hai ancora selezionato materiali per questo ordine. Puoi aggiungerli cliccando sulle caselle dell'inventario o aprendo la scheda di qualsiasi prodotto.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCartModal(false)}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer"
+                    >
+                      Sfoglia Inventario e Scegli Materiali
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between px-1">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                          Articoli nel Carrello ({cartItemsList.length})
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm('Sei sicuro di voler svuotare tutti i materiali dal carrello?')) {
+                              setOrderItems(new Map());
+                            }
+                          }}
+                          className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Svuota tutto</span>
+                        </button>
+                      </div>
+
+                      {cartItemsList.map((item) => (
+                        <div 
+                          key={item.materialeId}
+                          className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-sm font-black text-slate-900 leading-snug">
+                                {item.name}
+                              </h4>
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-950 border border-amber-300 text-[10px] font-black uppercase shadow-2xs">
+                                {item.unit}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 flex-wrap">
+                              <span>Giacenza attuale: <strong className={item.stock > 0 ? 'text-slate-700' : 'text-rose-600'}>{item.stock} {item.unit}</strong></span>
+                              {item.unitPrice > 0 && (
+                                <span>Prezzo unitario medio: <strong>€{item.unitPrice.toFixed(2)}/{item.unit}</strong></span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Selettore quantità stile e-commerce (+ / - / rapido) */}
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                            <div className="flex items-center bg-white border-2 border-amber-400/80 rounded-xl p-0.5 shadow-2xs">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOrderQuantity(item.materialeId, item.quantity - 1)}
+                                className="w-8 h-8 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 font-black flex items-center justify-center transition-colors cursor-pointer"
+                                title="Diminuisci quantità"
+                              >
+                                <Minus className="w-3.5 h-3.5 stroke-[3]" />
+                              </button>
+                              <input
+                                type="number"
+                                min="1"
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateOrderQuantity(item.materialeId, parseInt(e.target.value) || 1)}
+                                className="w-14 text-center font-black text-slate-900 text-xs outline-none bg-transparent"
+                              />
+                              <span className="text-[11px] font-bold text-slate-400 pr-2 uppercase">
+                                {item.unit}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateOrderQuantity(item.materialeId, item.quantity + 1)}
+                                className="w-8 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black flex items-center justify-center transition-colors cursor-pointer"
+                                title="Aumenta quantità"
+                              >
+                                <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                              </button>
+                            </div>
+
+                            {/* Tasti veloci +5, +10 */}
+                            <div className="hidden sm:flex items-center gap-1">
+                              {[5, 10].map(delta => (
+                                <button
+                                  key={delta}
+                                  type="button"
+                                  onClick={() => handleUpdateOrderQuantity(item.materialeId, item.quantity + delta)}
+                                  className="px-2 py-1 bg-white border border-amber-200 rounded-lg text-[10px] font-black text-amber-900 hover:bg-amber-100 transition-colors cursor-pointer"
+                                >
+                                  +{delta}
+                                </button>
+                              ))}
+                            </div>
+
+                            {item.subtotal > 0 && (
+                              <div className="text-right min-w-[70px]">
+                                <p className="text-[9px] text-slate-400 font-bold uppercase">Subtotale</p>
+                                <p className="text-xs font-black text-slate-900">€{item.subtotal.toFixed(2)}</p>
+                              </div>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOrderItem(item.materialeId)}
+                              className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Rimuovi questo materiale dal carrello"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Note per l'ufficio / fornitore */}
+                    <div className="bg-amber-50/70 border border-amber-200/90 p-3.5 rounded-2xl">
+                      <label className="block text-[11px] font-black uppercase tracking-wider text-amber-950 mb-1.5 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-amber-700" />
+                        Note per l'Ufficio Acquisti o Indicazioni di Consegna
+                      </label>
+                      <textarea
+                        value={orderNotes}
+                        onChange={e => setOrderNotes(e.target.value)}
+                        placeholder="Es. Consegna urgente martedì mattina, scarico con camion gru, richiesta fornitore specifico..."
+                        rows={2}
+                        className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs text-slate-900 placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    {/* Riepilogo Totali carrello */}
+                    <div className="bg-slate-900 text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex items-center gap-6">
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Voci Materiale</p>
+                          <p className="text-base font-black text-white">{cartItemsList.length}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-slate-400">Quantità Totale</p>
+                          <p className="text-base font-black text-amber-400">{cartTotalQty}</p>
+                        </div>
+                        {cartTotalValore > 0 && (
+                          <div>
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Valore Stimato</p>
+                            <p className="text-base font-black text-emerald-400">€{cartTotalValore.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400 italic">
+                        Stato: <span className="text-amber-300 font-semibold">Bozza pronta all'invio</span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Footer Carrello: Continua a Scegliere oppure Conferma e Invia in Ufficio */}
+              <div className="bg-slate-50 px-4 sm:px-6 py-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowCartModal(false)}
+                  className="w-full sm:w-auto px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  <span>Continua a Scegliere Materiali</span>
+                </button>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {cartItemsList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleSaveNewOrder}
+                      className="w-full sm:w-auto bg-slate-950 hover:bg-slate-900 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer border border-slate-800"
+                    >
+                      <PackageCheck className="w-4 h-4 text-amber-400" />
+                      <span>Conferma e Invia in Ufficio ({cartItemsList.length})</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           </div>
