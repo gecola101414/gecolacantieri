@@ -47,6 +47,8 @@ interface AdminDashboardProps {
   documents: MaterialDocument[];
   onAddDocument: (d: MaterialDocument) => void;
   onDeleteDocument?: (docId: string) => Promise<void>;
+  onAnnullaDocument?: (docId: string, motivo?: string) => Promise<void>;
+  onRipristinaDocument?: (docId: string) => Promise<void>;
   onAcceptDocument?: (docId: string) => Promise<void>;
   onAcceptTransfer?: (moveId: string) => Promise<void>;
   currentUser: UserAccount;
@@ -90,6 +92,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   documents,
   onAddDocument,
   onDeleteDocument,
+  onAnnullaDocument,
+  onRipristinaDocument,
   onAcceptDocument,
   onAcceptTransfer,
   currentUser,
@@ -1251,6 +1255,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   onDeleteFornitore={onDeleteFornitore}
                   onSaveDocument={async (d) => onAddDocument(d)}
                   onDeleteDocument={onDeleteDocument || (async () => {})}
+                  onAnnullaDocument={onAnnullaDocument}
+                  onRipristinaDocument={onRipristinaDocument}
                   onAcceptDocument={onAcceptDocument || (async () => {})}
                   onAcceptTransfer={onAcceptTransfer || (async () => {})}
                   onAddMateriale={async (m) => onAddMateriale(m)}

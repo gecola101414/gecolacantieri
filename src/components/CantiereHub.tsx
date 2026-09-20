@@ -9,10 +9,16 @@ import {
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
   DollarSign, ReceiptText, ChevronRight, X, AlertTriangle, Sparkles, Volume2,
-  PackageCheck, ShoppingBag, Check, Layers, ShoppingCart
+  PackageCheck, ShoppingBag, Check, Layers, ShoppingCart, Maximize2, Minus, History, Undo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MaterialRequestManager } from './MaterialRequestManager';
+
+export interface ExtendedStockItem extends StockItem {
+  caricoValore?: number;
+  unitPrice?: number;
+  valoreResiduo?: number;
+}
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -132,6 +138,10 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   const [orderNotes, setOrderNotes] = useState('');
   const [manualItems, setManualItems] = useState<StockItem[]>([]);
 
+  // Scheda Prodotto / Materiale Detail Modal
+  const [selectedMaterialCard, setSelectedMaterialCard] = useState<ExtendedStockItem | null>(null);
+  const [materialCardOrderQty, setMaterialCardOrderQty] = useState<number>(1);
+
   // Filter cantiere-specific data
   const cantiereRapportini = rapportini
     .filter(r => r.cantiereId === cantiere.id)
@@ -231,11 +241,17 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   // ----------------------------------------------------
   // MATERIALI AGGREGATION LOGIC
   // ----------------------------------------------------
-  // 1. Bolle / Forniture destinate a questo cantiere
-  const cantiereBolle = documents.filter(d => 
-    d.destinationCantiereId === cantiere.id || 
-    d.items.some(i => i.destinationCantiereId === cantiere.id)
-  );
+  // 1. Bolle / Forniture destinate a questo cantiere (ordinate dalla più recente in alto)
+  const cantiereBolle = documents
+    .filter(d => 
+      d.destinationCantiereId === cantiere.id || 
+      d.items.some(i => i.destinationCantiereId === cantiere.id)
+    )
+    .sort((a, b) => {
+      const timeA = new Date(a.date || a.createdAt || '').getTime() || 0;
+      const timeB = new Date(b.date || b.createdAt || '').getTime() || 0;
+      return timeB - timeA;
+    });
 
   const pendingBolle = cantiereBolle.filter(d => d.status === 'in_attesa_accettazione' || d.status === 'parzialmente_accettata');
   const cantiereRequests = materialRequests.filter(r => r.cantiereId === cantiere.id);
@@ -272,11 +288,6 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
     .reduce((acc, m) => acc + ((Number(m.quantity) || 0) * (Number(m.costoUnitario) || 0)), 0);
 
   // 3. Giacenza attuale (CALCOLATA: Carico - Consumo)
-  interface ExtendedStockItem extends StockItem {
-    caricoValore?: number;
-    unitPrice?: number;
-    valoreResiduo?: number;
-  }
   const inventoryMap = new Map<string, ExtendedStockItem>();
 
   // A. Add everything from Documents assigned to this cantiere (Carico)
@@ -896,8 +907,8 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                     <table className="w-full text-left border-separate border-spacing-0 min-w-[1050px]">
                       <thead>
                         <tr className="bg-slate-50 text-[10px] font-black uppercase tracking-wider text-slate-400">
-                          {/* Colonna Descrizione FISSA a sinistra durante lo scroll orizzontale */}
-                          <th className="sticky left-0 z-30 bg-slate-100/95 backdrop-blur-xs px-5 py-3.5 text-xs font-black uppercase tracking-wider text-slate-700 min-w-[260px] sm:min-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]">
+                          {/* Colonna Descrizione FISSA a sinistra durante lo scroll orizzontale - Ottimizzata Mobile (massimo 1/4 dello schermo con puntini) */}
+                          <th className="sticky left-0 z-30 bg-slate-100/95 backdrop-blur-xs px-2.5 sm:px-5 py-3.5 text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 w-[25vw] max-w-[25vw] min-w-[95px] sm:w-auto sm:min-w-[240px] sm:max-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)]">
                             Materiale / Descrizione
                           </th>
                           <th className="px-3.5 py-3.5 text-center text-xs font-black uppercase tracking-wider text-slate-500 border-b border-slate-100 min-w-[80px]">
@@ -954,20 +965,38 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                                 key={item.materialeId} 
                                 className={`group hover:bg-slate-50/70 transition-colors ${isSelectedInOrder ? 'bg-amber-50/40' : ''}`}
                               >
-                                {/* Colonna Descrizione FISSA a sinistra */}
-                                <td className={`sticky left-0 z-20 bg-white group-hover:bg-slate-50 px-5 py-3.5 min-w-[260px] sm:min-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] transition-colors ${
-                                  isSelectedInOrder ? '!bg-amber-50' : ''
-                                }`}>
-                                  <p className="text-sm font-black text-slate-900 leading-snug">{item.materialeName}</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
-                                      ID: {item.materialeId.slice(-8).toUpperCase()}
-                                    </span>
-                                    {isOutOfStock && (
-                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
-                                        Esaurito
+                                {/* Colonna Descrizione FISSA a sinistra - Troncata con puntini su mobile (max 1/4 schermo) + Click/Doppio Click per Scheda Prodotto */}
+                                <td 
+                                  onClick={() => {
+                                    setSelectedMaterialCard(item);
+                                    setMaterialCardOrderQty(orderItems.get(item.materialeId) || 1);
+                                  }}
+                                  onDoubleClick={() => {
+                                    setSelectedMaterialCard(item);
+                                    setMaterialCardOrderQty(orderItems.get(item.materialeId) || 1);
+                                  }}
+                                  className={`sticky left-0 z-20 bg-white group-hover:bg-amber-50/50 px-2 sm:px-4 py-2.5 sm:py-3.5 w-[25vw] max-w-[25vw] min-w-[95px] sm:w-auto sm:min-w-[240px] sm:max-w-[300px] border-b border-r-2 border-slate-200 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.08)] transition-colors cursor-pointer select-none ${
+                                    isSelectedInOrder ? '!bg-amber-50' : ''
+                                  }`}
+                                  title="Fai clic o doppio clic per aprire la Scheda Prodotto completa e ordinare"
+                                >
+                                  <div className="w-full min-w-0">
+                                    <p className="text-xs sm:text-sm font-black text-slate-900 leading-tight truncate hover:text-amber-600 transition-colors" title={item.materialeName}>
+                                      {item.materialeName}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 mt-1">
+                                      <span className="text-[9px] text-amber-600 font-black sm:hidden flex items-center gap-0.5 shrink-0">
+                                        <Maximize2 className="w-2.5 h-2.5" /> Scheda
                                       </span>
-                                    )}
+                                      <span className="hidden sm:inline-block text-[10px] font-mono font-bold text-slate-400 uppercase truncate">
+                                        ID: {item.materialeId.slice(-6).toUpperCase()}
+                                      </span>
+                                      {isOutOfStock && (
+                                        <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 shrink-0">
+                                          Esaurito
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 </td>
 
@@ -1151,6 +1180,172 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                     >
                       <Plus className="w-3.5 h-3.5" /> Aggiungi materiale a mano all'ordine
                     </button>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 2. Bolle e Forniture del Cantiere (Ordinate dalla più recente in alto - Annullate evidenziate in ROSSO) */}
+            {materialFilter === 'bolle' && (
+              <section className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <ReceiptText className="w-4 h-4 text-blue-500" />
+                    Bolle & Forniture Ricevute ({cantiereBolle.length})
+                  </h3>
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    Ordinamento: più recente in alto
+                  </span>
+                </div>
+
+                {cantiereBolle.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-400 text-xs italic">
+                    Nessun documento di trasporto (DDT) o fattura registrato per questo cantiere.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {cantiereBolle.map(doc => {
+                      const isAnnullata = doc.status === 'annullato';
+                      const isPending = doc.status === 'in_attesa_accettazione';
+                      
+                      // Materiali di questa bolla che appartengono a questo cantiere
+                      const cantiereItems = (doc.items || []).filter(item => 
+                        item.destinationCantiereId === cantiere.id || 
+                        (!item.destinationCantiereId && doc.destinationCantiereId === cantiere.id)
+                      );
+
+                      const cantiereDocVal = cantiereItems.reduce((acc, item) => {
+                        return acc + (Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)));
+                      }, 0);
+
+                      return (
+                        <div
+                          key={doc.id}
+                          className={`p-5 rounded-3xl border transition-all ${
+                            isAnnullata
+                              ? 'bg-rose-50/80 border-rose-300 shadow-xs'
+                              : 'bg-white border-slate-200 shadow-sm hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-100">
+                            <div className="flex items-center gap-3">
+                              <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-xl ${
+                                isAnnullata
+                                  ? 'bg-rose-200 text-rose-900 border border-rose-300'
+                                  : doc.type === 'bolla'
+                                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                                    : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}>
+                                {isAnnullata ? 'ANNULLATA' : (doc.type === 'bolla' ? 'DDT / BOLLA' : 'FATTURA')}
+                              </span>
+                              <div>
+                                <h4 className={`text-sm font-black ${isAnnullata ? 'text-rose-950 line-through' : 'text-slate-900'}`}>
+                                  N. {doc.number} - {doc.supplier}
+                                </h4>
+                                <p className="text-[11px] text-slate-400 font-medium">
+                                  Data emissione: {formatItalianDate(doc.date)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <p className={`text-base font-black ${isAnnullata ? 'text-rose-600 line-through' : 'text-slate-900'}`}>
+                                  €{cantiereDocVal.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </p>
+                                <p className={`text-[9px] font-black uppercase tracking-wider ${isAnnullata ? 'text-rose-500' : 'text-slate-400'}`}>
+                                  {isAnnullata ? 'Costo Stornato' : 'Valore Assegnato'}
+                                </p>
+                              </div>
+
+                              {isAnnullata ? (
+                                <span className="px-3 py-1.5 rounded-full bg-rose-200 text-rose-900 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-rose-300">
+                                  <AlertCircle className="w-3.5 h-3.5 text-rose-700" />
+                                  Stornata
+                                </span>
+                              ) : isPending ? (
+                                <button
+                                  onClick={() => onAcceptDocument(doc.id)}
+                                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                                >
+                                  <PackageCheck className="w-4 h-4" />
+                                  Accetta e Carica
+                                </button>
+                              ) : (
+                                <span className="px-3 py-1.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border border-emerald-200">
+                                  <Check className="w-3.5 h-3.5 text-emerald-600 stroke-[3]" />
+                                  Caricata in Cantiere
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {isAnnullata && (
+                            <div className="mt-3 p-3 rounded-2xl bg-rose-100/80 border border-rose-200 text-rose-900 text-xs flex items-center gap-2">
+                              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <p className="font-medium leading-relaxed">
+                                <strong className="font-black">Bolla annullata dall'amministrazione:</strong> I materiali e i costi sono stati stornati dall'inventario e dalle spese di questo cantiere, mantenendo la traccia storica consultabile.
+                              </p>
+                            </div>
+                          )}
+
+                          {/* Items Breakdown */}
+                          <div className="mt-3 space-y-1.5">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              Materiali destinati a questo cantiere:
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                              {cantiereItems.map((item, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className={`p-2.5 rounded-xl text-xs flex items-center justify-between border ${
+                                    isAnnullata ? 'bg-rose-100/50 border-rose-200 text-rose-900/80 line-through' : 'bg-slate-50 border-slate-100 text-slate-700'
+                                  }`}
+                                >
+                                  <span className="font-bold truncate mr-2">{item.materialeName}</span>
+                                  <span className="font-black font-mono shrink-0">
+                                    {item.quantity} {item.unit || 'pz'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {/* 3. Consumi Registrati nei Rapportini */}
+            {materialFilter === 'usati' && (
+              <section className="space-y-4">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+                    <HardHat className="w-4 h-4 text-amber-500" />
+                    Materiali Impiegati nei Rapportini ({cantiereMaterialiUsati.length})
+                  </h3>
+                </div>
+
+                {cantiereMaterialiUsati.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-400 text-xs italic">
+                    Nessun consumo di materiale registrato nei rapportini di questo cantiere.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {cantiereMaterialiUsati.map((m, idx) => (
+                      <div key={idx} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-black text-slate-900">{m.name}</p>
+                          <p className="text-[10px] text-slate-400 font-medium">Registrato in {m.count} rapportini</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-base font-black text-slate-900">{m.quantity.toLocaleString('it-IT')}</span>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase ml-1">{m.unit}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </section>
@@ -1854,6 +2049,233 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* ==================================================== */}
+        {/* SCHEDA PRODOTTO / MATERIALE MODAL (Doppio Clic o Clic) */}
+        {/* ==================================================== */}
+        {selectedMaterialCard && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-[250] flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xl w-full overflow-hidden my-auto"
+            >
+              {/* Header */}
+              <div className="bg-slate-900 text-white p-5 sm:p-6 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-black uppercase tracking-wider">
+                      Scheda Prodotto
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      ID: {selectedMaterialCard.materialeId.slice(-8).toUpperCase()}
+                    </span>
+                  </div>
+                  <h3 className="text-lg sm:text-xl font-black text-white leading-snug">
+                    {selectedMaterialCard.materialeName}
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Cantiere: <span className="text-slate-200 font-bold">{cantiere.name}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedMaterialCard(null)}
+                  className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 sm:p-6 space-y-6 max-h-[75vh] overflow-y-auto custom-scrollbar">
+                {/* Metrics Grid */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2.5">
+                    Stato Giacenza & Valore nel Cantiere
+                  </p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Giacenza Attuale</p>
+                      <p className={`text-lg font-black mt-1 ${selectedMaterialCard.quantity > 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+                        {selectedMaterialCard.quantity} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
+                      </p>
+                    </div>
+
+                    <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200">
+                      <p className="text-[10px] font-bold text-emerald-800 uppercase">Carico (+) Totale</p>
+                      <p className="text-lg font-black text-emerald-700 mt-1">
+                        +{selectedMaterialCard.carico || 0} <span className="text-xs font-bold text-emerald-600">{selectedMaterialCard.unit}</span>
+                      </p>
+                    </div>
+
+                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Consumo (-) Usato</p>
+                      <p className="text-lg font-black text-slate-700 mt-1">
+                        -{selectedMaterialCard.consumo || 0} <span className="text-xs font-bold text-slate-500">{selectedMaterialCard.unit}</span>
+                      </p>
+                    </div>
+
+                    <div className="bg-amber-50/70 p-3 rounded-2xl border border-amber-200">
+                      <p className="text-[10px] font-bold text-amber-900 uppercase">Valore Residuo</p>
+                      <p className="text-lg font-black text-amber-800 mt-1">
+                        €{(selectedMaterialCard.valoreResiduo || selectedMaterialCard.totalCost || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 flex items-center justify-between px-2 text-[11px] text-slate-500">
+                    <span>Valore Unitario Medio: <strong>€{(selectedMaterialCard.unitPrice || 0).toFixed(2)}/{selectedMaterialCard.unit}</strong></span>
+                    <span>Totale Valore Caricato: <strong>€{(selectedMaterialCard.caricoValore || 0).toFixed(2)}</strong></span>
+                  </div>
+                </div>
+
+                {/* Direct Order / Material Load Box */}
+                <div className="bg-gradient-to-br from-amber-50 to-amber-100/50 p-5 rounded-3xl border border-amber-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <ShoppingCart className="w-4 h-4 text-amber-700" />
+                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-950">
+                      Richiedi / Ordina Materiale
+                    </h4>
+                  </div>
+                  <p className="text-xs text-amber-900/80 mb-4">
+                    Imposta la quantità da ordinare o richiedere per questo cantiere.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    <div className="flex items-center justify-center bg-white border-2 border-amber-400 rounded-2xl p-1 shadow-xs">
+                      <button
+                        type="button"
+                        onClick={() => setMaterialCardOrderQty(q => Math.max(1, q - 1))}
+                        className="w-9 h-9 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
+                      >
+                        <Minus className="w-4 h-4 stroke-[3]" />
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        value={materialCardOrderQty}
+                        onChange={(e) => setMaterialCardOrderQty(Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 text-center font-black text-slate-900 text-sm outline-none bg-transparent"
+                      />
+                      <span className="text-xs font-bold text-slate-500 pr-2 uppercase">
+                        {selectedMaterialCard.unit}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setMaterialCardOrderQty(q => q + 1)}
+                        className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-base flex items-center justify-center transition-all cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                      </button>
+                    </div>
+
+                    {/* Quick addition buttons */}
+                    <div className="flex items-center justify-center gap-1.5">
+                      {[5, 10, 25, 50].map(qty => (
+                        <button
+                          key={qty}
+                          type="button"
+                          onClick={() => setMaterialCardOrderQty(q => q + qty)}
+                          className="px-2.5 py-1.5 rounded-xl bg-white border border-amber-300 text-[11px] font-black text-amber-900 hover:bg-amber-200/60 transition-colors cursor-pointer"
+                        >
+                          +{qty}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isOrdering) {
+                          setIsOrdering(true);
+                        }
+                        handleUpdateOrderQuantity(selectedMaterialCard.materialeId, materialCardOrderQty);
+                        setSelectedMaterialCard(null);
+                      }}
+                      className="flex-1 bg-slate-950 hover:bg-slate-900 text-white px-4 py-3 rounded-2xl font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Check className="w-4 h-4 stroke-[3] text-amber-400" />
+                      {isOrdering ? 'Aggiorna Ordine' : 'Inserisci nell\'Ordine'}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Storico Consegne per questo materiale nel cantiere */}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <History className="w-4 h-4 text-slate-500" />
+                    <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      Storico Forniture in questo Cantiere
+                    </p>
+                  </div>
+                  {(() => {
+                    const deliveryHistory = cantiereBolle.filter(b => 
+                      (b.items || []).some(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase())
+                    );
+
+                    if (deliveryHistory.length === 0) {
+                      return (
+                        <p className="text-xs text-slate-400 italic p-3 bg-slate-50 rounded-xl">
+                          Nessuna fornitura archiviata specificamente per questo materiale in questo cantiere.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                        {deliveryHistory.map(b => {
+                          const matchedItem = (b.items || []).find(it => it.materialeId === selectedMaterialCard.materialeId || it.materialeName.toLowerCase() === selectedMaterialCard.materialeName.toLowerCase());
+                          const isAnnullata = b.status === 'annullato';
+
+                          return (
+                            <div 
+                              key={b.id} 
+                              className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                                isAnnullata ? 'bg-rose-50 border-rose-200 text-rose-900 line-through' : 'bg-slate-50 border-slate-200 text-slate-800'
+                              }`}
+                            >
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black">Bolla N. {b.number}</span>
+                                  <span className="text-[10px] text-slate-400">{formatItalianDate(b.date)}</span>
+                                  {isAnnullata && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-rose-200 text-rose-800 uppercase">
+                                      Stornata
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5">{b.supplier}</p>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-black text-sm text-slate-900">
+                                  +{matchedItem?.quantity || 0} {selectedMaterialCard.unit}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-slate-50 px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+                <p className="text-[11px] text-slate-500">
+                  Fai doppio clic o tocca qualsiasi materiale per riaprire questa scheda.
+                </p>
+                <button
+                  onClick={() => setSelectedMaterialCard(null)}
+                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                >
+                  Chiudi
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

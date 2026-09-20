@@ -166,7 +166,13 @@ export default function App() {
     });
 
     const unsubDocuments = onSnapshot(collection(db, 'companies', company.id, 'documents'), (snap) => {
-      setDocuments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialDocument)));
+      const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaterialDocument));
+      docs.sort((a, b) => {
+        const timeA = new Date(a.date || a.createdAt || '').getTime() || 0;
+        const timeB = new Date(b.date || b.createdAt || '').getTime() || 0;
+        return timeB - timeA;
+      });
+      setDocuments(docs);
     });
 
     const unsubChat = onSnapshot(collection(db, 'companies', company.id, 'cantieriChat'), (snap) => {
@@ -296,7 +302,9 @@ export default function App() {
     saveMateriale: async (m: Materiale) => company && await firestoreService.saveMateriale(company.id, m),
     saveMovement: async (m: StockMovement) => company && await firestoreService.addMovement(company.id, m),
     saveDocument: async (d: MaterialDocument) => company && await firestoreService.saveMaterialDocument(company.id, d),
-    deleteDocument: async (docId: string) => company && await firestoreService.deleteMaterialDocument(company.id, docId),
+    deleteDocument: async (docId: string) => company && await firestoreService.deleteMaterialDocument(company.id, docId, false),
+    annullaDocument: async (docId: string, motivo?: string) => company && await firestoreService.annullaMaterialDocument(company.id, docId, motivo),
+    ripristinaDocument: async (docId: string) => company && await firestoreService.ripristinaMaterialDocument(company.id, docId),
     acceptEntireDocument: async (docId: string) => company && await firestoreService.acceptEntireDocument(company.id, docId, currentUser?.name || 'Amministratore'),
     saveRapportino: async (r: Rapportino) => {
       if (!company) return;
@@ -513,6 +521,8 @@ export default function App() {
                   documents={documents}
                   onAddDocument={cloudHandlers.saveDocument}
                   onDeleteDocument={cloudHandlers.deleteDocument}
+                  onAnnullaDocument={cloudHandlers.annullaDocument}
+                  onRipristinaDocument={cloudHandlers.ripristinaDocument}
                   onAcceptDocument={cloudHandlers.acceptEntireDocument}
                   onAcceptTransfer={cloudHandlers.acceptTransfer}
                   users={users}

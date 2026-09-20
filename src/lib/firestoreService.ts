@@ -858,12 +858,166 @@ export const firestoreService = {
     }
   },
 
-  async deleteMaterialDocument(companyId: string, documentId: string): Promise<void> {
+  async annullaMaterialDocument(companyId: string, documentId: string, motivo?: string): Promise<void> {
     const path = `companies/${companyId}/documents/${documentId}`;
     try {
+      const docRef = doc(db, 'companies', companyId, 'documents', documentId);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) return;
+      const docData = docSnap.data() as MaterialDocument;
+      if (docData.status === 'annullato') return; // Already cancelled
+
+      const previousStatus = docData.status || 'registrato';
+
+      // 1. Mark document as annullato
+      await updateDoc(docRef, {
+        status: 'annullato',
+        previousStatus: previousStatus,
+        cancelledAt: new Date().toISOString(),
+        cancellationReason: motivo || 'Annullamento manuale con storno costi cantiere'
+      });
+
+      // 2. Revert charges from assigned cantiere(s)
+      const cantiereRevertMap = new Map<string, { totalCostToRevert: number; items: typeof docData.items }>();
+      for (const item of (docData.items || [])) {
+        const dest = item.destinationCantiereId || docData.destinationCantiereId || 'magazzino_centrale';
+        if (dest && dest !== 'magazzino_centrale' && dest !== 'centrale') {
+          const entry = cantiereRevertMap.get(dest) || { totalCostToRevert: 0, items: [] };
+          const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+          entry.totalCostToRevert += itemCost;
+          entry.items.push(item);
+          cantiereRevertMap.set(dest, entry);
+        }
+      }
+
+      for (const [cId, charge] of cantiereRevertMap.entries()) {
+        try {
+          const cantiere = await this.getCantiereById(companyId, cId);
+          if (cantiere) {
+            const stock = [...(cantiere.stock || [])];
+            for (const item of charge.items) {
+              const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+              const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
+              if (itemIdx >= 0) {
+                stock[itemIdx].quantity = Math.max(0, (Number(stock[itemIdx].quantity) || 0) - (Number(item.quantity) || 0));
+                stock[itemIdx].totalCost = Math.max(0, (Number(stock[itemIdx].totalCost) || 0) - itemCost);
+              }
+            }
+            const prevCost = Number(cantiere.totalMaterialCost) || 0;
+            const newCost = Math.max(0, prevCost - charge.totalCostToRevert);
+            await updateDoc(doc(db, `companies/${companyId}/cantieri`, cId), {
+              stock: sanitizeData(stock),
+              totalMaterialCost: newCost
+            });
+          }
+        } catch (cantiereErr) {
+          console.error('Error reverting cantiere cost from cancelled document:', cantiereErr);
+        }
+      }
+
+      // 3. Mark associated movements as annullato
+      const movQuery = query(collection(db, `companies/${companyId}/movements`), where('documentId', '==', documentId));
+      const movSnap = await getDocs(movQuery);
+      for (const d of movSnap.docs) {
+        await updateDoc(doc(db, `companies/${companyId}/movements`, d.id), {
+          status: 'annullato'
+        });
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+      throw e;
+    }
+  },
+
+  async ripristinaMaterialDocument(companyId: string, documentId: string): Promise<void> {
+    const path = `companies/${companyId}/documents/${documentId}`;
+    try {
+      const docRef = doc(db, 'companies', companyId, 'documents', documentId);
+      const docSnap = await getDoc(docRef);
+      if (!docSnap.exists()) return;
+      const docData = docSnap.data() as MaterialDocument & { previousStatus?: string };
+      if (docData.status !== 'annullato') return;
+
+      const restoredStatus = (docData.previousStatus as any) || 'accettata';
+
+      // 1. Restore document status
+      await updateDoc(docRef, {
+        status: restoredStatus,
+        restoredAt: new Date().toISOString()
+      });
+
+      // 2. Re-apply charges to assigned cantiere(s)
+      const cantiereChargeMap = new Map<string, { totalAddedCost: number; items: typeof docData.items }>();
+      for (const item of (docData.items || [])) {
+        const dest = item.destinationCantiereId || docData.destinationCantiereId || 'magazzino_centrale';
+        if (dest && dest !== 'magazzino_centrale' && dest !== 'centrale') {
+          const entry = cantiereChargeMap.get(dest) || { totalAddedCost: 0, items: [] };
+          const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+          entry.totalAddedCost += itemCost;
+          entry.items.push(item);
+          cantiereChargeMap.set(dest, entry);
+        }
+      }
+
+      for (const [cId, charge] of cantiereChargeMap.entries()) {
+        try {
+          const cantiere = await this.getCantiereById(companyId, cId);
+          if (cantiere) {
+            const stock = [...(cantiere.stock || [])];
+            for (const item of charge.items) {
+              const itemCost = Number(item.totalPrice) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+              const itemIdx = stock.findIndex(i => i.materialeId === item.materialeId);
+              if (itemIdx >= 0) {
+                stock[itemIdx].quantity = (Number(stock[itemIdx].quantity) || 0) + (Number(item.quantity) || 0);
+                stock[itemIdx].totalCost = (Number(stock[itemIdx].totalCost) || 0) + itemCost;
+              } else {
+                stock.push({
+                  materialeId: item.materialeId || `mat-${Date.now()}`,
+                  materialeName: item.materialeName,
+                  quantity: Number(item.quantity) || 0,
+                  unit: item.unit || 'pz',
+                  totalCost: itemCost
+                });
+              }
+            }
+            const prevCost = Number(cantiere.totalMaterialCost) || 0;
+            await updateDoc(doc(db, `companies/${companyId}/cantieri`, cId), {
+              stock: sanitizeData(stock),
+              totalMaterialCost: prevCost + charge.totalAddedCost
+            });
+          }
+        } catch (cantiereErr) {
+          console.error('Error restoring cantiere cost from document:', cantiereErr);
+        }
+      }
+
+      // 3. Restore associated movements
+      const movQuery = query(collection(db, `companies/${companyId}/movements`), where('documentId', '==', documentId));
+      const movSnap = await getDocs(movQuery);
+      for (const d of movSnap.docs) {
+        await updateDoc(doc(db, `companies/${companyId}/movements`, d.id), {
+          status: 'completed'
+        });
+      }
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+      throw e;
+    }
+  },
+
+  async deleteMaterialDocument(companyId: string, documentId: string, permanent: boolean = false): Promise<void> {
+    const path = `companies/${companyId}/documents/${documentId}`;
+    try {
+      if (!permanent) {
+        // Safe cancellation with trace and cost revert
+        await this.annullaMaterialDocument(companyId, documentId);
+        return;
+      }
+
+      // Permanent deletion
+      await this.annullaMaterialDocument(companyId, documentId);
       await deleteDoc(doc(db, 'companies', companyId, 'documents', documentId));
       
-      // Also cleanup associated movements if still pending
       const movQuery = query(collection(db, `companies/${companyId}/movements`), where('documentId', '==', documentId));
       const movSnap = await getDocs(movQuery);
       for (const d of movSnap.docs) {

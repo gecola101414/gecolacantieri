@@ -9,7 +9,7 @@ import {
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
   ArrowRightLeft, Sparkles, Loader2, Send, ChevronDown, Check,
-  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag, Box
+  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag, Box, Undo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -24,6 +24,8 @@ interface BolleManagerProps {
   onDeleteFornitore?: (docId: string) => Promise<void>;
   onSaveDocument: (doc: MaterialDocument) => Promise<void>;
   onDeleteDocument: (docId: string) => Promise<void>;
+  onAnnullaDocument?: (docId: string, motivo?: string) => Promise<void>;
+  onRipristinaDocument?: (docId: string) => Promise<void>;
   onAcceptDocument: (docId: string) => Promise<void>;
   onAcceptTransfer: (moveId: string) => Promise<void>;
   onAddMateriale: (m: Materiale) => Promise<void>;
@@ -42,6 +44,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   onDeleteFornitore,
   onSaveDocument,
   onDeleteDocument,
+  onAnnullaDocument,
+  onRipristinaDocument,
   onAcceptDocument,
   onAcceptTransfer,
   onAddMateriale,
@@ -54,6 +58,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [selectedSuppliers, setSelectedSuppliers] = useState<string[]>([]);
   const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
+
+  // Undo (Torna Indietro - 1 Step) State
+  const [lastCancelledDoc, setLastCancelledDoc] = useState<MaterialDocument | null>(null);
+  const [showUndoBanner, setShowUndoBanner] = useState(false);
   
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -753,7 +761,50 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
     }
   };
 
-  // Filter documents
+  // Safe cancellation with trace and cost revert (Annullamento Bolla)
+  const handleAnnullaDocument = async (doc: MaterialDocument) => {
+    const isAssigned = !!doc.destinationCantiereId || doc.items.some(i => !!i.destinationCantiereId);
+    const msg = isAssigned
+      ? `Annullare la bolla N. ${doc.number} (${doc.supplier})?\n\nI relativi costi saranno stornati dal cantiere e il documento rimarrà visibile in archivio evidenziato in ROSSO per tracciabilità fiscale/amministrativa.\n\nPotrai ripristinarlo in qualsiasi momento con il tasto "Torna Indietro".`
+      : `Annullare la bolla N. ${doc.number}? Rimarrà visibile in archivio evidenziata in ROSSO.`;
+
+    if (!confirm(msg)) return;
+
+    try {
+      if (onAnnullaDocument) {
+        await onAnnullaDocument(doc.id, 'Annullamento manuale da inventario con storno costi');
+      } else {
+        await onDeleteDocument(doc.id);
+      }
+      setLastCancelledDoc(doc);
+      setShowUndoBanner(true);
+    } catch (err) {
+      console.error('Errore annullamento bolla:', err);
+      alert('Si è verificato un errore durante l\'annullamento della bolla.');
+    }
+  };
+
+  // Undo (Torna Indietro) handler - 1 step
+  const handleUndoCancellation = async () => {
+    if (!lastCancelledDoc) return;
+    try {
+      if (onRipristinaDocument) {
+        await onRipristinaDocument(lastCancelledDoc.id);
+      } else {
+        await onSaveDocument({
+          ...lastCancelledDoc,
+          status: (lastCancelledDoc as any).previousStatus || 'accettata'
+        });
+      }
+      setShowUndoBanner(false);
+      setLastCancelledDoc(null);
+    } catch (err) {
+      console.error('Errore ripristino bolla:', err);
+      alert('Si è verificato un errore durante il ripristino della bolla.');
+    }
+  };
+
+  // Filter & Sort documents (GARANZIA: ultima bolla sempre in alto)
   const filteredDocuments = documents.filter(doc => {
     const matchesSearch = 
       doc.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -777,6 +828,10 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
       selectedSuppliers.includes(doc.supplier);
 
     return matchesSearch && matchesType && matchesCantiere && matchesStatus && matchesSupplier;
+  }).sort((a, b) => {
+    const timeA = new Date(a.date || a.createdAt || '').getTime() || 0;
+    const timeB = new Date(b.date || b.createdAt || '').getTime() || 0;
+    return timeB - timeA;
   });
 
   return (
@@ -1131,29 +1186,46 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                 {filteredDocuments.map(doc => {
                   const targetCantiere = cantieri.find(c => c.id === doc.destinationCantiereId);
                   const isPending = doc.status === 'in_attesa_accettazione';
+                  const isAnnullata = doc.status === 'annullato';
 
                   return (
-                    <tr key={doc.id} className="hover:bg-slate-50/60 transition-colors group">
+                    <tr 
+                      key={doc.id} 
+                      className={`transition-colors group ${
+                        isAnnullata 
+                          ? 'bg-rose-50/75 hover:bg-rose-100/70 border-l-4 border-l-rose-500' 
+                          : 'hover:bg-slate-50/60'
+                      }`}
+                    >
                       {/* Document Type & Number */}
                       <td className="px-6 py-4.5">
                         <div className="flex items-center gap-3">
                           <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-lg ${
-                            doc.type === 'bolla' 
-                              ? 'bg-blue-100 text-blue-700 border border-blue-200' 
-                              : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+                            isAnnullata
+                              ? 'bg-rose-200 text-rose-800 border border-rose-300 shadow-xs'
+                              : doc.type === 'bolla' 
+                                ? 'bg-blue-100 text-blue-700 border border-blue-200' 
+                                : 'bg-emerald-100 text-emerald-700 border border-emerald-200'
                           }`}>
-                            {doc.type === 'bolla' ? 'DDT' : 'FATT'}
+                            {isAnnullata ? 'ANNULLATA' : (doc.type === 'bolla' ? 'DDT' : 'FATT')}
                           </span>
                           <div>
-                            <p className="text-sm font-bold text-slate-900 leading-tight">N. {doc.number}</p>
+                            <p className={`text-sm font-bold leading-tight ${isAnnullata ? 'text-rose-950 line-through' : 'text-slate-900'}`}>
+                              N. {doc.number}
+                            </p>
                             <p className="text-[11px] text-slate-400 font-medium">{formatItalianDate(doc.date)}</p>
+                            {isAnnullata && (
+                              <span className="text-[10px] font-black text-rose-600 block mt-0.5">
+                                Traccia Storica - Stornata
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
 
                       {/* Supplier */}
                       <td className="px-6 py-4.5">
-                        <p className="text-xs font-bold text-slate-900">{doc.supplier}</p>
+                        <p className={`text-xs font-bold ${isAnnullata ? 'text-rose-900 line-through' : 'text-slate-900'}`}>{doc.supplier}</p>
                         {doc.fileName && (
                           <button
                             onClick={(e) => {
@@ -1180,8 +1252,12 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                             <Layers className="w-3 h-3 text-amber-600" /> Più Cantieri
                           </span>
                         ) : targetCantiere ? (
-                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] font-bold">
-                            <Building2 className="w-3 h-3 text-emerald-600" /> {targetCantiere.name}
+                          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold border ${
+                            isAnnullata 
+                              ? 'bg-rose-100 text-rose-800 border-rose-200' 
+                              : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          }`}>
+                            <Building2 className={`w-3 h-3 ${isAnnullata ? 'text-rose-600' : 'text-emerald-600'}`} /> {targetCantiere.name}
                           </span>
                         ) : (
                           <span className="text-xs font-semibold text-slate-400">Non specificato</span>
@@ -1192,8 +1268,8 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       <td className="px-6 py-4.5 max-w-sm">
                         <div className="space-y-1">
                           {doc.items.slice(0, 3).map((item, idx) => (
-                            <p key={idx} className="text-xs text-slate-700 font-medium truncate">
-                              <span className="font-bold text-slate-900">{item.quantity} {item.unit || 'pz'}</span> - {item.materialeName}
+                            <p key={idx} className={`text-xs font-medium truncate ${isAnnullata ? 'text-rose-700/80 line-through' : 'text-slate-700'}`}>
+                              <span className={`font-bold ${isAnnullata ? 'text-rose-900' : 'text-slate-900'}`}>{item.quantity} {item.unit || 'pz'}</span> - {item.materialeName}
                             </p>
                           ))}
                           {doc.items.length > 3 && (
@@ -1206,15 +1282,21 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
 
                       {/* Total Amount */}
                       <td className="px-6 py-4.5 text-right">
-                        <p className="text-sm font-black text-slate-900">
+                        <p className={`text-sm font-black ${isAnnullata ? 'text-rose-700 line-through' : 'text-slate-900'}`}>
                           €{doc.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
-                        <span className="text-[9px] font-bold text-slate-400">Totale Bolla</span>
+                        <span className={`text-[9px] font-bold ${isAnnullata ? 'text-rose-600 font-black uppercase' : 'text-slate-400'}`}>
+                          {isAnnullata ? 'Costo Stornato' : 'Totale Bolla'}
+                        </span>
                       </td>
 
                       {/* Acceptance Status */}
                       <td className="px-6 py-4.5 text-center">
-                        {isPending ? (
+                        {isAnnullata ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-black uppercase tracking-wider">
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-600" /> ANNULLATA (STORNATA)
+                          </span>
+                        ) : isPending ? (
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-bold uppercase tracking-wider">
                             <Clock className="w-3 h-3 text-amber-600" /> In Attesa Capocantiere
                           </span>
@@ -1232,39 +1314,66 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
                       {/* Actions */}
                       <td className="px-6 py-4.5 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {isPending && (
-                            <button
-                              onClick={async () => {
-                                if (confirm(`Confermi l'accettazione di questa fornitura per caricarla nel cantiere e aggiornare i costi materiali?`)) {
-                                  await onAcceptDocument(doc.id);
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
-                              title="Accetta subito fornitura"
-                            >
-                              <Check className="w-3.5 h-3.5" /> Accetta
-                            </button>
+                          {isAnnullata ? (
+                            <>
+                              <button
+                                onClick={async () => {
+                                  if (onRipristinaDocument) {
+                                    await onRipristinaDocument(doc.id);
+                                  } else {
+                                    await onSaveDocument({
+                                      ...doc,
+                                      status: (doc as any).previousStatus || 'accettata'
+                                    });
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+                                title="Torna indietro: ripristina la bolla e ricarica i costi al cantiere"
+                              >
+                                <Undo2 className="w-3.5 h-3.5 stroke-[2.5]" /> Ripristina
+                              </button>
+                              
+                              <button
+                                onClick={() => setSelectedDocDetails(doc)}
+                                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                                title="Vedi dettagli"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {isPending && (
+                                <button
+                                  onClick={async () => {
+                                    if (confirm(`Confermi l'accettazione di questa fornitura per caricarla nel cantiere e aggiornare i costi materiali?`)) {
+                                      await onAcceptDocument(doc.id);
+                                    }
+                                  }}
+                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all"
+                                  title="Accetta subito fornitura"
+                                >
+                                  <Check className="w-3.5 h-3.5" /> Accetta
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => setSelectedDocDetails(doc)}
+                                className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                                title="Vedi dettagli e spacchettamento"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+
+                              <button
+                                onClick={() => handleAnnullaDocument(doc)}
+                                className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                                title="Annulla bolla (storna dal cantiere e lascia traccia rossa)"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
-
-                          <button
-                            onClick={() => setSelectedDocDetails(doc)}
-                            className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-colors"
-                            title="Vedi dettagli e spacchettamento"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-
-                          <button
-                            onClick={async () => {
-                              if (confirm(`Eliminare definitivamente il documento ${doc.number} e i relativi movimenti associati?`)) {
-                                await onDeleteDocument(doc.id);
-                              }
-                            }}
-                            className="p-2 text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-                            title="Elimina documento"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1275,6 +1384,44 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
           </div>
         )}
       </div>
+
+      {/* Floating Undo Banner (Torna Indietro - 1 Step) */}
+      <AnimatePresence>
+        {showUndoBanner && lastCancelledDoc && (
+          <motion.div 
+            initial={{ opacity: 0, y: 30, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-6 right-6 z-50 bg-slate-950 text-white p-4 sm:px-6 sm:py-4 rounded-2xl shadow-2xl border border-amber-500/40 flex items-center gap-4 max-w-md backdrop-blur-md"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <Undo2 className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black text-white truncate">
+                Bolla N. {lastCancelledDoc.number} Annullata
+              </p>
+              <p className="text-[11px] text-slate-400">
+                I costi sono stati stornati dal cantiere.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleUndoCancellation}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-3.5 py-1.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+              >
+                Torna Indietro
+              </button>
+              <button
+                onClick={() => setShowUndoBanner(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* MODAL 1: UPLOAD & EDIT BOLLE / FATTURE PDF */}
       {showUploadModal && (
