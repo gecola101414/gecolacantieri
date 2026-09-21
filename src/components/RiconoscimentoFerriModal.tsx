@@ -3,7 +3,7 @@ import {
   Camera, Sparkles, Upload, X, Check, RefreshCw, ZoomIn, ZoomOut, 
   Layers, Eye, Plus, Minus, FileText, CheckCircle2, AlertTriangle, 
   ShieldCheck, Scale, Ruler, Building2, Printer, Download, Info, 
-  ChevronRight, Box, ArrowRight, Zap, Sliders
+  ChevronRight, Box, ArrowRight, Zap, Sliders, Crop, Sun, Contrast, RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Cantiere, MaterialDocument, Materiale, UserAccount } from '../types';
@@ -19,6 +19,8 @@ import {
   generaMaterialiDaRilievo
 } from '../utils/ferroUtils';
 import { analyzeFerriInBrowser } from '../utils/browserFerroVision';
+import { ImageAdjustmentPanel } from './ImageAdjustmentPanel';
+import { ImageAdjustmentSettings, DEFAULT_ADJUSTMENTS } from '../utils/imageAdjustments';
 import { APP_VERSION, APP_LAST_UPDATE } from '../version';
 
 interface RiconoscimentoFerriModalProps {
@@ -53,8 +55,11 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
   onAddMateriale,
   onSuccessNotice,
 }) => {
+  const [rawOriginalImage, setRawOriginalImage] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedFileName, setSelectedFileName] = useState<string>('');
+  const [isImageCropped, setIsImageCropped] = useState<boolean>(false);
+  const [currentAdjustments, setCurrentAdjustments] = useState<ImageAdjustmentSettings>(DEFAULT_ADJUSTMENTS);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -141,7 +146,10 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
     const reader = new FileReader();
     reader.onload = (uploadEvent) => {
       const dataUrl = uploadEvent.target?.result as string;
+      setRawOriginalImage(dataUrl);
       setSelectedImage(dataUrl);
+      setIsImageCropped(false);
+      setCurrentAdjustments(DEFAULT_ADJUSTMENTS);
       setResult(null);
       setSavedSuccessMessage(null);
     };
@@ -149,11 +157,34 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
   };
 
   const handleUseDemo = (demoImg: string, name: string) => {
+    setRawOriginalImage(demoImg);
     setSelectedImage(demoImg);
     setSelectedFileName(name);
+    setIsImageCropped(false);
+    setCurrentAdjustments(DEFAULT_ADJUSTMENTS);
     setErrorMessage(null);
     setResult(null);
     setSavedSuccessMessage(null);
+  };
+
+  // Callback per applicazione modifiche da ImageAdjustmentPanel (contrasto o ritaglio fascione)
+  const handleApplyAdjustedImage = (processedUrl: string, newSettings: ImageAdjustmentSettings, wasCropped = false) => {
+    setSelectedImage(processedUrl);
+    setCurrentAdjustments(newSettings);
+    if (wasCropped) {
+      setIsImageCropped(true);
+    }
+    setResult(null); // Reset del risultato per forzare nuovo conteggio sulla porzione ritagliata/ottimizzata
+  };
+
+  // Ripristino all'immagine originale non ritagliata
+  const handleResetToOriginalImage = () => {
+    if (rawOriginalImage) {
+      setSelectedImage(rawOriginalImage);
+      setIsImageCropped(false);
+      setCurrentAdjustments(DEFAULT_ADJUSTMENTS);
+      setResult(null);
+    }
   };
 
   // Run Vision Analysis (Browser Deterministic Engine or Cloud AI)
@@ -177,6 +208,8 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
           diametroSelezionato: selectedDiameter === 'auto' ? undefined : selectedDiameter,
           lunghezzaMetri: barLength,
           sensitivity,
+          highlightThreshold: currentAdjustments.highlightThreshold,
+          roundnessThreshold: 0.62,
           cantiereId: selectedCantiereId,
           cantiereName: currentCantiere?.name || 'Cantiere',
           operatore: currentUser.name,
@@ -543,6 +576,11 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
                         alt="Foto ferro da analizzare" 
                         className="max-h-full max-w-full object-contain"
                       />
+                      {isImageCropped && (
+                        <div className="absolute top-2 left-2 bg-amber-500 text-slate-950 px-2 py-0.5 rounded text-[10px] font-black uppercase flex items-center gap-1 shadow">
+                          <Crop className="w-3 h-3" /> Fascione Ritagliato
+                        </div>
+                      )}
                       <div className="absolute bottom-2 right-2 bg-slate-950/80 backdrop-blur px-2.5 py-1 rounded-lg text-[10px] font-bold text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
                         <Check className="w-3 h-3" /> Foto Pronta
                       </div>
@@ -595,6 +633,23 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
                     Usa Foto Test
                   </button>
                 </div>
+
+                {/* STRUMENTI PRE-ELABORAZIONE FOTO: RITAGLIO FASCIONE (CROP) & REGOLAZIONE CONTRASTO */}
+                {selectedImage && (
+                  <div className="pt-2 border-t border-slate-800/80">
+                    <label className="text-[11px] font-bold text-slate-400 flex items-center gap-1.5 mb-2">
+                      <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                      Ottimizzazione Foto (Ritaglia & Contrasta Parti Lucenti)
+                    </label>
+                    <ImageAdjustmentPanel
+                      originalImage={rawOriginalImage || selectedImage}
+                      activeImage={selectedImage}
+                      onApplyImage={handleApplyAdjustedImage}
+                      onResetToOriginal={handleResetToOriginalImage}
+                      isImageCropped={isImageCropped}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Technical Configuration (Right - 7 Cols) */}

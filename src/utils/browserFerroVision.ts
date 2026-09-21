@@ -12,6 +12,11 @@ export interface BrowserVisionOptions {
   diametroSelezionato?: number; // mm (se specificato dall'utente, altrimenti stimato)
   lunghezzaMetri: number;
   sensitivity?: 'bassa' | 'media' | 'alta';
+  highlightThreshold?: number; // 0-255: soglia per considerare una parte "lucida"
+  roundnessThreshold?: number; // 0.0 - 1.0: rigidità forma rotonda
+  minRadius?: number; // raggio minimo in pixel
+  maxRadius?: number; // raggio massimo in pixel
+  cropRect?: { x: number; y: number; width: number; height: number }; // % ritaglio
   cantiereId?: string;
   cantiereName?: string;
   operatore?: string;
@@ -31,7 +36,8 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Esegue il rilevamento e conteggio barre di ferro direttamente nel browser
+ * Esegue il rilevamento delle sole parti più chiare/lucenti di forma strettamente rotonda
+ * direttamente nel browser senza alcuna dipendenza esterna o modello neurale.
  */
 export async function analyzeFerriInBrowser(
   dataUrl: string,
@@ -39,8 +45,8 @@ export async function analyzeFerriInBrowser(
 ): Promise<RiconoscimentoFerriResult> {
   const img = await loadImage(dataUrl);
 
-  // Normalizza le dimensioni di analisi per garantire performance real-time (< 350ms)
-  const maxDim = 800;
+  // Normalizza le dimensioni di analisi per garantire massima reattività (< 300ms)
+  const maxDim = 850;
   let w = img.naturalWidth || img.width;
   let h = img.naturalHeight || img.height;
 
@@ -66,21 +72,38 @@ export async function analyzeFerriInBrowser(
   const imageData = ctx.getImageData(0, 0, w, h);
   const pixels = imageData.data;
 
-  // 1. Creazione mappa in scala di grigi e calcolo statistiche di luminanza
+  // 1. Mappa di luminanza percettiva (BT.601) e calcolo statistiche
   const gray = new Float32Array(w * h);
   let sumL = 0;
+  let maxL = 0;
+  let minL = 255;
+
   for (let i = 0; i < w * h; i++) {
     const r = pixels[i * 4];
     const g = pixels[i * 4 + 1];
     const b = pixels[i * 4 + 2];
-    // Luminanza percepita ITU-R BT.601
-    const l = 0.299 * r + 0.587 * g + 0.114 * b;
-    gray[i] = l;
-    sumL += l;
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    gray[i] = lum;
+    sumL += lum;
+    if (lum > maxL) maxL = lum;
+    if (lum < minL) minL = lum;
   }
   const avgLuminance = sumL / (w * h);
 
-  // 2. Calcolo dei gradienti orizzontali e verticali (Sobel ridotto)
+  // Calcolo soglia automatica parti lucide se non specificata dall'utente
+  // La testa di taglio del ferro è tra il 20% dei pixel più chiari dell'immagine
+  const userThresh = options.highlightThreshold;
+  const sens = options.sensitivity || 'media';
+  let brightThreshold = userThresh !== undefined 
+    ? userThresh 
+    : avgLuminance + (maxL - avgLuminance) * (sens === 'alta' ? 0.35 : sens === 'bassa' ? 0.65 : 0.48);
+
+  // Limiti raggio teste rotonde in pixel (in base al diametro o sensibilità)
+  const minR = options.minRadius || (sens === 'alta' ? 4 : sens === 'bassa' ? 7 : 5);
+  const maxR = options.maxRadius || (sens === 'alta' ? 24 : sens === 'bassa' ? 18 : 20);
+  const minRoundness = options.roundnessThreshold || 0.62; // Rapporto R_min / R_max
+
+  // 2. Mappa dei gradienti Sobel
   const gradMag = new Float32Array(w * h);
   const gradDirX = new Float32Array(w * h);
   const gradDirY = new Float32Array(w * h);
@@ -92,156 +115,198 @@ export async function analyzeFerriInBrowser(
       const gy = (gray[idx + w] - gray[idx - w]) * 0.5;
       const mag = Math.sqrt(gx * gx + gy * gy);
       gradMag[idx] = mag;
-      if (mag > 4) {
+      if (mag > 3) {
         gradDirX[idx] = gx / mag;
         gradDirY[idx] = gy / mag;
       }
     }
   }
 
-  // 3. Raggio stimato delle barre in pixel nell'immagine scalata
-  // Per immagini standard tipiche da cantiere, le teste hanno un raggio tra 5px e 16px
-  const sens = options.sensitivity || 'media';
-  const minGradThreshold = sens === 'alta' ? 6 : sens === 'bassa' ? 14 : 9;
-  const candidateRadii = [6, 8, 10, 13, 16];
+  // Se è stato specificato un ritaglio, delimitiamo l'area di scansione
+  let minScanX = 10;
+  let maxScanX = w - 10;
+  let minScanY = 10;
+  let maxScanY = h - 10;
 
-  // Accumulatore di simmetria radiale circolare (FRST - Fast Radial Symmetry)
-  const accumulator = new Float32Array(w * h);
+  if (options.cropRect) {
+    const c = options.cropRect;
+    minScanX = Math.max(10, Math.round((c.x / 100) * w));
+    minScanY = Math.max(10, Math.round((c.y / 100) * h));
+    maxScanX = Math.min(w - 10, Math.round(((c.x + c.width) / 100) * w));
+    maxScanY = Math.min(h - 10, Math.round(((c.y + c.height) / 100) * h));
+  }
 
-  for (const radius of candidateRadii) {
-    for (let y = radius + 2; y < h - radius - 2; y += 2) {
-      for (let x = radius + 2; x < w - radius - 2; x += 2) {
-        const idx = y * w + x;
-        const mag = gradMag[idx];
-        if (mag < minGradThreshold) continue;
+  // 3. Rilevamento delle sole parti più chiare e verifica della forma rotonda
+  interface DetectedCircle {
+    x: number;
+    y: number;
+    radius: number;
+    circularity: number;
+    brightness: number;
+    score: number;
+  }
 
-        const dx = gradDirX[idx];
-        const dy = gradDirY[idx];
+  const detectedCircles: DetectedCircle[] = [];
+  const numRays = 12; // 12 raggi a 30 gradi per test di rotondità ad alta precisione
+  const rayAngles: Array<{ cos: number; sin: number }> = [];
+  for (let a = 0; a < numRays; a++) {
+    const rad = (a / numRays) * Math.PI * 2;
+    rayAngles.push({ cos: Math.cos(rad), sin: Math.sin(rad) });
+  }
 
-        // Votazione lungo il gradiente inverso (verso il centro lucido della barra)
-        const cx = Math.round(x - dx * radius);
-        const cy = Math.round(y - dy * radius);
+  // Scansione pixel candidati: SOLO pixel con luminanza superiore alla soglia e che sono massimi locali
+  const step = 2;
+  for (let y = minScanY + maxR; y < maxScanY - maxR; y += step) {
+    for (let x = minScanX + maxR; x < maxScanX - maxR; x += step) {
+      const idx = y * w + x;
+      const centerLum = gray[idx];
 
-        if (cx >= 0 && cx < w && cy >= 0 && cy < h) {
-          const cIdx = cy * w + cx;
-          // Regola: Il centro deve essere più chiaro del bordo del ferro
-          const centerLum = gray[cIdx];
-          const edgeLum = gray[idx];
-          if (centerLum >= edgeLum) {
-            accumulator[cIdx] += (centerLum - edgeLum + 2) * (mag / 10);
+      // REGOLA 1: Deve essere una delle parti più chiare (sopra soglia di brillantezza)
+      if (centerLum < brightThreshold) continue;
+
+      // Massimo locale in una finestra 5x5
+      let isLocalMax = true;
+      for (let dy = -2; dy <= 2; dy += 2) {
+        for (let dx = -2; dx <= 2; dx += 2) {
+          if (dx === 0 && dy === 0) continue;
+          if (gray[(y + dy) * w + (x + dx)] > centerLum) {
+            isLocalMax = false;
+            break;
           }
         }
+        if (!isLocalMax) break;
       }
-    }
-  }
+      if (!isLocalMax) continue;
 
-  // 4. Filtro locale di contrasto circolare e non-maximum suppression (NMS)
-  const candidatePoints: Array<{ x: number; y: number; score: number; radius: number }> = [];
-  const minScoreThreshold = sens === 'alta' ? 15 : sens === 'bassa' ? 35 : 22;
+      // REGOLA 2: Verifica geometrica della forma rotonda lungo 12 direzioni radiali
+      const rayLengths: number[] = [];
+      let totalR = 0;
+      let validRays = 0;
 
-  for (let y = 15; y < h - 15; y += 3) {
-    for (let x = 15; x < w - 15; x += 3) {
-      const idx = y * w + x;
-      const score = accumulator[idx];
-      if (score < minScoreThreshold) continue;
+      for (let i = 0; i < numRays; i++) {
+        const { cos, sin } = rayAngles[i];
+        let foundEdge = false;
+        let edgeR = minR;
 
-      const centerLum = gray[idx];
-      // Verifica contrasto con anello circostante (r = 8px)
-      let ringAvg = 0;
-      let samples = 0;
-      const rCheck = 8;
-      for (let a = 0; a < 8; a++) {
-        const angle = (a / 8) * Math.PI * 2;
-        const rx = Math.round(x + Math.cos(angle) * rCheck);
-        const ry = Math.round(y + Math.sin(angle) * rCheck);
-        if (rx >= 0 && rx < w && ry >= 0 && ry < h) {
-          ringAvg += gray[ry * w + rx];
-          samples++;
+        // Cammina dal centro verso l'esterno cercando il bordo di contrasto (discesa luminanza)
+        for (let r = minR - 1; r <= maxR + 3; r++) {
+          const rx = Math.round(x + cos * r);
+          const ry = Math.round(y + sin * r);
+          if (rx < 0 || rx >= w || ry < 0 || ry >= h) break;
+
+          const rayLum = gray[ry * w + rx];
+          const rayIdx = ry * w + rx;
+          const mag = gradMag[rayIdx];
+
+          // Condizione di bordo della testa del ferro:
+          // 1. Caduta significativa di luminanza rispetto al centro chiaro
+          // 2. Oppure picco di gradiente che punta verso l'esterno
+          if (centerLum - rayLum > 18 || (mag > 12 && r >= minR)) {
+            edgeR = r;
+            foundEdge = true;
+            break;
+          }
+        }
+
+        if (foundEdge && edgeR >= minR && edgeR <= maxR) {
+          rayLengths.push(edgeR);
+          totalR += edgeR;
+          validRays++;
         }
       }
-      ringAvg = samples > 0 ? ringAvg / samples : centerLum;
 
-      // Regola: La testa di taglio del ferro ha una brillantezza locale rispetto agli interstizi
-      const contrast = centerLum - ringAvg;
-      if (contrast > -2) {
-        candidatePoints.push({
-          x,
-          y,
-          score: score + Math.max(0, contrast * 2),
-          radius: rCheck,
-        });
+      // Se meno di 9 raggi su 12 hanno trovato un bordo coerente, NON è rotondo (es. linea o superficie piana)
+      if (validRays < 9) continue;
+
+      const meanR = totalR / validRays;
+      let minRay = Infinity;
+      let maxRay = -Infinity;
+      let varianceSum = 0;
+
+      for (const r of rayLengths) {
+        if (r < minRay) minRay = r;
+        if (r > maxRay) maxRay = r;
+        varianceSum += (r - meanR) * (r - meanR);
       }
+
+      const stdDev = Math.sqrt(varianceSum / validRays);
+      const circularity = minRay / (maxRay || 1); // 1.0 = cerchio perfetto
+      const stdRatio = stdDev / (meanR || 1);
+
+      // REGOLA 3: FILTRO DI FORMA STRETTAMENTE ROTONDA
+      // - Il rapporto tra raggio minimo e massimo deve essere alto (> minRoundness)
+      // - La deviazione standard rispetto al raggio medio deve essere bassa (< 0.26)
+      if (circularity < minRoundness || stdRatio > 0.26) {
+        continue; // Scartato: forma allungata, rettangolare, travetto o striscia
+      }
+
+      // REGOLA 4: CONTRASTO CENTRO CHIARO vs ANELLO ESTERNO SCURO
+      // Il dischetto interno deve essere omogeneamente più chiaro del perimetro circostante
+      let surroundSum = 0;
+      let surroundSamples = 0;
+      const surroundR = meanR + 3;
+
+      for (let i = 0; i < numRays; i++) {
+        const { cos, sin } = rayAngles[i];
+        const sx = Math.round(x + cos * surroundR);
+        const sy = Math.round(y + sin * surroundR);
+        if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
+          surroundSum += gray[sy * w + sx];
+          surroundSamples++;
+        }
+      }
+
+      const surroundAvg = surroundSamples > 0 ? surroundSum / surroundSamples : centerLum;
+      const localContrast = centerLum - surroundAvg;
+
+      // La testa metallica tagliata deve essere nettamente più luminosa dell'interstizio
+      if (localContrast < (sens === 'alta' ? 6 : sens === 'bassa' ? 18 : 10)) {
+        continue; // Scartato: contrasto debole con lo sfondo
+      }
+
+      const score = (centerLum * 1.5) + (circularity * 100) + (localContrast * 2);
+      detectedCircles.push({
+        x,
+        y,
+        radius: Math.round(meanR * 10) / 10,
+        circularity: Math.round(circularity * 100) / 100,
+        brightness: Math.round(centerLum),
+        score,
+      });
     }
   }
 
-  // Ordina i punti candidati per forza di risposta decrescente
-  candidatePoints.sort((a, b) => b.score - a.score);
+  // 4. Non-Maximum Suppression (NMS) per eliminare duplicati sulla stessa barra
+  // Ordina per punteggio decrescente (le teste più lucide e rotonde hanno priorità)
+  detectedCircles.sort((a, b) => b.score - a.score);
 
-  // NMS (Non-Maximum Suppression): sopprime punti troppo vicini tra loro
-  const acceptedPoints: Array<{ x: number; y: number }> = [];
-  const minDistanceBetweenBars = sens === 'alta' ? 10 : sens === 'bassa' ? 16 : 12;
-  const minDistanceSq = minDistanceBetweenBars * minDistanceBetweenBars;
-
-  for (const pt of candidatePoints) {
+  const acceptedPoints: Array<{ x: number; y: number; radius: number }> = [];
+  for (const c of detectedCircles) {
+    const minSeparation = c.radius * 1.45; // Barre non possono compenetrarsi
+    const minSepSq = minSeparation * minSeparation;
     let tooClose = false;
+
     for (const acc of acceptedPoints) {
-      const dx = pt.x - acc.x;
-      const dy = pt.y - acc.y;
-      if (dx * dx + dy * dy < minDistanceSq) {
+      const dx = c.x - acc.x;
+      const dy = c.y - acc.y;
+      if (dx * dx + dy * dy < minSepSq) {
         tooClose = true;
         break;
       }
     }
-    if (!tooClose) {
-      acceptedPoints.push({ x: pt.x, y: pt.y });
-    }
-  }
 
-  // Se l'immagine contiene pochissimi punti o la soglia era troppo rigida,
-  // effettuiamo un secondo passaggio adattivo con griglia a massima brillantezza locale
-  if (acceptedPoints.length < 8) {
-    const step = 14;
-    for (let y = 30; y < h - 30; y += step) {
-      for (let x = 30; x < w - 30; x += step) {
-        const idx = y * w + x;
-        const lum = gray[idx];
-        if (lum > avgLuminance * 1.1) {
-          let isLocalMax = true;
-          for (let dy = -4; dy <= 4; dy += 4) {
-            for (let dx = -4; dx <= 4; dx += 4) {
-              if (dx === 0 && dy === 0) continue;
-              const nIdx = (y + dy) * w + (x + dx);
-              if (gray[nIdx] > lum) {
-                isLocalMax = false;
-                break;
-              }
-            }
-            if (!isLocalMax) break;
-          }
-          if (isLocalMax) {
-            let tooClose = false;
-            for (const acc of acceptedPoints) {
-              const dx = x - acc.x;
-              const dy = y - acc.y;
-              if (dx * dx + dy * dy < minDistanceSq) {
-                tooClose = true;
-                break;
-              }
-            }
-            if (!tooClose) {
-              acceptedPoints.push({ x, y });
-            }
-          }
-        }
-      }
+    if (!tooClose) {
+      acceptedPoints.push({ x: c.x, y: c.y, radius: c.radius });
     }
   }
 
   // 5. Clustering Spaziale Multi-Fascione (Segmentazione a Regole)
   // Raggruppa i punti che si trovano a distanza ravvicinata in singoli fascioni distinti.
-  // Barre dello stesso fascione distano circa 1.5 - 2.8 volte il diametro.
-  // Distacchi maggiori (travetti in legno, aria tra ripiani) delimitano fascioni separati.
-  const clusterDist = minDistanceBetweenBars * 3.4;
+  // Se la foto è stata ritagliata dall'utente (Crop), tutti i punti appartengono al fascione selezionato!
+  const avgDetectedRadius = acceptedPoints.length > 0 
+    ? acceptedPoints.reduce((s, p) => s + p.radius, 0) / acceptedPoints.length 
+    : 8;
+  const clusterDist = avgDetectedRadius * 3.8;
   const clusterDistSq = clusterDist * clusterDist;
   const visited = new Set<number>();
   const rawClusters: Array<Array<{ x: number; y: number }>> = [];
