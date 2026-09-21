@@ -491,6 +491,8 @@ export default function App() {
                   onUpdateMaterialRequestStatus={cloudHandlers.updateMaterialRequestStatus}
                   materialiArchive={materiali}
                   onAcceptDocument={cloudHandlers.acceptEntireDocument}
+                  onSaveDocument={cloudHandlers.saveDocument}
+                  onAddMateriale={cloudHandlers.saveMateriale}
                 />
               </motion.div>
             ) : (

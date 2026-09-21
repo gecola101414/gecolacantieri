@@ -9,9 +9,10 @@ import {
   FileText, Upload, Plus, Trash2, CheckCircle2, Clock, 
   Building2, Search, Filter, AlertCircle, Eye, Download, 
   ArrowRightLeft, Sparkles, Loader2, Send, ChevronDown, Check,
-  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag, Box, Undo2
+  X, ExternalLink, Info, Layers, Users, Phone, Mail, MapPin, Edit3, Tag, Box, Undo2, Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RiconoscimentoFerriModal } from './RiconoscimentoFerriModal';
 
 interface BolleManagerProps {
   documents: MaterialDocument[];
@@ -65,6 +66,7 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
   
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showFerriModal, setShowFerriModal] = useState(false);
   const [showFornitoriModal, setShowFornitoriModal] = useState(false);
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Fornitore | null>(null);
@@ -931,15 +933,30 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
               <FileText className="w-5 h-5 text-slate-950 font-bold" />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Gestione Bolle & Fatture (DDT)</h2>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Rilievo Materiali, Bolle & DDT (Fatture)</h2>
               <p className="text-xs font-medium text-slate-500">
-                Caricamento PDF con riconoscimento automatico, spacchettamento nei cantieri e note di accettazione.
+                Riconoscimento automatico ferri da foto AI, caricamento PDF bolle/fatture e controllo giacenze nei cantieri.
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Riconoscimento Ferri da Foto AI Button */}
+          <button
+            onClick={() => setShowFerriModal(true)}
+            className="bg-slate-900 hover:bg-slate-800 text-white font-black px-5 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-lg shadow-slate-900/10 border border-slate-700/80 transition-all hover:scale-[1.02] active:scale-[0.98] cursor-pointer group"
+            title="Riconoscimento automatico numero barre di ferro e fascioni da foto frontale"
+          >
+            <div className="w-5 h-5 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black group-hover:scale-110 transition-transform">
+              <Camera className="w-3.5 h-3.5" />
+            </div>
+            <span>Riconoscimento Ferri da Foto</span>
+            <span className="bg-amber-400/20 text-amber-300 border border-amber-400/30 font-black px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider">
+              Vision AI
+            </span>
+          </button>
+
           <button
             onClick={() => setShowFornitoriModal(true)}
             className="bg-white hover:bg-slate-50 text-slate-800 border border-slate-200/90 font-bold px-5 py-3.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-sm transition-all hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
@@ -2585,6 +2602,23 @@ export const BolleManager: React.FC<BolleManagerProps> = ({
             </form>
           </motion.div>
         </div>
+      )}
+
+      {/* Riconoscimento Ferri da Foto Modal */}
+      {showFerriModal && (
+        <RiconoscimentoFerriModal
+          isOpen={showFerriModal}
+          onClose={() => setShowFerriModal(false)}
+          cantieri={cantieri}
+          currentUser={currentUser}
+          defaultCantiereId={selectedCantiereFilter !== 'all' ? selectedCantiereFilter : cantieri[0]?.id}
+          onSaveDocument={onSaveDocument}
+          onAddMateriale={onAddMateriale}
+          onSuccessNotice={(msg) => {
+            setExtractedNotice(msg);
+            setTimeout(() => setExtractedNotice(null), 6000);
+          }}
+        />
       )}
     </div>
   );

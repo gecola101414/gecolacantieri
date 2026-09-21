@@ -18,6 +18,7 @@ import { Logo, FooterBranding } from './Branding';
 import { CantiereHub } from './CantiereHub';
 import { BadgeManager } from './BadgeManager';
 import { VersionBadge } from './VersionBadge';
+import { RiconoscimentoFerriModal } from './RiconoscimentoFerriModal';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -54,6 +55,8 @@ interface MobileRapportinoViewProps {
   onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
   materialiArchive?: Materiale[];
   onAcceptDocument?: (docId: string) => Promise<void>;
+  onSaveDocument?: (doc: MaterialDocument) => Promise<void>;
+  onAddMateriale?: (m: Materiale) => Promise<void>;
 }
 
 export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
@@ -82,9 +85,12 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
   onUpdateMaterialRequestStatus = async (_rid: string, _status: MaterialRequestStatus) => {},
   materialiArchive = [],
   onAcceptDocument = async (_docId: string) => {},
+  onSaveDocument,
+  onAddMateriale,
 }) => {
   const [step, setStep] = useState<'list' | 'create' | 'hub' | 'badge'>('list');
   const [selectedCantiere, setSelectedCantiere] = useState<Cantiere | null>(null);
+  const [showMobileFerriModal, setShowMobileFerriModal] = useState(false);
   const [hubInitialTab, setHubInitialTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>('materiali');
   
   // Real-time emission clock ticker
@@ -515,6 +521,8 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
               onUpdateMaterialRequestStatus={onUpdateMaterialRequestStatus}
               materialiArchive={materialiArchive}
               onAcceptDocument={onAcceptDocument}
+              onSaveDocument={onSaveDocument}
+              onAddMateriale={onAddMateriale}
             />
           </motion.div>
         ) : step === 'badge' ? (
@@ -670,6 +678,29 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
                     <span className="text-[9px] text-slate-300 font-medium">POS, DVR e schede tecniche</span>
                   </button>
                 </div>
+
+                {/* 5. NUOVO MODULO VISIONE AI: RICONOSCIMENTO FERRI DA FOTO */}
+                <button
+                  type="button"
+                  onClick={() => setShowMobileFerriModal(true)}
+                  className="w-full bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-amber-500/10 hover:from-amber-500/30 hover:to-orange-500/25 border border-amber-500/40 p-3.5 rounded-2xl flex items-center justify-between transition-all active:scale-[0.98] cursor-pointer group shadow-sm text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shadow-md group-hover:scale-105 transition-transform shrink-0">
+                      <Camera className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-black text-amber-300">Riconoscimento Ferri da Foto</span>
+                        <span className="bg-amber-400 text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded-full uppercase">
+                          Vision AI
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-300 truncate">Scatta col telefono: conteggio barre e stima peso</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-amber-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                </button>
               </div>
 
               {/* Active Assignments */}
@@ -1577,6 +1608,19 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
         title="Foto Cantiere"
         subtitle={selectedCantiere?.name || 'Rapportino Giornaliero'}
       />
+
+      {/* Riconoscimento Ferri Modal on Mobile */}
+      {showMobileFerriModal && (
+        <RiconoscimentoFerriModal
+          isOpen={showMobileFerriModal}
+          onClose={() => setShowMobileFerriModal(false)}
+          cantieri={cantieri}
+          currentUser={currentUser}
+          defaultCantiereId={selectedCantiere?.id || cantieri[0]?.id}
+          onSaveDocument={onSaveDocument}
+          onAddMateriale={onAddMateriale}
+        />
+      )}
     </div>
   );
 };

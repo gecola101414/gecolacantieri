@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'badge', label: 'Badge Presenze GPS', icon: Clock },
     { id: 'personale', label: 'Personale', icon: HardHat },
     { id: 'mezzi', label: 'Mezzi', icon: Wrench },
-    { id: 'bolle', label: 'Bolle & DDT (PDF)', icon: ReceiptText },
+    { id: 'bolle', label: 'Rilievo Materiali & Bolle', icon: ReceiptText },
     { id: 'rapportini', label: 'Rapportini', icon: FileText },
     { id: 'utenti', label: 'Gestione Utenti', icon: Users },
   ];

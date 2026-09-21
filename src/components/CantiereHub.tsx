@@ -9,11 +9,12 @@ import {
   Calendar, Clock, User, Phone, CheckCircle2, AlertCircle, Plus, Send, Mic, 
   Square, Play, Pause, Trash2, Download, Eye, File, UploadCloud, MapPin, 
   DollarSign, ReceiptText, ChevronRight, ChevronLeft, X, AlertTriangle, Sparkles, Volume2,
-  PackageCheck, ShoppingBag, Check, Layers, ShoppingCart, Maximize2, Minus, History, Undo2
+  PackageCheck, ShoppingBag, Check, Layers, ShoppingCart, Maximize2, Minus, History, Undo2, Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MaterialRequestManager } from './MaterialRequestManager';
 import { firestoreService } from '../lib/firestoreService';
+import { RiconoscimentoFerriModal } from './RiconoscimentoFerriModal';
 
 export interface ExtendedStockItem extends StockItem {
   caricoValore?: number;
@@ -73,6 +74,8 @@ interface CantiereHubProps {
   onUpdateMaterialRequestStatus?: (rid: string, status: MaterialRequestStatus) => Promise<void>;
   materialiArchive?: Materiale[];
   onAcceptDocument?: (docId: string) => Promise<void>;
+  onSaveDocument?: (doc: MaterialDocument) => Promise<void>;
+  onAddMateriale?: (m: Materiale) => Promise<void>;
 }
 
 export const CantiereHub: React.FC<CantiereHubProps> = ({
@@ -100,12 +103,15 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
   onUpdateMaterialRequestStatus = async (_rid: string, _status: MaterialRequestStatus) => {},
   materialiArchive = [],
   onAcceptDocument = async (_docId: string) => {},
+  onSaveDocument,
+  onAddMateriale,
 }) => {
   const isReadOnly = currentUser.role === 'dirigente' || currentUser.permissions?.canEdit === false;
   const canUploadDocs = !isReadOnly && currentUser.permissions?.documentale !== false && currentUser.role !== 'lavoratore';
   const canCreateRapportini = !isReadOnly && currentUser.permissions?.rapportini !== false && currentUser.role !== 'lavoratore';
 
   const [activeTab, setActiveTab] = useState<'materiali' | 'rapportini' | 'personale' | 'chat' | 'archivio'>(initialTab);
+  const [showHubFerriModal, setShowHubFerriModal] = useState(false);
 
   // Chat State
   const [inputText, setInputText] = useState('');
@@ -1402,14 +1408,27 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
             {/* 2. Bolle e Forniture del Cantiere (Ordinate dalla più recente in alto - Annullate evidenziate in ROSSO) */}
             {materialFilter === 'bolle' && (
               <section className="space-y-4">
-                <div className="flex items-center justify-between px-1">
+                <div className="flex items-center justify-between px-1 flex-wrap gap-2">
                   <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
                     <ReceiptText className="w-4 h-4 text-blue-500" />
                     Bolle & Forniture Ricevute ({cantiereBolle.length})
                   </h3>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    Ordinamento: più recente in alto
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowHubFerriModal(true)}
+                      className="bg-slate-900 hover:bg-slate-800 text-white font-black px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all active:scale-95 cursor-pointer"
+                      title="Verifica fotografica automatica barre e fascioni di ferro per questo cantiere"
+                    >
+                      <div className="w-4 h-4 rounded-md bg-amber-500 text-slate-950 flex items-center justify-center font-bold">
+                        <Camera className="w-2.5 h-2.5" />
+                      </div>
+                      <span>Riconoscimento Ferri AI</span>
+                    </button>
+                    <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
+                      Ordinamento: più recente in alto
+                    </span>
+                  </div>
                 </div>
 
                 {cantiereBolle.length === 0 ? (
@@ -2960,6 +2979,19 @@ export const CantiereHub: React.FC<CantiereHubProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Riconoscimento Ferri da Foto Modal */}
+      {showHubFerriModal && (
+        <RiconoscimentoFerriModal
+          isOpen={showHubFerriModal}
+          onClose={() => setShowHubFerriModal(false)}
+          cantieri={cantieri}
+          currentUser={currentUser}
+          defaultCantiereId={cantiere.id}
+          onSaveDocument={onSaveDocument}
+          onAddMateriale={onAddMateriale}
+        />
+      )}
     </div>
   );
 };

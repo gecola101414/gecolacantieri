@@ -2264,6 +2264,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               onUpdateMaterialRequestStatus={onUpdateMaterialRequestStatus}
               materialiArchive={materiali}
               onAcceptDocument={onAcceptDocument}
+              onSaveDocument={onAddDocument}
+              onAddMateriale={onAddMateriale}
             />
           </div>
         </div>
