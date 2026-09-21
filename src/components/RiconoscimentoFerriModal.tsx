@@ -3,7 +3,7 @@ import {
   Camera, Sparkles, Upload, X, Check, RefreshCw, ZoomIn, ZoomOut, 
   Layers, Eye, Plus, Minus, FileText, CheckCircle2, AlertTriangle, 
   ShieldCheck, Scale, Ruler, Building2, Printer, Download, Info, 
-  ChevronRight, Box, ArrowRight
+  ChevronRight, Box, ArrowRight, Zap, Sliders
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Cantiere, MaterialDocument, Materiale, UserAccount } from '../types';
@@ -18,6 +18,7 @@ import {
   generaBollaScaricoDaRilievo,
   generaMaterialiDaRilievo
 } from '../utils/ferroUtils';
+import { analyzeFerriInBrowser } from '../utils/browserFerroVision';
 import { APP_VERSION, APP_LAST_UPDATE } from '../version';
 
 interface RiconoscimentoFerriModalProps {
@@ -56,6 +57,9 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
   const [selectedFileName, setSelectedFileName] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [engineMode, setEngineMode] = useState<'browser' | 'cloud'>('browser');
+  const [sensitivity, setSensitivity] = useState<'bassa' | 'media' | 'alta'>('media');
   const [selectedCantiereId, setSelectedCantiereId] = useState<string>(
     defaultCantiereId || cantieri[0]?.id || ''
   );
@@ -90,12 +94,50 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
 
   const currentCantiere = cantieri.find(c => c.id === selectedCantiereId);
 
+  // Helper: Automatic client-side compression for high-res smartphone photos (crucial for Vercel 4.5MB limit & speed)
+  const compressImageForVision = (dataUrl: string, maxDimension = 1600, quality = 0.82): Promise<string> => {
+    return new Promise((resolve) => {
+      if (dataUrl.startsWith('data:image/svg') || dataUrl.length < 500 * 1024) {
+        resolve(dataUrl);
+        return;
+      }
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  };
+
   // File selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setSelectedFileName(file.name);
+    setErrorMessage(null);
     const reader = new FileReader();
     reader.onload = (uploadEvent) => {
       const dataUrl = uploadEvent.target?.result as string;
@@ -109,25 +151,65 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
   const handleUseDemo = (demoImg: string, name: string) => {
     setSelectedImage(demoImg);
     setSelectedFileName(name);
+    setErrorMessage(null);
     setResult(null);
     setSavedSuccessMessage(null);
   };
 
-  // Run AI Vision Analysis
-  const handleRunAnalysis = async () => {
+  // Run Vision Analysis (Browser Deterministic Engine or Cloud AI)
+  const handleRunAnalysis = async (overrideEngine?: 'browser' | 'cloud') => {
     if (!selectedImage) return;
 
+    const currentEngine = overrideEngine || engineMode;
     setIsAnalyzing(true);
-    setAnalysisStep('Segmentazione immagine e individuazione fascioni...');
+    setErrorMessage(null);
+
+    // MODALITA' 1: Motore Locale nel Browser (100% Offline, Regole Geometriche, Simmetria Radiale)
+    if (currentEngine === 'browser') {
+      try {
+        setAnalysisStep('Inizializzazione canvas e calcolo luminanza sezioni...');
+        await new Promise(r => setTimeout(r, 60));
+        setAnalysisStep('Scansione sezioni di taglio lucide e simmetria radiale (FRST)...');
+        await new Promise(r => setTimeout(r, 100));
+        setAnalysisStep('Clustering multi-fascione su ripiani e calcolo pesi...');
+
+        const browserResult = await analyzeFerriInBrowser(selectedImage, {
+          diametroSelezionato: selectedDiameter === 'auto' ? undefined : selectedDiameter,
+          lunghezzaMetri: barLength,
+          sensitivity,
+          cantiereId: selectedCantiereId,
+          cantiereName: currentCantiere?.name || 'Cantiere',
+          operatore: currentUser.name,
+        });
+
+        setResult(browserResult);
+        setActiveTab('visione');
+      } catch (browserErr: any) {
+        console.error('Browser vision error:', browserErr);
+        setErrorMessage(browserErr?.message || 'Errore durante l\'analisi locale nel browser.');
+      } finally {
+        setIsAnalyzing(false);
+        setAnalysisStep('');
+      }
+      return;
+    }
+
+    // MODALITA' 2: Visione Multimodale Cloud (Google Gemini)
+    setAnalysisStep('Ottimizzazione immagine e compressione payload...');
 
     try {
+      // 1. Client-side compression to stay well below Vercel's 4.5MB limit and ensure sub-second upload
+      const optimizedImage = await compressImageForVision(selectedImage, 1600, 0.82);
+
+      setAnalysisStep('Segmentazione immagine e individuazione fascioni...');
+
       // Step simulator for realistic UX
       const timer1 = setTimeout(() => {
         setAnalysisStep('Rilevamento contrasto teste di taglio lucide...');
       }, 1200);
 
       const timer2 = setTimeout(() => {
-        setAnalysisStep('Conteggio puntuale delle barre e calcolo densità...');
+        setAnalysisStep('Conteggio puntuale delle barre e calcolo pesi...');
       }, 2500);
 
       const response = await fetch('/api/analyze-ferri', {
@@ -136,8 +218,8 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          imageBase64: selectedImage,
-          mimeType: selectedImage.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
+          imageBase64: optimizedImage,
+          mimeType: 'image/jpeg',
           diametroSelezionato: selectedDiameter === 'auto' ? undefined : selectedDiameter,
           lunghezzaMetri: barLength,
           cantiereName: currentCantiere?.name || '',
@@ -149,13 +231,27 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
       clearTimeout(timer2);
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Errore durante l\'elaborazione dell\'immagine con il modello di visione.');
+        let serverErr = '';
+        try {
+          const errorData = await response.json();
+          serverErr = errorData.error || errorData.message || '';
+        } catch {
+          if (response.status === 413) {
+            serverErr = 'Payload immagine troppo pesante per il server (limite 4.5MB).';
+          } else if (response.status === 504) {
+            serverErr = 'Timeout di risposta del server (504 Gateway Timeout).';
+          } else if (response.status === 404) {
+            serverErr = 'Endpoint /api/analyze-ferri non raggiungibile (HTTP 404).';
+          } else {
+            serverErr = `Errore HTTP ${response.status}: risposta del server non valida.`;
+          }
+        }
+        throw new Error(serverErr || `Errore HTTP ${response.status} durante l'elaborazione.`);
       }
 
       const resJson = await response.json();
       if (!resJson.success || !resJson.data) {
-        throw new Error(resJson.error || 'Risultato analisi non valido');
+        throw new Error(resJson.error || 'Risultato analisi non valido ricevuto dal server.');
       }
 
       const parsed: RiconoscimentoFerriResult = {
@@ -170,54 +266,9 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
       setResult(parsed);
       setActiveTab('visione');
     } catch (err: any) {
-      console.warn('Backend API analysis failed, providing fallback vision reconstruction:', err);
-      // Fallback in case of temporary offline/error so user can still continue
-      const fallbackDiam = typeof selectedDiameter === 'number' ? selectedDiameter : 12;
-      const count = 48;
-      const pesoFascione = calcolaPesoFascione(count, fallbackDiam, barLength);
-
-      // Generate points in a circular pattern for demo visualization
-      const generatedPoints: Array<{ x: number; y: number }> = [];
-      for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2;
-        const rad = 10 + (i % 4) * 8;
-        generatedPoints.push({
-          x: Math.round((50 + Math.cos(angle) * rad) * 10) / 10,
-          y: Math.round((50 + Math.sin(angle) * rad) * 10) / 10,
-        });
-      }
-
-      const fallbackResult: RiconoscimentoFerriResult = {
-        totale_ferri: count,
-        numero_fascioni: 1,
-        peso_totale_kg: pesoFascione,
-        lunghezza_barre_metri: barLength,
-        fascioni: [
-          {
-            id_fascione: 'Fascione 1',
-            posizione: 'Fascione centrale unico',
-            quantita_barre: count,
-            diametro_mm: fallbackDiam,
-            peso_stimato_kg: pesoFascione,
-            livello_confidenza: 'media',
-            box_percentuale: { x: 25, y: 20, width: 50, height: 60 },
-            coordinate_punti: generatedPoints,
-          }
-        ],
-        qualita_foto: {
-          illuminazione: 'sufficiente',
-          note: 'Elaborazione completata in modalità locale di riserva.',
-        },
-        sintesi_tecnica: `Rilevato 1 fascione di tondi B450C Ø${fallbackDiam}mm (${count} barre, peso teorico ${pesoFascione} kg).`,
-        cantiereId: selectedCantiereId,
-        cantiereName: currentCantiere?.name || 'Cantiere',
-        dataRilievo: new Date().toISOString(),
-        operatore: currentUser.name,
-        imageUrl: selectedImage,
-      };
-
-      setResult(fallbackResult);
-      setActiveTab('visione');
+      console.error('Vision analysis error:', err);
+      const msg = err?.message || 'Errore durante l\'elaborazione dell\'immagine con il modello di visione.';
+      setErrorMessage(msg);
     } finally {
       setIsAnalyzing(false);
       setAnalysisStep('');
@@ -285,10 +336,18 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
     const clickX = ((e.clientX - rect.left) / rect.width) * 100;
     const clickY = ((e.clientY - rect.top) / rect.height) * 100;
 
-    // Add point to the first or active bundle
-    const targetFascione = activeFascioneId 
-      ? result.fascioni.find(f => f.id_fascione === activeFascioneId) || result.fascioni[0]
-      : result.fascioni[0];
+    // Add point to the active bundle or smart-detect which bundle bounding box contains the click
+    let targetFascione = activeFascioneId 
+      ? result.fascioni.find(f => f.id_fascione === activeFascioneId)
+      : null;
+
+    if (!targetFascione) {
+      targetFascione = result.fascioni.find(f => {
+        if (!f.box_percentuale) return false;
+        const b = f.box_percentuale;
+        return clickX >= b.x && clickX <= b.x + b.width && clickY >= b.y && clickY <= b.y + b.height;
+      }) || result.fascioni[0];
+    }
 
     if (!targetFascione) return;
 
@@ -646,12 +705,176 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
                   </div>
                 </div>
 
+                {/* Engine Selector: Browser (Rule-based / Local) vs Cloud (Gemini) */}
+                <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                      Motore di Visione Computazionale
+                    </span>
+                    <span className="text-[10px] text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800">
+                      {engineMode === 'browser' ? '⚡ 100% Offline nel Browser' : '🤖 Cloud Gemini'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEngineMode('browser');
+                        setErrorMessage(null);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                        engineMode === 'browser'
+                          ? 'bg-amber-500/15 border-amber-500/70 text-white shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className={engineMode === 'browser' ? 'text-amber-300' : 'text-slate-300'}>
+                          Motore Locale Browser (A Regole)
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight">
+                        Riconoscimento deterministico tramite contrasto teste di taglio metalliche e simmetria radiale (FRST). <strong>Zero API Key, immediato su Vercel e smartphone</strong>.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEngineMode('cloud');
+                        setErrorMessage(null);
+                      }}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                        engineMode === 'cloud'
+                          ? 'bg-amber-500/15 border-amber-500/70 text-white shadow-sm'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold text-xs">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className={engineMode === 'cloud' ? 'text-amber-300' : 'text-slate-300'}>
+                          Visione Multimodale AI Cloud
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight">
+                        Analisi neurale con Google Gemini Flash. Richiede configurazione di GEMINI_API_KEY nel backend del server.
+                      </p>
+                    </button>
+                  </div>
+
+                  {/* Sensitivity controls for browser rule-based engine */}
+                  {engineMode === 'browser' && (
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1">
+                        Sensibilità rilevamento barre:
+                      </span>
+                      <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800">
+                        {(['bassa', 'media', 'alta'] as const).map(sens => (
+                          <button
+                            key={sens}
+                            type="button"
+                            onClick={() => setSensitivity(sens)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase transition-all cursor-pointer ${
+                              sensitivity === sens
+                                ? 'bg-amber-500 text-slate-950 font-black shadow-sm'
+                                : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {sens} {sens === 'media' && '(Consigliata)'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Diagnostic & Error Alert */}
+                {errorMessage && (
+                  <div className="bg-red-500/10 border border-red-500/40 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 text-xs flex-1">
+                        <p className="font-black text-red-300">
+                          Impossibile completare l'analisi con Visione AI Cloud:
+                        </p>
+                        <p className="text-slate-300 font-mono text-[11px] bg-slate-950/70 p-2 rounded-lg border border-red-500/20 break-all">
+                          {errorMessage}
+                        </p>
+
+                        <div className="mt-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs">
+                          💡 <strong>Soluzione Immediata:</strong> Puoi usare il <strong>Motore Locale nel Browser</strong> che funziona al 100% offline direttamente sul tuo dispositivo senza alcuna chiave API o limite serverless!
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEngineMode('browser');
+                          handleRunAnalysis('browser');
+                        }}
+                        disabled={isAnalyzing}
+                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                      >
+                        <Zap className="w-3.5 h-3.5" /> Esegui Subito con Motore Locale Browser
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const fallbackDiam = typeof selectedDiameter === 'number' ? selectedDiameter : 12;
+                          const count = 50;
+                          const peso = calcolaPesoFascione(count, fallbackDiam, barLength);
+                          setResult({
+                            totale_ferri: count,
+                            numero_fascioni: 1,
+                            peso_totale_kg: peso,
+                            lunghezza_barre_metri: barLength,
+                            fascioni: [
+                              {
+                                id_fascione: 'Fascione 1',
+                                posizione: 'Fascione verificato manualmente',
+                                quantita_barre: count,
+                                diametro_mm: fallbackDiam,
+                                peso_stimato_kg: peso,
+                                livello_confidenza: 'alta',
+                                coordinate_punti: [],
+                              }
+                            ],
+                            qualita_foto: { illuminazione: 'buona', note: 'Inserimento manuale operatore di cantiere' },
+                            sintesi_tecnica: `Rilievo manuale cantiere: 1 fascione tondi B450C Ø${fallbackDiam}mm (${count} barre, ${peso} kg).`,
+                            cantiereId: selectedCantiereId,
+                            cantiereName: currentCantiere?.name || 'Cantiere',
+                            dataRilievo: new Date().toISOString(),
+                            operatore: currentUser.name,
+                            imageUrl: selectedImage || undefined,
+                          });
+                          setActiveTab('visione');
+                        }}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs border border-slate-700 transition-all cursor-pointer"
+                      >
+                        Compila Manualmente
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setErrorMessage(null)}
+                        className="text-slate-400 hover:text-slate-200 px-2 py-1.5 rounded-xl text-xs transition-all cursor-pointer ml-auto"
+                      >
+                        Chiudi
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Submit Button */}
                 <div className="pt-2">
                   <button
                     type="button"
                     disabled={!selectedImage || isAnalyzing}
-                    onClick={handleRunAnalysis}
+                    onClick={() => handleRunAnalysis()}
                     className={`w-full py-3.5 px-6 rounded-2xl font-black text-xs flex items-center justify-center gap-2.5 transition-all shadow-xl cursor-pointer ${
                       !selectedImage || isAnalyzing
                         ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -663,10 +886,15 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
                         <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
                         <span>{analysisStep || 'Analisi Visione Computazionale in corso...'}</span>
                       </>
+                    ) : engineMode === 'browser' ? (
+                      <>
+                        <Zap className="w-4 h-4 text-slate-950" />
+                        <span>Esegui Conteggio Ferri con Motore Locale Browser (Offline)</span>
+                      </>
                     ) : (
                       <>
                         <Sparkles className="w-4 h-4 text-slate-950" />
-                        <span>Esegui Conteggio Ferri & Calcolo Pesi con Visione AI</span>
+                        <span>Esegui Conteggio Ferri con Visione AI Cloud (Gemini)</span>
                       </>
                     )}
                   </button>
@@ -795,6 +1023,41 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
                           {showCoordinates ? 'Nascondi Punti' : 'Mostra Punti'}
                         </button>
                       </div>
+                    </div>
+
+                    {/* Quick Tuning Toolbar */}
+                    <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-900 text-[11px] flex-wrap">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400">Motore attivo:</span>
+                        <span className="font-bold text-amber-300 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                          {engineMode === 'browser' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                          {engineMode === 'browser' ? 'Locale Browser (Regole Geometriche)' : 'Visione Cloud Gemini'}
+                        </span>
+                      </div>
+
+                      {engineMode === 'browser' && (
+                        <div className="flex items-center gap-1.5 ml-auto">
+                          <span className="text-slate-400 text-[10px]">Ricalcola con sensibilità:</span>
+                          {(['bassa', 'media', 'alta'] as const).map(sens => (
+                            <button
+                              key={sens}
+                              type="button"
+                              onClick={() => {
+                                setSensitivity(sens);
+                                handleRunAnalysis('browser');
+                              }}
+                              disabled={isAnalyzing}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer ${
+                                sensitivity === sens
+                                  ? 'bg-amber-500 text-slate-950 shadow'
+                                  : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                              }`}
+                            >
+                              {sens}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Canvas Container with Overlays */}

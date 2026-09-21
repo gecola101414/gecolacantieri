@@ -33,7 +33,7 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 // Health endpoint
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/health'], (req, res) => {
   res.json({
     status: 'ok',
     geminiConfigured: !!process.env.GEMINI_API_KEY,
@@ -63,7 +63,7 @@ function parseItalianNumber(val: any): number {
 }
 
 // AI Multimodal OCR & Document Extraction for Bolle, DDT and Fatture
-app.post('/api/analyze-bolla', async (req, res) => {
+app.post(['/api/analyze-bolla', '/analyze-bolla'], async (req, res) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg', text, fileName = 'documento' } = req.body;
 
@@ -289,7 +289,7 @@ function getPesoLineare(diametro: number): number {
 }
 
 // AI Computer Vision: Rebar & Steel Bundles Detection & Counting (Riconoscimento Ferri)
-app.post('/api/analyze-ferri', async (req, res) => {
+app.post(['/api/analyze-ferri', '/analyze-ferri'], async (req, res) => {
   try {
     const { 
       imageBase64, 
@@ -310,12 +310,15 @@ app.post('/api/analyze-ferri', async (req, res) => {
     const systemPrompt = `Sei un modulo di Visione Computazionale avanzato integrato in un software professionale per la Gestione Cantieri e Inventario Materiali Edili (CantieriCloud Pro).
 
 OBIETTIVO:
-Analizzare la foto frontale ad alta risoluzione fornita dall'operatore di cantiere, individuare i fascioni di ferri d'armatura (tondi per cemento armato B450C) ed eseguire il conteggio preciso delle barre visibili sfruttando la lucentezza metallica e il contrasto delle teste di taglio del ferro tagliato rispetto al resto dello sfondo.
+Analizzare la foto frontale ad alta risoluzione fornita dall'operatore di cantiere, individuare TUTTI i singoli fascioni di ferri d'armatura (tondi per cemento armato B450C) ed eseguire il conteggio preciso delle barre visibili sfruttando la lucentezza metallica e il contrasto delle teste di taglio del ferro tagliato rispetto allo sfondo.
 
-ISTRUZIONI DI ANALISI:
-1. RILEVAMENTO FASCIONI: Segmenta l'immagine identificando i singoli fascioni o lotti di barre presenti (es. distinguendo per livello superiore/inferiore, sinistra/destra, oppure fascione singolo).
-2. CONTEGGIO TESTE DI TAGLIO: Identifica le sezioni trasversali circolari delle barre sfruttando il contrasto cromatico e i riflessi luminosi sulle teste di taglio lucide (che appaiono come pixel/cerchietti chiari e brillanti).
-3. CONTEGGIO PUNTUALE: Conta ogni singolo cerchio/punto luminoso corrispondente a una barra all'interno di ciascun fascione.
+ISTRUZIONI DI ANALISI CRUCIALI:
+1. RILEVAMENTO FASCIONI & SEGMENTAZIONE COMPLETA (ATTENZIONE A RASTRELLIERE E MULTI-LIVELLO):
+   - Scansiona l'intera inquadratura: spesso le barre sono appoggiate su rastrelliere a più piani (es. ripiano superiore, ripiano inferiore separati da travetti in legno o travi d'acciaio) con più lotti affiancati (es. sinistra, centro, destra).
+   - NON limitarti al centro dell'immagine! Individua e separa CIASCUN fascione o lotto distinto (es. "Fascione Superiore Sx", "Fascione Superiore Centro", "Fascione Superiore Dx", "Fascione Inferiore Sx", "Fascione Inferiore Centro", "Fascione Inferiore Dx").
+   - Se ci sono 3, 4, 6 o più fasci distinti, genera una voce separata nell'array "fascioni" per OGNI fascione con il relativo bounding box e le sue barre.
+2. CONTEGGIO TESTE DI TAGLIO: Identifica le sezioni trasversali circolari delle barre sfruttando il contrasto cromatico e i riflessi luminosi sulle teste di taglio lucide (che appaiono come pixel/cerchietti chiari e brillanti rispetto alla ruggine/sfondo).
+3. CONTEGGIO PUNTUALE: Conta ogni singolo cerchio/punto luminoso corrispondente a una barra all'interno di ciascun fascione identificato.
 4. GESTIONE OMBRE/COPERTURE: Se alcune barre sono parzialmente coperte o in ombra, stima il conteggio in base alla densità della sezione e indica un livello di confidenza ("alta", "media", "bassa").
 5. PARAMETRI AGGIUNTIVI FORNITI DALL'OPERATORE:
    - Diametro impostato dall'operatore: ${diametroSelezionato ? diametroSelezionato + ' mm' : 'Non specificato (stima tu il diametro nominale più probabile tra 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32 mm)'}
