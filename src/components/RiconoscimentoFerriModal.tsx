@@ -188,26 +188,30 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
   };
 
   // Run Vision Analysis (Browser Deterministic Engine or Cloud AI)
-  const handleRunAnalysis = async (overrideEngine?: 'browser' | 'cloud') => {
+  const handleRunAnalysis = async (
+    overrideEngine?: 'browser' | 'cloud',
+    overrideSensitivity?: 'bassa' | 'media' | 'alta'
+  ) => {
     if (!selectedImage) return;
 
     const currentEngine = overrideEngine || engineMode;
+    const currentSens = overrideSensitivity || sensitivity;
     setIsAnalyzing(true);
     setErrorMessage(null);
 
-    // MODALITA' 1: Motore Locale nel Browser (100% Offline, Regole Geometriche, Simmetria Radiale)
+    // MODALITA' 1: Motore Locale nel Browser (100% Offline, Filtro Risposta Circolare Differenziale e Reticolo)
     if (currentEngine === 'browser') {
       try {
         setAnalysisStep('Inizializzazione canvas e calcolo luminanza sezioni...');
         await new Promise(r => setTimeout(r, 60));
-        setAnalysisStep('Scansione sezioni di taglio lucide e simmetria radiale (FRST)...');
+        setAnalysisStep('Rilevamento teste di taglio e filtro risposta circolare...');
         await new Promise(r => setTimeout(r, 100));
-        setAnalysisStep('Clustering multi-fascione su ripiani e calcolo pesi...');
+        setAnalysisStep('Risoluzione geometrica impacchettamento e clustering fascioni...');
 
         const browserResult = await analyzeFerriInBrowser(selectedImage, {
           diametroSelezionato: selectedDiameter === 'auto' ? undefined : selectedDiameter,
           lunghezzaMetri: barLength,
-          sensitivity,
+          sensitivity: currentSens,
           highlightThreshold: currentAdjustments.highlightThreshold,
           roundnessThreshold: 0.62,
           cantiereId: selectedCantiereId,
@@ -1082,29 +1086,56 @@ export const RiconoscimentoFerriModal: React.FC<RiconoscimentoFerriModalProps> =
 
                     {/* Quick Tuning Toolbar */}
                     <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-900 text-[11px] flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400">Motore attivo:</span>
-                        <span className="font-bold text-amber-300 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                          {engineMode === 'browser' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-                          {engineMode === 'browser' ? 'Locale Browser (Regole Geometriche)' : 'Visione Cloud Gemini'}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-400">Motore attivo:</span>
+                          <span className="font-bold text-amber-300 flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                            {engineMode === 'browser' ? <Zap className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
+                            {engineMode === 'browser' ? 'Locale Browser (Risposta Circolare)' : 'Visione Cloud Gemini'}
+                          </span>
+                        </div>
+
+                        {/* Switch Engine Quick Button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextEngine = engineMode === 'browser' ? 'cloud' : 'browser';
+                            setEngineMode(nextEngine);
+                            handleRunAnalysis(nextEngine);
+                          }}
+                          disabled={isAnalyzing}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold text-slate-300 hover:text-amber-300 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 flex items-center gap-1 transition-all cursor-pointer"
+                          title={engineMode === 'browser' ? 'Confronta con intelligenza neurale Gemini' : 'Passa al motore locale deterministico del browser'}
+                        >
+                          {engineMode === 'browser' ? (
+                            <>
+                              <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Prova Cloud Gemini</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-2.5 h-2.5 text-amber-400" />
+                              <span>Torna a Motore Locale</span>
+                            </>
+                          )}
+                        </button>
                       </div>
 
                       {engineMode === 'browser' && (
                         <div className="flex items-center gap-1.5 ml-auto">
-                          <span className="text-slate-400 text-[10px]">Ricalcola con sensibilità:</span>
+                          <span className="text-slate-400 text-[10px]">Sensibilità:</span>
                           {(['bassa', 'media', 'alta'] as const).map(sens => (
                             <button
                               key={sens}
                               type="button"
                               onClick={() => {
                                 setSensitivity(sens);
-                                handleRunAnalysis('browser');
+                                handleRunAnalysis('browser', sens);
                               }}
                               disabled={isAnalyzing}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer ${
+                              className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer ${
                                 sensitivity === sens
-                                  ? 'bg-amber-500 text-slate-950 shadow'
+                                  ? 'bg-amber-500 text-slate-950 shadow font-black'
                                   : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
                               }`}
                             >

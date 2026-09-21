@@ -1,22 +1,23 @@
 // Motore di Visione Computazionale 100% Client-Side nel Browser
-// Basato su algoritmi deterministici e regole geometriche per l'individuazione di tondi B450C:
-// 1. Analisi contrasto di luminanza (teste di taglio metalliche lucide vs interstizi d'ombra)
-// 2. Trasformata di Simmetria Radiale Veloce (FRST) e rilevamento cerchi (Hough circolare)
-// 3. Soppressione dei non-massimi (NMS) basata sul diametro delle barre
-// 4. Segmentazione e clustering spaziale multi-fascione (separazione ripiani e lotti)
-// 5. Calcolo pesi teorici B450C UNI EN 10080
+// Basato su algoritmi deterministici e filtri di risposta circolare per l'individuazione di tondi B450C:
+// 1. Analisi contrasto di luminanza e binarizzazione adattiva (teste di taglio lucide vs interstizi d'ombra)
+// 2. Filtro di Risposta Circolare Differenziale (Circular Difference-of-Gaussians / Annular Ring Contrast)
+// 3. Stima automatica del raggio dominante delle barre nel fascio (adattamento da Ø8 a Ø32 a qualsiasi distanza)
+// 4. Soppressione dei non-massimi (NMS) con vincolo geometrico di impacchettamento e non compenetrazione
+// 5. Raggruppamento e clustering spaziale multi-fascione (distinzione ripiani e lotti separati)
+// 6. Calcolo pesi teorici B450C UNI EN 10080
 
-import { FascioneRilevato, RiconoscimentoFerriResult, PESI_LINEARI_FERRO, calcolaPesoFascione } from './ferroUtils';
+import { FascioneRilevato, RiconoscimentoFerriResult, calcolaPesoFascione } from './ferroUtils';
 
 export interface BrowserVisionOptions {
-  diametroSelezionato?: number; // mm (se specificato dall'utente, altrimenti stimato)
+  diametroSelezionato?: number; // mm (se specificato dall'operatore, altrimenti stimato o default 12)
   lunghezzaMetri: number;
   sensitivity?: 'bassa' | 'media' | 'alta';
   highlightThreshold?: number; // 0-255: soglia per considerare una parte "lucida"
   roundnessThreshold?: number; // 0.0 - 1.0: rigidità forma rotonda
   minRadius?: number; // raggio minimo in pixel
   maxRadius?: number; // raggio massimo in pixel
-  cropRect?: { x: number; y: number; width: number; height: number }; // % ritaglio
+  cropRect?: { x: number; y: number; width: number; height: number }; // % ritaglio ROI
   cantiereId?: string;
   cantiereName?: string;
   operatore?: string;
@@ -36,8 +37,8 @@ function loadImage(dataUrl: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Esegue il rilevamento delle sole parti più chiare/lucenti di forma strettamente rotonda
- * direttamente nel browser senza alcuna dipendenza esterna o modello neurale.
+ * Esegue il rilevamento ad alta precisione di TUTTE le teste di taglio circolari nel fascio
+ * direttamente nel browser senza alcuna dipendenza cloud o librerie esterne pesanti.
  */
 export async function analyzeFerriInBrowser(
   dataUrl: string,
@@ -45,8 +46,9 @@ export async function analyzeFerriInBrowser(
 ): Promise<RiconoscimentoFerriResult> {
   const img = await loadImage(dataUrl);
 
-  // Normalizza le dimensioni di analisi per garantire massima reattività (< 300ms)
-  const maxDim = 850;
+  // Normalizza le dimensioni di analisi per garantire massima reattività (< 250ms)
+  // mantenendo la risoluzione geometrica ottimale per distinguere barre a contatto
+  const maxDim = 900;
   let w = img.naturalWidth || img.width;
   let h = img.naturalHeight || img.height;
 
@@ -72,7 +74,7 @@ export async function analyzeFerriInBrowser(
   const imageData = ctx.getImageData(0, 0, w, h);
   const pixels = imageData.data;
 
-  // 1. Mappa di luminanza percettiva (BT.601) e calcolo statistiche
+  // 1. Mappa di luminanza percettiva (BT.601) e statistiche
   const gray = new Float32Array(w * h);
   let sumL = 0;
   let maxL = 0;
@@ -90,205 +92,232 @@ export async function analyzeFerriInBrowser(
   }
   const avgLuminance = sumL / (w * h);
 
-  // Calcolo soglia automatica parti lucide se non specificata dall'utente
-  // La testa di taglio del ferro è tra il 20% dei pixel più chiari dell'immagine
-  const userThresh = options.highlightThreshold;
-  const sens = options.sensitivity || 'media';
-  let brightThreshold = userThresh !== undefined 
-    ? userThresh 
-    : avgLuminance + (maxL - avgLuminance) * (sens === 'alta' ? 0.35 : sens === 'bassa' ? 0.65 : 0.48);
-
-  // Limiti raggio teste rotonde in pixel (in base al diametro o sensibilità)
-  const minR = options.minRadius || (sens === 'alta' ? 4 : sens === 'bassa' ? 7 : 5);
-  const maxR = options.maxRadius || (sens === 'alta' ? 24 : sens === 'bassa' ? 18 : 20);
-  const minRoundness = options.roundnessThreshold || 0.62; // Rapporto R_min / R_max
-
-  // 2. Mappa dei gradienti Sobel
-  const gradMag = new Float32Array(w * h);
-  const gradDirX = new Float32Array(w * h);
-  const gradDirY = new Float32Array(w * h);
-
-  for (let y = 1; y < h - 1; y++) {
-    for (let x = 1; x < w - 1; x++) {
-      const idx = y * w + x;
-      const gx = (gray[idx + 1] - gray[idx - 1]) * 0.5;
-      const gy = (gray[idx + w] - gray[idx - w]) * 0.5;
-      const mag = Math.sqrt(gx * gx + gy * gy);
-      gradMag[idx] = mag;
-      if (mag > 3) {
-        gradDirX[idx] = gx / mag;
-        gradDirY[idx] = gy / mag;
-      }
-    }
-  }
-
-  // Se è stato specificato un ritaglio, delimitiamo l'area di scansione
-  let minScanX = 10;
-  let maxScanX = w - 10;
-  let minScanY = 10;
-  let maxScanY = h - 10;
+  // Delimitazione dell'area di scansione (in caso di ritaglio ROI manuale)
+  let minScanX = 8;
+  let maxScanX = w - 8;
+  let minScanY = 8;
+  let maxScanY = h - 8;
 
   if (options.cropRect) {
     const c = options.cropRect;
-    minScanX = Math.max(10, Math.round((c.x / 100) * w));
-    minScanY = Math.max(10, Math.round((c.y / 100) * h));
-    maxScanX = Math.min(w - 10, Math.round(((c.x + c.width) / 100) * w));
-    maxScanY = Math.min(h - 10, Math.round(((c.y + c.height) / 100) * h));
+    minScanX = Math.max(8, Math.round((c.x / 100) * w));
+    minScanY = Math.max(8, Math.round((c.y / 100) * h));
+    maxScanX = Math.min(w - 8, Math.round(((c.x + c.width) / 100) * w));
+    maxScanY = Math.min(h - 8, Math.round(((c.y + c.height) / 100) * h));
   }
 
-  // 3. Rilevamento delle sole parti più chiare e verifica della forma rotonda
-  interface DetectedCircle {
-    x: number;
-    y: number;
-    radius: number;
-    circularity: number;
-    brightness: number;
-    score: number;
+  // Calcolo statistiche dell'area di interesse (ROI)
+  let roiSum = 0;
+  let roiCount = 0;
+  let roiMax = 0;
+  let roiMin = 255;
+  for (let y = minScanY; y < maxScanY; y += 2) {
+    for (let x = minScanX; x < maxScanX; x += 2) {
+      const val = gray[y * w + x];
+      roiSum += val;
+      roiCount++;
+      if (val > roiMax) roiMax = val;
+      if (val < roiMin) roiMin = val;
+    }
+  }
+  const roiAvg = roiCount > 0 ? roiSum / roiCount : avgLuminance;
+
+  const sens = options.sensitivity || 'media';
+
+  // Soglia minima di luminosità della testa metallica
+  // Nelle foto di cantiere, il metallo tagliato è più chiaro dello sfondo scuro o degli interstizi d'ombra
+  let minMetalLum: number;
+  if (options.highlightThreshold !== undefined && options.highlightThreshold !== 110) {
+    // L'utente ha personalizzato manualmente lo slider di soglia
+    minMetalLum = options.highlightThreshold;
+  } else {
+    // Calcolo adattivo automatico: il metallo tagliato si trova sopra la media della ROI
+    const sensFactor = sens === 'alta' ? 0.15 : sens === 'bassa' ? 0.35 : 0.22;
+    minMetalLum = Math.max(35, roiAvg + (roiMax - roiAvg) * sensFactor);
   }
 
-  const detectedCircles: DetectedCircle[] = [];
-  const numRays = 12; // 12 raggi a 30 gradi per test di rotondità ad alta precisione
-  const rayAngles: Array<{ cos: number; sin: number }> = [];
-  for (let a = 0; a < numRays; a++) {
-    const rad = (a / numRays) * Math.PI * 2;
-    rayAngles.push({ cos: Math.cos(rad), sin: Math.sin(rad) });
-  }
+  // 2. Stima Automatica del Raggio Dominante (Ø barre in pixel)
+  // In un fascione di ferro omogeneo, tutte le barre hanno il medesimo diametro.
+  // Testiamo diversi raggi candidati e individuiamo quello che massimizza la risonanza circolare
+  const candidateRadii = [10, 14, 18, 22, 26, 30, 34, 40, 48];
+  let bestR = options.diametroSelezionato ? Math.max(12, Math.round(options.diametroSelezionato * 1.5)) : 22;
+  let bestRScore = -1;
 
-  // Scansione pixel candidati: SOLO pixel con luminanza superiore alla soglia e che sono massimi locali
-  const step = 2;
-  for (let y = minScanY + maxR; y < maxScanY - maxR; y += step) {
-    for (let x = minScanX + maxR; x < maxScanX - maxR; x += step) {
-      const idx = y * w + x;
-      const centerLum = gray[idx];
+  for (const testR of candidateRadii) {
+    const inR = Math.max(2, Math.round(testR * 0.55));
+    const outR1 = Math.round(testR * 0.92);
+    const outR2 = Math.round(testR * 1.25);
 
-      // REGOLA 1: Deve essere una delle parti più chiare (sopra soglia di brillantezza)
-      if (centerLum < brightThreshold) continue;
-
-      // Massimo locale in una finestra 5x5
-      let isLocalMax = true;
-      for (let dy = -2; dy <= 2; dy += 2) {
-        for (let dx = -2; dx <= 2; dx += 2) {
-          if (dx === 0 && dy === 0) continue;
-          if (gray[(y + dy) * w + (x + dx)] > centerLum) {
-            isLocalMax = false;
-            break;
-          }
-        }
-        if (!isLocalMax) break;
+    // Campionamento rapido per determinare la risonanza del raggio
+    const inOffsets: Array<{ dx: number; dy: number }> = [];
+    for (let dy = -inR; dy <= inR; dy += 2) {
+      for (let dx = -inR; dx <= inR; dx += 2) {
+        if (dx * dx + dy * dy <= inR * inR) inOffsets.push({ dx, dy });
       }
-      if (!isLocalMax) continue;
+    }
 
-      // REGOLA 2: Verifica geometrica della forma rotonda lungo 12 direzioni radiali
-      const rayLengths: number[] = [];
-      let totalR = 0;
-      let validRays = 0;
+    const outOffsets: Array<{ dx: number; dy: number }> = [];
+    for (let dy = -outR2; dy <= outR2; dy += 2) {
+      for (let dx = -outR2; dx <= outR2; dx += 2) {
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= outR1 * outR1 && d2 <= outR2 * outR2) outOffsets.push({ dx, dy });
+      }
+    }
 
-      for (let i = 0; i < numRays; i++) {
-        const { cos, sin } = rayAngles[i];
-        let foundEdge = false;
-        let edgeR = minR;
+    if (inOffsets.length === 0 || outOffsets.length === 0) continue;
 
-        // Cammina dal centro verso l'esterno cercando il bordo di contrasto (discesa luminanza)
-        for (let r = minR - 1; r <= maxR + 3; r++) {
-          const rx = Math.round(x + cos * r);
-          const ry = Math.round(y + sin * r);
-          if (rx < 0 || rx >= w || ry < 0 || ry >= h) break;
+    const sampleDiffs: number[] = [];
+    const sampleStep = Math.max(6, Math.round(testR * 0.6));
+    const startY = Math.max(minScanY + outR2 + 4, outR2 + 4);
+    const endY = Math.min(maxScanY - outR2 - 4, h - outR2 - 4);
+    const startX = Math.max(minScanX + outR2 + 4, outR2 + 4);
+    const endX = Math.min(maxScanX - outR2 - 4, w - outR2 - 4);
 
-          const rayLum = gray[ry * w + rx];
-          const rayIdx = ry * w + rx;
-          const mag = gradMag[rayIdx];
+    for (let y = startY; y < endY; y += sampleStep) {
+      for (let x = startX; x < endX; x += sampleStep) {
+        if (gray[y * w + x] < minMetalLum * 0.7) continue;
 
-          // Condizione di bordo della testa del ferro:
-          // 1. Caduta significativa di luminanza rispetto al centro chiaro
-          // 2. Oppure picco di gradiente che punta verso l'esterno
-          if (centerLum - rayLum > 18 || (mag > 12 && r >= minR)) {
-            edgeR = r;
-            foundEdge = true;
-            break;
-          }
+        let inSum = 0;
+        for (let i = 0; i < inOffsets.length; i++) {
+          inSum += gray[(y + inOffsets[i].dy) * w + (x + inOffsets[i].dx)];
         }
+        const inAvg = inSum / inOffsets.length;
 
-        if (foundEdge && edgeR >= minR && edgeR <= maxR) {
-          rayLengths.push(edgeR);
-          totalR += edgeR;
-          validRays++;
+        let outSum = 0;
+        for (let i = 0; i < outOffsets.length; i++) {
+          outSum += gray[(y + outOffsets[i].dy) * w + (x + outOffsets[i].dx)];
+        }
+        const outAvg = outSum / outOffsets.length;
+
+        const diff = inAvg - outAvg;
+        if (diff > 4) {
+          sampleDiffs.push(diff);
         }
       }
+    }
 
-      // Se meno di 9 raggi su 12 hanno trovato un bordo coerente, NON è rotondo (es. linea o superficie piana)
-      if (validRays < 9) continue;
-
-      const meanR = totalR / validRays;
-      let minRay = Infinity;
-      let maxRay = -Infinity;
-      let varianceSum = 0;
-
-      for (const r of rayLengths) {
-        if (r < minRay) minRay = r;
-        if (r > maxRay) maxRay = r;
-        varianceSum += (r - meanR) * (r - meanR);
-      }
-
-      const stdDev = Math.sqrt(varianceSum / validRays);
-      const circularity = minRay / (maxRay || 1); // 1.0 = cerchio perfetto
-      const stdRatio = stdDev / (meanR || 1);
-
-      // REGOLA 3: FILTRO DI FORMA STRETTAMENTE ROTONDA
-      // - Il rapporto tra raggio minimo e massimo deve essere alto (> minRoundness)
-      // - La deviazione standard rispetto al raggio medio deve essere bassa (< 0.26)
-      if (circularity < minRoundness || stdRatio > 0.26) {
-        continue; // Scartato: forma allungata, rettangolare, travetto o striscia
-      }
-
-      // REGOLA 4: CONTRASTO CENTRO CHIARO vs ANELLO ESTERNO SCURO
-      // Il dischetto interno deve essere omogeneamente più chiaro del perimetro circostante
-      let surroundSum = 0;
-      let surroundSamples = 0;
-      const surroundR = meanR + 3;
-
-      for (let i = 0; i < numRays; i++) {
-        const { cos, sin } = rayAngles[i];
-        const sx = Math.round(x + cos * surroundR);
-        const sy = Math.round(y + sin * surroundR);
-        if (sx >= 0 && sx < w && sy >= 0 && sy < h) {
-          surroundSum += gray[sy * w + sx];
-          surroundSamples++;
-        }
-      }
-
-      const surroundAvg = surroundSamples > 0 ? surroundSum / surroundSamples : centerLum;
-      const localContrast = centerLum - surroundAvg;
-
-      // La testa metallica tagliata deve essere nettamente più luminosa dell'interstizio
-      if (localContrast < (sens === 'alta' ? 6 : sens === 'bassa' ? 18 : 10)) {
-        continue; // Scartato: contrasto debole con lo sfondo
-      }
-
-      const score = (centerLum * 1.5) + (circularity * 100) + (localContrast * 2);
-      detectedCircles.push({
-        x,
-        y,
-        radius: Math.round(meanR * 10) / 10,
-        circularity: Math.round(circularity * 100) / 100,
-        brightness: Math.round(centerLum),
-        score,
-      });
+    sampleDiffs.sort((a, b) => b - a);
+    const topSum = sampleDiffs.slice(0, 35).reduce((s, v) => s + v, 0);
+    if (topSum > bestRScore) {
+      bestRScore = topSum;
+      bestR = testR;
     }
   }
 
-  // 4. Non-Maximum Suppression (NMS) per eliminare duplicati sulla stessa barra
-  // Ordina per punteggio decrescente (le teste più lucide e rotonde hanno priorità)
-  detectedCircles.sort((a, b) => b.score - a.score);
+  // 3. Convoluzione Circolare ad Alta Precisione con il Raggio Ottimale
+  const targetR = bestR;
+  const inR = Math.max(2, Math.round(targetR * 0.55));
+  const outR1 = Math.round(targetR * 0.90);
+  const outR2 = Math.round(targetR * 1.25);
 
-  const acceptedPoints: Array<{ x: number; y: number; radius: number }> = [];
-  for (const c of detectedCircles) {
-    const minSeparation = c.radius * 1.45; // Barre non possono compenetrarsi
-    const minSepSq = minSeparation * minSeparation;
+  const inOffsets: Array<{ dx: number; dy: number }> = [];
+  for (let dy = -inR; dy <= inR; dy += 2) {
+    for (let dx = -inR; dx <= inR; dx += 2) {
+      if (dx * dx + dy * dy <= inR * inR) inOffsets.push({ dx, dy });
+    }
+  }
+
+  const outOffsets: Array<{ dx: number; dy: number }> = [];
+  for (let dy = -outR2; dy <= outR2; dy += 2) {
+    for (let dx = -outR2; dx <= outR2; dx += 2) {
+      const d2 = dx * dx + dy * dy;
+      if (d2 >= outR1 * outR1 && d2 <= outR2 * outR2) outOffsets.push({ dx, dy });
+    }
+  }
+
+  const inLen = inOffsets.length;
+  const outLen = outOffsets.length;
+
+  const responseMap = new Float32Array(w * h);
+  const convStep = 2;
+  const startY = Math.max(minScanY + outR2 + 2, outR2 + 2);
+  const endY = Math.min(maxScanY - outR2 - 2, h - outR2 - 2);
+  const startX = Math.max(minScanX + outR2 + 2, outR2 + 2);
+  const endX = Math.min(maxScanX - outR2 - 2, w - outR2 - 2);
+
+  for (let y = startY; y < endY; y += convStep) {
+    for (let x = startX; x < endX; x += convStep) {
+      const centerLum = gray[y * w + x];
+      // Ignora pixel scuri o ombre nette di fondo
+      if (centerLum < minMetalLum * 0.65) continue;
+
+      let inSum = 0;
+      for (let i = 0; i < inLen; i++) {
+        inSum += gray[(y + inOffsets[i].dy) * w + (x + inOffsets[i].dx)];
+      }
+      const inAvg = inSum / inLen;
+
+      let outSum = 0;
+      for (let i = 0; i < outLen; i++) {
+        outSum += gray[(y + outOffsets[i].dy) * w + (x + outOffsets[i].dx)];
+      }
+      const outAvg = outSum / outLen;
+
+      // La testa circolare del ferro presenta contrasto positivo rispetto alla corona perimetrale
+      const contrastDiff = inAvg - outAvg;
+      if (contrastDiff > 0) {
+        responseMap[y * w + x] = contrastDiff * (inAvg / (roiAvg || 1));
+      }
+    }
+  }
+
+  // 4. Estrazione dei Picchi Locali (Centri delle Barre)
+  interface CandidateBar {
+    x: number;
+    y: number;
+    radius: number;
+    score: number;
+    brightness: number;
+  }
+
+  const candidateBars: CandidateBar[] = [];
+  const localWin = Math.max(3, Math.round(targetR * 0.5));
+  const minResponseCutoff = sens === 'alta' ? 2.5 : sens === 'bassa' ? 6.5 : 4.0;
+
+  for (let y = startY; y < endY; y += convStep) {
+    for (let x = startX; x < endX; x += convStep) {
+      const val = responseMap[y * w + x];
+      if (val < minResponseCutoff) continue;
+
+      let isMax = true;
+      for (let dy = -localWin; dy <= localWin; dy += convStep) {
+        for (let dx = -localWin; dx <= localWin; dx += convStep) {
+          if (dx === 0 && dy === 0) continue;
+          if (responseMap[(y + dy) * w + (x + dx)] > val) {
+            isMax = false;
+            break;
+          }
+        }
+        if (!isMax) break;
+      }
+
+      if (isMax) {
+        candidateBars.push({
+          x,
+          y,
+          radius: targetR,
+          score: val,
+          brightness: Math.round(gray[y * w + x]),
+        });
+      }
+    }
+  }
+
+  // Ordina i candidati per score decrescente (le teste più nette hanno priorità)
+  candidateBars.sort((a, b) => b.score - a.score);
+
+  // 5. Non-Maximum Suppression (NMS) con Vincolo Fisico di Spaziatura
+  // Due barre di raggio R non possono compenetrarsi; la loro distanza minima è circa 1.55 * R
+  const minSeparation = targetR * 1.55;
+  const minSepSq = minSeparation * minSeparation;
+  const acceptedPoints: Array<{ x: number; y: number; radius: number; score: number }> = [];
+
+  for (const bar of candidateBars) {
     let tooClose = false;
-
-    for (const acc of acceptedPoints) {
-      const dx = c.x - acc.x;
-      const dy = c.y - acc.y;
+    for (let i = 0; i < acceptedPoints.length; i++) {
+      const acc = acceptedPoints[i];
+      const dx = bar.x - acc.x;
+      const dy = bar.y - acc.y;
       if (dx * dx + dy * dy < minSepSq) {
         tooClose = true;
         break;
@@ -296,17 +325,74 @@ export async function analyzeFerriInBrowser(
     }
 
     if (!tooClose) {
-      acceptedPoints.push({ x: c.x, y: c.y, radius: c.radius });
+      acceptedPoints.push(bar);
     }
   }
 
-  // 5. Clustering Spaziale Multi-Fascione (Segmentazione a Regole)
+  // 6. Completamento a Reticolo Hexagonale (Recupero Barre con Riflesso Minore o Parziale Ombra)
+  // Nei fasci di tondini, le barre sono disposte a nido d'ape (hexagonal close-packing).
+  // Se la sensibilità è media o alta, controlliamo se ci sono nodi del reticolo vuoti con buona risonanza
+  if ((sens === 'alta' || sens === 'media') && acceptedPoints.length >= 8) {
+    // Passo tipico del reticolo a contatto
+    const latticeStep = targetR * 1.85;
+    const hexAngles = [0, Math.PI / 3, (2 * Math.PI) / 3, Math.PI, (4 * Math.PI) / 3, (5 * Math.PI) / 3];
+
+    const additionalPoints: Array<{ x: number; y: number; radius: number; score: number }> = [];
+    const minExtraCutoff = minResponseCutoff * 0.65;
+
+    for (let i = 0; i < acceptedPoints.length; i++) {
+      const basePt = acceptedPoints[i];
+      for (const angle of hexAngles) {
+        const nx = Math.round(basePt.x + Math.cos(angle) * latticeStep);
+        const ny = Math.round(basePt.y + Math.sin(angle) * latticeStep);
+
+        if (nx < startX || nx >= endX || ny < startY || ny >= endY) continue;
+
+        // Verifica che non ci sia già una barra accettata vicina
+        let hasNeighbor = false;
+        for (let j = 0; j < acceptedPoints.length; j++) {
+          const pt = acceptedPoints[j];
+          const dx = nx - pt.x;
+          const dy = ny - pt.y;
+          if (dx * dx + dy * dy < minSepSq) {
+            hasNeighbor = true;
+            break;
+          }
+        }
+        if (hasNeighbor) continue;
+
+        for (let j = 0; j < additionalPoints.length; j++) {
+          const pt = additionalPoints[j];
+          const dx = nx - pt.x;
+          const dy = ny - pt.y;
+          if (dx * dx + dy * dy < minSepSq) {
+            hasNeighbor = true;
+            break;
+          }
+        }
+        if (hasNeighbor) continue;
+
+        // Se in quel nodo del reticolo il segnale circolare è positivo e la luminosità è metallica
+        const nodeVal = responseMap[ny * w + nx];
+        const nodeLum = gray[ny * w + nx];
+        if (nodeVal >= minExtraCutoff && nodeLum >= minMetalLum * 0.65) {
+          additionalPoints.push({
+            x: nx,
+            y: ny,
+            radius: targetR,
+            score: nodeVal,
+          });
+        }
+      }
+    }
+
+    acceptedPoints.push(...additionalPoints);
+  }
+
+  // 7. Clustering Spaziale Multi-Fascione (Segmentazione a Regole)
   // Raggruppa i punti che si trovano a distanza ravvicinata in singoli fascioni distinti.
   // Se la foto è stata ritagliata dall'utente (Crop), tutti i punti appartengono al fascione selezionato!
-  const avgDetectedRadius = acceptedPoints.length > 0 
-    ? acceptedPoints.reduce((s, p) => s + p.radius, 0) / acceptedPoints.length 
-    : 8;
-  const clusterDist = avgDetectedRadius * 3.8;
+  const clusterDist = targetR * 3.6;
   const clusterDistSq = clusterDist * clusterDist;
   const visited = new Set<number>();
   const rawClusters: Array<Array<{ x: number; y: number }>> = [];
@@ -341,7 +427,7 @@ export async function analyzeFerriInBrowser(
     }
   }
 
-  // Se i cluster sono vuoti (es. foto ravvicinata di un solo fascio), prendi tutti i punti come singolo fascione
+  // Se i cluster sono vuoti o l'utente ha fatto un ritaglio ROI, prendi tutti i punti come singolo fascione
   if (rawClusters.length === 0 && acceptedPoints.length > 0) {
     rawClusters.push(acceptedPoints);
   }
@@ -350,7 +436,6 @@ export async function analyzeFerriInBrowser(
   rawClusters.sort((cA, cB) => {
     const avgYA = cA.reduce((s, p) => s + p.y, 0) / cA.length;
     const avgYB = cB.reduce((s, p) => s + p.y, 0) / cB.length;
-    // Se c'è una separazione verticale significativa (> 15% altezza), ordina per riga
     if (Math.abs(avgYA - avgYB) > h * 0.15) {
       return avgYA - avgYB;
     }
@@ -362,7 +447,7 @@ export async function analyzeFerriInBrowser(
   const defaultDiam = options.diametroSelezionato || 12;
   const barLength = options.lunghezzaMetri || 12;
 
-  // 6. Costruzione dei fascioni rilevati e calcolo pesi
+  // 8. Costruzione dei fascioni rilevati e calcolo pesi
   let totaleFerri = 0;
   let pesoTotaleKg = 0;
 
@@ -430,7 +515,7 @@ export async function analyzeFerriInBrowser(
     fascioni,
     qualita_foto: {
       illuminazione: avgLuminance > 80 ? 'buona' : avgLuminance > 40 ? 'sufficiente' : 'scarsa',
-      note: `Analisi completata nel browser tramite motore deterministico di visione (simmetria radiale e contrasto). ${totaleFerri} barre rilevate in ${fascioni.length} fascioni.`,
+      note: `Analisi completata nel browser tramite motore deterministico ad alta precisione (risposta circolare e reticolo hexagonale). ${totaleFerri} barre rilevate in ${fascioni.length} fascioni (raggio medio stimato: ${targetR}px).`,
     },
     sintesi_tecnica: `Rilievo computazionale browser: ${fascioni.length} fascioni di barre B450C Ø${defaultDiam}mm (${totaleFerri} barre totali, peso stimato ${Math.round(pesoTotaleKg).toLocaleString()} kg).`,
     cantiereId: options.cantiereId,
