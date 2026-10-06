@@ -194,6 +194,10 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
       return;
     }
+    if (oldRapportino.lockedForAccounting) {
+      alert('Operazione bloccata: questo rapportino è stato approvato e bloccato in contabilità definitiva dall\'amministrazione. Non è più modificabile né sostituibile.');
+      return;
+    }
     const cantiere = cantieri.find(c => c.id === oldRapportino.cantiereId);
     if (!cantiere) {
       alert('Cantiere non trovato o non più attivo.');
@@ -358,6 +362,7 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
         date: emissioneData,
         ora: emissioneOra,
         submittedAt: now.toISOString(),
+        compilatoIl: `${now.toLocaleDateString('it-IT')} alle ${emissioneOra}`,
         numeroProgressivo: nextProg,
         codiceRapportino: `N° ${nextProg}`,
         status: 'valido',
@@ -413,6 +418,11 @@ export const MobileRapportinoView: React.FC<MobileRapportinoViewProps> = ({
       return;
     }
     if (!cancelModalRapportino) return;
+    if (cancelModalRapportino.lockedForAccounting) {
+      alert('Operazione bloccata: questo rapportino è stato bloccato dall\'amministratore per la contabilità definitiva e non può più essere modificato o annullato.');
+      setCancelModalRapportino(null);
+      return;
+    }
     if (!cancelReason.trim()) {
       alert('Inserisci la motivazione dell\'annullamento (obbligatoria per la tracciabilità aziendale).');
       return;

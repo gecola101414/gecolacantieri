@@ -5,7 +5,8 @@ export type UserRole =
   | 'geometra_contabile' 
   | 'amministrativo_contabile' 
   | 'operativo'
-  | 'lavoratore';
+  | 'lavoratore'
+  | 'collaboratore';
 
 export interface UserPermissions {
   rapportini: boolean;     // Capacità di creare/vedere/compilare rapportini per i cantieri
@@ -73,6 +74,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, UserPermissions> = {
     tecnico: false,
     canEdit: false,      // Vista cantiere consultativa
   },
+  collaboratore: {
+    rapportini: false,   // Visualizzazione ultra-semplificata solo per i cantieri assegnati
+    documentale: false,
+    chatta: true,        // Comunicazione rapida / sicurezza
+    amministrativo: false,
+    tecnico: false,
+    canEdit: false,
+  },
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -83,16 +92,18 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   geometra_contabile: 'Geometra Contabile',
   operativo: 'Operativo (Invio Rapportini)',
   lavoratore: 'Lavoratore (Sola Lettura & Badge GPS)',
+  collaboratore: 'Collaboratore (Presenze Semplificate & Cantieri Assegnati)',
 };
 
 export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   admin: 'Amministratore Server: fa tutto. Ha il pieno controllo su tutto il sistema, utenti, bilanci, contabilità e impostazioni.',
   amministrativo_contabile: 'Amministrativo: fa tutto come l\'amministratore di server (accesso completo a contabilità, cantieri, documentale e rapportini).',
   dirigente: 'Responsabile dei Cantieri: vede tutti i cantieri con operatività completa come capo cantiere generale di tutti i cantieri.',
-  capo_cantiere: 'Capo Cantiere: gestisce tutto dal sistema periferico per i suoi cantieri, vede tutti gli operai presenti, carica rapportini, gestisce materiali, chatta e controlla i documenti in archivio.',
+  capo_cantiere: 'Capo Cantiere: gestisce tutto dal sistema periferico per i suoi cantieri, vede tutti gli operai presenti, convalida e conferma le presenze, carica rapportini, gestisce materiali, chatta e controlla i documenti in archivio.',
   geometra_contabile: 'Geometra Contabile: gestione contabile dei cantieri, SAL, rapportini, prezzari, materiali e verifica documentale.',
   operativo: 'Operativo: maestranza abilitata all\'invio rapido dei rapportini di cantiere, visualizzazione materiali, chat di cantiere e timbratura badge.',
   lavoratore: 'Lavoratore: maestranza dei cantieri assegnati. Può chattare, vedere i materiali ed i documenti. NON può fare rapportini né caricare file. Timbra con Badge GPS (Entrata/Uscita), vede solo i propri orari ed i colleghi presenti in cantiere con lui.',
+  collaboratore: 'Collaboratore: interfaccia ultra-semplificata per timbratura automatica geolocalizzata nei soli cantieri assegnati, invio posizione di emergenza e consultazione conteggio giornate di presenza con orari inizio/fine.',
 };
 
 export interface Company {
@@ -102,6 +113,16 @@ export interface Company {
   adminName: string;
   createdAt: string;
   magazzinoCentrale?: StockItem[]; // Giacenza nel magazzino principale
+  // Gestione Quota e Controllo Master SuperAdmin (gecola)
+  allowDataUpload?: boolean; // Se false, l'azienda è in SOLA LETTURA (sospensione quota non pagata)
+  quotaStatus?: 'attiva' | 'sospesa'; // Stato quota di servizio
+  quotaScadenza?: string; // Data scadenza quota (es. 31/12/2026)
+  quotaNote?: string; // Note interne su pagamenti/solleciti
+  lastActiveAt?: string; // Timestamp ultimo collegamento del server
+  lastActiveUser?: string; // Nome utente che ha fatto l'ultimo collegamento
+  piva?: string;
+  email?: string;
+  phone?: string;
 }
 
 export interface UserAccount {
@@ -120,6 +141,8 @@ export interface UserAccount {
   pairingCode?: string; // Codice a 4 cifre per accoppiamento rapido
   pairingCodeExpiresAt?: string;
   cantieriAccreditati?: string[]; // Cantieri a cui l'utente può inviare rapportini
+  lastActiveAt?: string; // Ultimo collegamento di questo utente
+  isOnline?: boolean; // Se l'utente ha una sessione attiva
 }
 
 export interface TransferCode {
@@ -136,6 +159,14 @@ export interface Cantiere {
   name: string;
   client: string;
   address: string;
+  localita?: string; // Comune o Località cantiere per geolocalizzazione
+  via?: string; // Via / Piazza cantiere
+  civico?: string; // Numero civico
+  cap?: string;
+  provincia?: string;
+  latitude?: number; // Coordinate GPS per riconoscimento automatico cantiere
+  longitude?: number;
+  radiusMeters?: number; // Raggio tolleranza rilevamento (es. 250m)
   budget: number;
   startDate: string;
   endDate: string;
@@ -191,6 +222,12 @@ export interface Materiale {
   category?: string;
 }
 
+export interface RapportinoEditLog {
+  editedAt: string;
+  editedBy: string;
+  changesSummary: string;
+}
+
 export interface Rapportino {
   id: string;
   cantiereId: string;
@@ -202,12 +239,20 @@ export interface Rapportino {
   codiceRapportino?: string; // Es. "N° 1" o "RAP-01"
   isNonLavorato?: boolean; // Se vero, il rapportino è segnato come "Non lavorato" (es. weekend o festivo)
   submittedAt?: string; // Timestamp ISO di quando è stato caricato
+  compilatoIl?: string; // Traccia leggibile data e ora di compilazione (es. "06/10/2026 alle 18:30")
   status?: 'valido' | 'annullato'; // Stato tracciabilità (default 'valido')
   annullatoIl?: string; // Data e ora annullamento
   annullatoDa?: string; // Nome utente che ha annullato
   motivoAnnullamento?: string; // Motivazione obbligatoria dell'annullamento
   sostituisceRapportinoId?: string; // ID eventuale rapportino precedente rifatto
   sostituisceNumero?: number; // Numero progressivo del rapportino sostituito
+  // Blocco Amministrativo Contabilità (se bloccato, non è più modificabile)
+  lockedForAccounting?: boolean;
+  lockedBy?: string;
+  lockedAt?: string;
+  lockReason?: string;
+  // Storico modifiche tracciate
+  editHistory?: RapportinoEditLog[];
   note: string;
   personale: PersonaleRapportino[];
   materiali: MaterialeRapportino[];
@@ -436,6 +481,32 @@ export interface TimbraturaBadge {
   location?: BadgeGPSLocation;
   notes?: string;
   deviceInfo?: string;
+  // Validazione / Conferma Capo Cantiere
+  confermatoDaCapo?: boolean;
+  confermatoDaNome?: string;
+  confermatoIl?: string;
+  confermaNote?: string;
+  creatoDaCapoCantiere?: boolean;
+  // Segnalazione Posizione Straordinaria / Emergenza
+  isEmergency?: boolean;
+  emergencyAddress?: string;
+}
+
+export interface PresenzaGiornaliera {
+  userId: string;
+  userName: string;
+  userRole: UserRole;
+  date: string;
+  cantiereId: string;
+  cantiereName: string;
+  entrataTime?: string;
+  uscitaTime?: string;
+  oreTotali: number;
+  timbrature: TimbraturaBadge[];
+  confermatoDaCapo: boolean;
+  confermatoDaNome?: string;
+  confermatoIl?: string;
+  stato: 'presente' | 'completato' | 'incompleto';
 }
 
 export type CompanyEventType = 

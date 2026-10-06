@@ -8,12 +8,13 @@ import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { MobileRapportinoView } from './components/MobileRapportinoView';
+import { CollaboratoreDashboard } from './components/CollaboratoreDashboard';
 import { AuthScreen } from './components/AuthScreen';
 import { AccountDeactivatedScreen } from './components/AccountDeactivatedScreen';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { UserAccount, Company, Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, Materiale, StockMovement, MaterialDocument, TransferCode, CantiereChatMessage, CantiereDocumentoTecnico, Fornitore, TimbraturaBadge, MaterialRequest, MaterialRequestStatus } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Building2, Loader2, Globe } from 'lucide-react';
+import { Building2, Loader2, Globe, Lock, ShieldAlert } from 'lucide-react';
 import { firestoreService } from './lib/firestoreService';
 import { db } from './lib/firebase';
 import { collection, onSnapshot, doc } from 'firebase/firestore';
@@ -43,8 +44,44 @@ export default function App() {
   const [timbrature, setTimbrature] = useState<TimbraturaBadge[]>([]);
   const [materialRequests, setMaterialRequests] = useState<MaterialRequest[]>([]);
 
+  // User Heartbeat & Online Connection Tracking for Master Admin (Codice 1014)
+  useEffect(() => {
+    if (!company?.id || !currentUser?.id) return;
+
+    // Immediately record user connection
+    firestoreService.updateUserHeartbeat(company.id, currentUser.id, currentUser.name, true);
+
+    // Ping every 90 seconds
+    const interval = setInterval(() => {
+      firestoreService.updateUserHeartbeat(company.id, currentUser.id, currentUser.name, true);
+    }, 90 * 1000);
+
+    const handleBeforeUnload = () => {
+      firestoreService.updateUserHeartbeat(company.id, currentUser.id, currentUser.name, false);
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [company?.id, currentUser?.id, currentUser?.name]);
+
+  // Quota payment status & data upload restriction check
+  const isCompanyUploadSuspended = Boolean(
+    company && (company.allowDataUpload === false || company.quotaStatus === 'sospesa')
+  );
+
+  const checkUploadPermission = () => {
+    if (isCompanyUploadSuspended) {
+      alert('Operazione non consentita: il caricamento e la modifica di dati sono temporaneamente sospesi per questo server aziendale per mancata regolarizzazione della quota. Il server è abilitato alla sola consultazione dei dati già caricati. Contattare l\'amministrazione per la riattivazione.');
+      throw new Error('Upload sospeso: quota aziendale non saldata.');
+    }
+  };
+
   const isPeripheralRole = (role?: string) => {
-    return role === 'capo_cantiere' || role === 'dirigente' || role === 'operativo' || role === 'lavoratore';
+    return role === 'capo_cantiere' || role === 'dirigente' || role === 'operativo' || role === 'lavoratore' || role === 'collaboratore';
   };
 
   const [isMobileView, setIsMobileView] = useState<boolean>(
@@ -292,22 +329,51 @@ export default function App() {
   const cloudHandlers = {
     setCantieri: (data: Cantiere[]) => {
       if (!company) return;
-      // We don't replace the whole array, we'll handle individual additions in components
-      // But for compatibility with existing props:
       setCantieri(data);
     },
-    saveCantiere: async (c: Cantiere) => company && await firestoreService.saveCantiere(company.id, c),
-    savePersonale: async (p: Personale) => company && await firestoreService.savePersonale(company.id, p),
-    saveMezzo: async (m: Mezzo) => company && await firestoreService.saveMezzo(company.id, m),
-    saveMateriale: async (m: Materiale) => company && await firestoreService.saveMateriale(company.id, m),
-    saveMovement: async (m: StockMovement) => company && await firestoreService.addMovement(company.id, m),
-    saveDocument: async (d: MaterialDocument) => company && await firestoreService.saveMaterialDocument(company.id, d),
-    deleteDocument: async (docId: string) => company && await firestoreService.deleteMaterialDocument(company.id, docId, false),
-    annullaDocument: async (docId: string, motivo?: string) => company && await firestoreService.annullaMaterialDocument(company.id, docId, motivo),
-    ripristinaDocument: async (docId: string) => company && await firestoreService.ripristinaMaterialDocument(company.id, docId),
-    acceptEntireDocument: async (docId: string) => company && await firestoreService.acceptEntireDocument(company.id, docId, currentUser?.name || 'Amministratore'),
+    saveCantiere: async (c: Cantiere) => {
+      checkUploadPermission();
+      company && await firestoreService.saveCantiere(company.id, c);
+    },
+    savePersonale: async (p: Personale) => {
+      checkUploadPermission();
+      company && await firestoreService.savePersonale(company.id, p);
+    },
+    saveMezzo: async (m: Mezzo) => {
+      checkUploadPermission();
+      company && await firestoreService.saveMezzo(company.id, m);
+    },
+    saveMateriale: async (m: Materiale) => {
+      checkUploadPermission();
+      company && await firestoreService.saveMateriale(company.id, m);
+    },
+    saveMovement: async (m: StockMovement) => {
+      checkUploadPermission();
+      company && await firestoreService.addMovement(company.id, m);
+    },
+    saveDocument: async (d: MaterialDocument) => {
+      checkUploadPermission();
+      company && await firestoreService.saveMaterialDocument(company.id, d);
+    },
+    deleteDocument: async (docId: string) => {
+      checkUploadPermission();
+      company && await firestoreService.deleteMaterialDocument(company.id, docId, false);
+    },
+    annullaDocument: async (docId: string, motivo?: string) => {
+      checkUploadPermission();
+      company && await firestoreService.annullaMaterialDocument(company.id, docId, motivo);
+    },
+    ripristinaDocument: async (docId: string) => {
+      checkUploadPermission();
+      company && await firestoreService.ripristinaMaterialDocument(company.id, docId);
+    },
+    acceptEntireDocument: async (docId: string) => {
+      checkUploadPermission();
+      company && await firestoreService.acceptEntireDocument(company.id, docId, currentUser?.name || 'Amministratore');
+    },
     saveRapportino: async (r: Rapportino) => {
       if (!company) return;
+      checkUploadPermission();
       if (currentUser && !currentUser.active) {
         alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
         throw new Error('Utenza disattivata: invio rapportino non consentito.');
@@ -316,17 +382,28 @@ export default function App() {
     },
     cancelRapportino: async (rapportinoId: string, motivo: string) => {
       if (!company) return;
+      checkUploadPermission();
       if (currentUser && !currentUser.active) {
         alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
         throw new Error('Utenza disattivata: operazione non consentita.');
       }
       await firestoreService.cancelRapportino(company.id, rapportinoId, currentUser?.name || 'Operatore', motivo);
     },
-    saveContabilita: async (e: ContabilitaEntry) => company && await firestoreService.saveContabilitaEntry(company.id, e),
-    saveUser: async (u: UserAccount) => company && await firestoreService.saveUser(company.id, u),
-    deleteUser: async (uid: string) => company && await firestoreService.deleteUser(company.id, uid),
+    saveContabilita: async (e: ContabilitaEntry) => {
+      checkUploadPermission();
+      company && await firestoreService.saveContabilitaEntry(company.id, e);
+    },
+    saveUser: async (u: UserAccount) => {
+      checkUploadPermission();
+      company && await firestoreService.saveUser(company.id, u);
+    },
+    deleteUser: async (uid: string) => {
+      checkUploadPermission();
+      company && await firestoreService.deleteUser(company.id, uid);
+    },
     acceptTransfer: async (mid: string) => {
       if (!company) return;
+      checkUploadPermission();
       if (currentUser && !currentUser.active) {
         alert('Operazione bloccata: la tua utenza è stata disattivata dall\'amministratore del server.');
         throw new Error('Utenza disattivata: operazione non consentita.');
@@ -335,38 +412,47 @@ export default function App() {
     },
     sendChatMessage: async (msg: CantiereChatMessage) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.sendChatMessage(company.id, msg);
     },
     saveTechnicalDoc: async (doc: CantiereDocumentoTecnico) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.saveTechnicalDoc(company.id, doc);
     },
     deleteTechnicalDoc: async (docId: string) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.deleteTechnicalDoc(company.id, docId);
     },
     saveFornitore: async (f: Fornitore) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.saveFornitore(company.id, f);
     },
     deleteFornitore: async (fid: string) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.deleteFornitore(company.id, fid);
     },
     saveTimbratura: async (t: TimbraturaBadge) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.saveTimbratura(company.id, t);
     },
     deleteTimbratura: async (tid: string) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.deleteTimbratura(company.id, tid);
     },
     saveMaterialRequest: async (r: MaterialRequest) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.saveMaterialRequest(company.id, r);
     },
     updateMaterialRequestStatus: async (rid: string, status: MaterialRequestStatus) => {
       if (!company) return;
+      checkUploadPermission();
       await firestoreService.updateMaterialRequestStatus(company.id, rid, status);
     },
   };
@@ -455,9 +541,42 @@ export default function App() {
           isGeneratingTransferCode={isGeneratingTransferCode}
         />
 
+        {/* Banner Avviso Sospensione Quota Server (Sola Lettura) */}
+        {isCompanyUploadSuspended && (
+          <div className="bg-gradient-to-r from-rose-950 via-rose-900 to-rose-950 text-rose-100 border-b border-rose-700/60 px-4 py-2.5 flex items-center justify-between shadow-lg z-[99] text-xs">
+            <div className="flex items-center gap-2.5 font-medium">
+              <Lock className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                <strong>MODALITÀ SOLA LETTURA (QUOTA SOSPESA):</strong> I dati archiviati sono consultabili regolarmente. L'inserimento e la modifica di dati sono temporaneamente sospesi per mancata regolarizzazione della quota. Contattare l'amministrazione per riattivare i caricamenti.
+              </span>
+            </div>
+            <span className="px-2.5 py-1 rounded-full bg-rose-800 border border-rose-700 text-[10px] font-bold uppercase tracking-wider text-rose-200 shrink-0">
+              Sola Consultazione
+            </span>
+          </div>
+        )}
+
         <main className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full bg-slate-50">
           <AnimatePresence mode="wait">
-            {isMobileView || isPeripheralRole(currentUser.role) ? (
+            {currentUser.role === 'collaboratore' ? (
+              <motion.div
+                key="collaboratore"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="w-full max-w-full overflow-x-hidden"
+              >
+                <CollaboratoreDashboard
+                  currentUser={currentUser}
+                  cantieri={cantieri}
+                  timbrature={timbrature}
+                  chatMessages={chatMessages}
+                  onSaveTimbratura={cloudHandlers.saveTimbratura}
+                  onSendMessage={cloudHandlers.sendChatMessage}
+                  onLogout={handleLogout}
+                />
+              </motion.div>
+            ) : isMobileView || isPeripheralRole(currentUser.role) ? (
               <motion.div
                 key="mobile"
                 initial={{ opacity: 0, y: 10 }}

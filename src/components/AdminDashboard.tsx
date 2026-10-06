@@ -3,7 +3,8 @@ import { Cantiere, Personale, Mezzo, Rapportino, ContabilitaEntry, UserAccount, 
 import { 
   Building2, HardHat, Wrench, FileText, DollarSign, Users, PieChart as PieChartIcon, 
   Plus, Search, CheckCircle, CheckCircle2, Clock, AlertCircle, Phone, Mail, Shield, Check,
-  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw, ReceiptText, Timer, Loader2
+  ExternalLink, Calendar, MapPin, Trash2, Edit3, Image as ImageIcon, MessageSquare, ArrowUpRight, ArrowDownRight, Fuel, Copy, KeyRound, Filter, Download, MoreHorizontal, ChevronRight, LayoutGrid, List, Cloud, Box, Smartphone, X, Camera, RotateCcw, ReceiptText, Timer, Loader2,
+  Lock, Unlock, Navigation
 } from 'lucide-react';
 import { WhatsAppExportModal } from './WhatsAppExportModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend, AreaChart, Area, CartesianGrid } from 'recharts';
@@ -16,6 +17,8 @@ import { CantiereHub } from './CantiereHub';
 import { BadgeManager } from './BadgeManager';
 import { CentraleEventi } from './CentraleEventi';
 import { VersionBadge } from './VersionBadge';
+import { RapportiniCalendarView } from './RapportiniCalendarView';
+import { geocodeAddress } from '../utils/geoUtils';
 
 const formatItalianDate = (isoString?: string) => {
   if (!isoString) return '';
@@ -175,16 +178,92 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
   
-  // ... rest of state
+  // Rapportini view mode: 'elenco' | 'calendario'
+  const [rapportiniViewMode, setRapportiniViewMode] = useState<'elenco' | 'calendario'>('elenco');
+
+  const handleToggleLockAccounting = async (rapportinoId: string, lock: boolean) => {
+    if (!company) return;
+    try {
+      await firestoreService.toggleLockRapportinoForAccounting(company.id, rapportinoId, lock, currentUser.name);
+      if (selectedRapportino && selectedRapportino.id === rapportinoId) {
+        setSelectedRapportino(prev => prev ? {
+          ...prev,
+          lockedForAccounting: lock,
+          lockedBy: lock ? currentUser.name : undefined,
+          lockedAt: lock ? new Date().toLocaleString('it-IT') : undefined
+        } : null);
+      }
+      alert(lock ? 'Rapportino BLOCCATO in contabilità definitiva! Non sarà più modificabile o annullabile.' : 'Rapportino sbloccato dalla contabilità.');
+    } catch (err: any) {
+      alert(`Errore gestione contabilità: ${err.message || err}`);
+    }
+  };
+
+  // State for new cantiere with structured localization
   const [newCantiere, setNewCantiere] = useState<Partial<Cantiere>>({
     code: '',
     name: '',
     client: '',
     address: '',
+    localita: '',
+    via: '',
+    civico: '',
+    cap: '',
+    provincia: '',
+    latitude: undefined,
+    longitude: undefined,
+    radiusMeters: 250,
     startDate: new Date().toISOString().split('T')[0],
     endDate: '',
     status: 'in_corso',
   });
+  const [isGeocodingCantiere, setIsGeocodingCantiere] = useState(false);
+  const [cantiereGeocodeSuccess, setCantiereGeocodeSuccess] = useState('');
+
+  const handleAutoGeocodeCantiere = async () => {
+    const fullAddr = `${newCantiere.via || ''} ${newCantiere.civico || ''}, ${newCantiere.localita || ''} ${newCantiere.cap || ''} ${newCantiere.provincia || ''}`.trim();
+    if (!fullAddr) {
+      alert('Inserisci la via e la località per rilevare le coordinate GPS.');
+      return;
+    }
+    setIsGeocodingCantiere(true);
+    setCantiereGeocodeSuccess('');
+    try {
+      const geo = await geocodeAddress(fullAddr);
+      if (geo) {
+        setNewCantiere(prev => ({
+          ...prev,
+          latitude: geo.latitude,
+          longitude: geo.longitude
+        }));
+        setCantiereGeocodeSuccess(`✓ Coordinate rilevate: Lat ${geo.latitude.toFixed(5)}, Lng ${geo.longitude.toFixed(5)}`);
+      } else {
+        alert('Impossibile localizzare con precisione l\'indirizzo specificato. Inserisci le coordinate manualmente o usa la posizione GPS attuale.');
+      }
+    } catch {
+      alert('Errore durante il recupero delle coordinate.');
+    } finally {
+      setIsGeocodingCantiere(false);
+    }
+  };
+
+  const handleUseCurrentGPSForCantiere = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocalizzazione non supportata su questo dispositivo.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setNewCantiere(prev => ({
+          ...prev,
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        }));
+        setCantiereGeocodeSuccess(`✓ Coordinate GPS correnti acquisite: Lat ${pos.coords.latitude.toFixed(5)}, Lng ${pos.coords.longitude.toFixed(5)}`);
+      },
+      () => alert('Impossibile acquisire la posizione GPS corrente.')
+    );
+  };
 
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
   const [newUser, setNewUser] = useState<{
@@ -225,12 +304,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleCreateCantiere = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCantiere.name || !newCantiere.client) return;
+
+    const constructedAddress = `${newCantiere.via ? newCantiere.via + ' ' + (newCantiere.civico || '') + ', ' : ''}${newCantiere.localita || ''}${newCantiere.provincia ? ' (' + newCantiere.provincia + ')' : ''}`.trim() || newCantiere.address || '';
+
     const created: Cantiere = {
       id: 'c-' + Date.now(),
       code: newCantiere.code || 'CANT-' + Math.floor(1000 + Math.random() * 9000),
       name: newCantiere.name,
       client: newCantiere.client,
-      address: newCantiere.address || '',
+      address: constructedAddress,
+      localita: newCantiere.localita || '',
+      via: newCantiere.via || '',
+      civico: newCantiere.civico || '',
+      cap: newCantiere.cap || '',
+      provincia: newCantiere.provincia || '',
+      latitude: newCantiere.latitude,
+      longitude: newCantiere.longitude,
+      radiusMeters: newCantiere.radiusMeters || 250,
       budget: 0,
       startDate: newCantiere.startDate || new Date().toISOString().split('T')[0],
       endDate: newCantiere.endDate || '',
@@ -238,7 +328,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
     onAddCantiere(created);
     setShowAddCantiereModal(false);
-    setNewCantiere({ name: '', client: '', address: '', status: 'in_corso' });
+    setNewCantiere({ 
+      name: '', client: '', address: '', localita: '', via: '', civico: '', cap: '', provincia: '', 
+      latitude: undefined, longitude: undefined, radiusMeters: 250, status: 'in_corso' 
+    });
+    setCantiereGeocodeSuccess('');
   };
 
   const handleCreateUser = (e: React.FormEvent) => {
@@ -1362,76 +1456,119 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   animate={{ opacity: 1 }}
                   className="space-y-6"
                 >
-                  <div className="sticky top-0 z-20 bg-slate-50 pb-4 pt-4 shadow-sm border-b border-slate-200/50 mb-6 -mx-4 px-4 sm:-mx-8 sm:px-8">
+                    <div className="sticky top-0 z-20 bg-slate-50 pb-4 pt-4 shadow-sm border-b border-slate-200/50 mb-6 -mx-4 px-4 sm:-mx-8 sm:px-8">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                       <div>
                         <h3 className="text-2xl font-bold text-slate-900">Rapportini Cloud & Tracciabilità</h3>
                         <p className="text-xs font-medium text-slate-500 mt-1">
-                          Archivio completo numerato progressivamente per cantiere, con orario di emissione e storico annullamenti.
+                          Archivio progressivo con calendario, tracciabilità data/ora effettiva di compilazione e blocco contabilità.
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setRapportiniFilterStatus('all')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                            rapportiniFilterStatus === 'all'
-                              ? 'bg-slate-950 text-white'
-                              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                          }`}
-                        >
-                          Tutti ({rapportini.length})
-                        </button>
-                        <button
-                          onClick={() => setRapportiniFilterStatus('valido')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                            rapportiniFilterStatus === 'valido'
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
-                          }`}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Validi ({adminValidiCount})
-                        </button>
-                        <button
-                          onClick={() => setRapportiniFilterStatus('annullato')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                            rapportiniFilterStatus === 'annullato'
-                              ? 'bg-rose-600 text-white'
-                              : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
-                          }`}
-                        >
-                          <AlertCircle className="w-3.5 h-3.5" /> Annullati ({adminAnnullatiCount})
-                        </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* View Mode Toggle: Elenco vs Calendario */}
+                        <div className="bg-slate-200/80 p-1 rounded-2xl flex items-center gap-1 border border-slate-300/80">
+                          <button
+                            type="button"
+                            onClick={() => setRapportiniViewMode('elenco')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer ${
+                              rapportiniViewMode === 'elenco'
+                                ? 'bg-white text-slate-900 shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Elenco
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRapportiniViewMode('calendario')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition flex items-center gap-1.5 cursor-pointer ${
+                              rapportiniViewMode === 'calendario'
+                                ? 'bg-amber-500 text-slate-950 shadow-sm'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <Calendar className="w-3.5 h-3.5" />
+                            <span>Calendario</span>
+                          </button>
+                        </div>
+
+                        {rapportiniViewMode === 'elenco' && (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setRapportiniFilterStatus('all')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                rapportiniFilterStatus === 'all'
+                                  ? 'bg-slate-950 text-white'
+                                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              Tutti ({rapportini.length})
+                            </button>
+                            <button
+                              onClick={() => setRapportiniFilterStatus('valido')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                rapportiniFilterStatus === 'valido'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Validi ({adminValidiCount})
+                            </button>
+                            <button
+                              onClick={() => setRapportiniFilterStatus('annullato')}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                                rapportiniFilterStatus === 'annullato'
+                                  ? 'bg-rose-600 text-white'
+                                  : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                              }`}
+                            >
+                              <AlertCircle className="w-3.5 h-3.5" /> Annullati ({adminAnnullatiCount})
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
-                    {/* Filters Bar */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      <div className="relative sm:col-span-2">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Cerca per cantiere, operatore, note o N° progressivo..."
-                          value={rapportiniSearch}
-                          onChange={(e) => setRapportiniSearch(e.target.value)}
-                          className="w-full pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500 shadow-sm"
-                        />
-                      </div>
+                    {/* Filters Bar (Only in Elenco mode) */}
+                    {rapportiniViewMode === 'elenco' && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="relative sm:col-span-2">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Cerca per cantiere, operatore, note o N° progressivo..."
+                            value={rapportiniSearch}
+                            onChange={(e) => setRapportiniSearch(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-amber-500 shadow-sm"
+                          />
+                        </div>
 
-                      <select
-                        value={rapportiniFilterCantiere}
-                        onChange={(e) => setRapportiniFilterCantiere(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500 shadow-sm"
-                      >
-                        <option value="all">Tutti i Cantieri ({cantieri.length})</option>
-                        {cantieri.map(c => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
-                        ))}
-                      </select>
-                    </div>
+                        <select
+                          value={rapportiniFilterCantiere}
+                          onChange={(e) => setRapportiniFilterCantiere(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-white rounded-2xl border border-slate-200 text-xs text-slate-700 focus:outline-hidden focus:border-amber-500 shadow-sm"
+                        >
+                          <option value="all">Tutti i Cantieri ({cantieri.length})</option>
+                          {cantieri.map(c => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3">
+                  {/* Body Content */}
+                  {rapportiniViewMode === 'calendario' ? (
+                    <RapportiniCalendarView
+                      rapportini={rapportini}
+                      cantieri={cantieri}
+                      currentUser={currentUser}
+                      onSelectRapportino={setSelectedRapportino}
+                      onToggleLockAccounting={handleToggleLockAccounting}
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3">
                     {filteredAdminRapportini.length === 0 ? (
                       <div className="bg-white rounded-[32px] p-16 text-center border border-slate-200 shadow-xs">
                         <FileText className="w-12 h-12 text-slate-200 mx-auto mb-4" />
@@ -1527,6 +1664,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       })
                     )}
                   </div>
+                  )}
                 </motion.div>
               );
             })()}
@@ -1874,30 +2012,175 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
             
-            <form onSubmit={handleCreateCantiere} className="space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Ragione / Nome del Cantiere *</label>
-                <input 
-                  type="text" 
-                  value={newCantiere.name}
-                  onChange={e => setNewCantiere({...newCantiere, name: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
-                  required 
-                />
+            <form onSubmit={handleCreateCantiere} className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome del Cantiere *</label>
+                  <input 
+                    type="text" 
+                    value={newCantiere.name}
+                    onChange={e => setNewCantiere({...newCantiere, name: e.target.value})}
+                    placeholder="es. Residenza Aurora"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-amber-500 font-bold"
+                    required 
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cliente / Committente *</label>
+                  <input 
+                    type="text" 
+                    value={newCantiere.client}
+                    onChange={e => setNewCantiere({...newCantiere, client: e.target.value})}
+                    placeholder="es. Immobiliare Nord Srl"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-amber-500"
+                    required 
+                  />
+                </div>
               </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        <div className="space-y-2">
-          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Cliente *</label>
-          <input 
-            type="text" 
-            value={newCantiere.client}
-            onChange={e => setNewCantiere({...newCantiere, client: e.target.value})}
-            className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm outline-none focus:ring-1 focus:ring-amber-500/50"
-            required 
-          />
-        </div>
-      </div>
+              {/* Sezione Localizzazione per Controllo Presenza */}
+              <div className="bg-slate-50 p-5 rounded-3xl border border-slate-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                      Localizzazione Cantiere (Per Controllo Presenze GPS)
+                    </span>
+                  </div>
+                  <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                    Riconoscimento Automatico
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="sm:col-span-2 space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Via / Piazza *</label>
+                    <input 
+                      type="text" 
+                      value={newCantiere.via || ''}
+                      onChange={e => setNewCantiere({...newCantiere, via: e.target.value})}
+                      placeholder="es. Via Garibaldi"
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-medium outline-none"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Numero Civico *</label>
+                    <input 
+                      type="text" 
+                      value={newCantiere.civico || ''}
+                      onChange={e => setNewCantiere({...newCantiere, civico: e.target.value})}
+                      placeholder="es. 42/B"
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-medium outline-none"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Località / Comune *</label>
+                    <input 
+                      type="text" 
+                      value={newCantiere.localita || ''}
+                      onChange={e => setNewCantiere({...newCantiere, localita: e.target.value})}
+                      placeholder="es. Milano"
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-medium outline-none"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">CAP</label>
+                    <input 
+                      type="text" 
+                      value={newCantiere.cap || ''}
+                      onChange={e => setNewCantiere({...newCantiere, cap: e.target.value})}
+                      placeholder="es. 20121"
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-medium outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase">Provincia</label>
+                    <input 
+                      type="text" 
+                      value={newCantiere.provincia || ''}
+                      onChange={e => setNewCantiere({...newCantiere, provincia: e.target.value.toUpperCase()})}
+                      placeholder="es. MI"
+                      maxLength={2}
+                      className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-medium outline-none uppercase"
+                    />
+                  </div>
+                </div>
+
+                {/* GPS Coordinates & Detection Tools */}
+                <div className="pt-2 border-t border-slate-200/80 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      Coordinate GPS (per geofencing presenze)
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAutoGeocodeCantiere}
+                        disabled={isGeocodingCantiere}
+                        className="text-[10px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Search className={`w-3 h-3 ${isGeocodingCantiere ? 'animate-spin' : ''}`} />
+                        <span>Rileva da Indirizzo</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleUseCurrentGPSForCantiere}
+                        className="text-[10px] font-bold bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                      >
+                        <Navigation className="w-3 h-3" />
+                        <span>Usa Posizione GPS Attuale</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Latitudine</label>
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={newCantiere.latitude ?? ''}
+                        onChange={e => setNewCantiere({...newCantiere, latitude: e.target.value ? parseFloat(e.target.value) : undefined})}
+                        placeholder="es. 45.4642"
+                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Longitudine</label>
+                      <input 
+                        type="number" 
+                        step="any"
+                        value={newCantiere.longitude ?? ''}
+                        onChange={e => setNewCantiere({...newCantiere, longitude: e.target.value ? parseFloat(e.target.value) : undefined})}
+                        placeholder="es. 9.1900"
+                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase">Raggio Riconoscimento (m)</label>
+                      <input 
+                        type="number" 
+                        value={newCantiere.radiusMeters || 250}
+                        onChange={e => setNewCantiere({...newCantiere, radiusMeters: parseInt(e.target.value) || 250})}
+                        placeholder="250"
+                        className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {cantiereGeocodeSuccess && (
+                    <p className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
+                      {cantiereGeocodeSuccess}
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <div className="flex gap-4 pt-4">
                 <button 
@@ -2144,6 +2427,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     }}
                     className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm outline-none focus:border-amber-500 font-bold"
                   >
+                    <option value="collaboratore">Collaboratore (Presenze Semplificate)</option>
                     <option value="capo_cantiere">Capo Cantiere</option>
                     <option value="lavoratore">Lavoratore (Badge & Presenze)</option>
                     <option value="geometra_contabile">Geometra Contabile</option>
@@ -2402,7 +2686,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* Status & Replacement Notice */}
             <div className="mb-6 space-y-3">
-              {selectedRapportino.status === 'annullato' ? (
+              {selectedRapportino.lockedForAccounting ? (
+                <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-3xl flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-2 text-indigo-950 text-xs font-bold">
+                    <Lock className="w-5 h-5 text-indigo-600 shrink-0" />
+                    <div>
+                      <p className="font-black text-indigo-900">BLOCCATO IN CONTABILITÀ DEFINITIVA</p>
+                      <p className="text-[11px] text-indigo-700 font-medium">
+                        Bloccato da {selectedRapportino.lockedBy || 'Amministrazione'} il {selectedRapportino.lockedAt || 'Data non disp.'}. Non modificabile né annullabile.
+                      </p>
+                    </div>
+                  </div>
+                  {(currentUser.role === 'admin' || currentUser.role === 'amministrativo_contabile') && (
+                    <button
+                      onClick={() => handleToggleLockAccounting(selectedRapportino.id, false)}
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Unlock className="w-3.5 h-3.5" /> Sblocca Contabilità
+                    </button>
+                  )}
+                </div>
+              ) : selectedRapportino.status === 'annullato' ? (
                 <div className="p-5 bg-rose-50 border border-rose-200 rounded-3xl space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-rose-700 font-bold text-xs uppercase tracking-wider">
@@ -2424,16 +2728,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-3xl flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Rapportino Valido e Contabilizzato a Cantiere</span>
+                    <span>Rapportino Valido e Registrato</span>
                   </div>
-                  {onCancelRapportino && (
-                    <button
-                      onClick={() => setShowAdminCancelDialog(true)}
-                      className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
-                    >
-                      <AlertCircle className="w-3.5 h-3.5" /> Annulla Rapportino
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {(currentUser.role === 'admin' || currentUser.role === 'amministrativo_contabile') && (
+                      <button
+                        onClick={() => handleToggleLockAccounting(selectedRapportino.id, true)}
+                        className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Lock className="w-3.5 h-3.5 text-amber-400" /> Blocca in Contabilità
+                      </button>
+                    )}
+                    {onCancelRapportino && (
+                      <button
+                        onClick={() => setShowAdminCancelDialog(true)}
+                        className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5" /> Annulla Rapportino
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -2446,14 +2760,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <div className="space-y-8">
-              {/* Cantiere Info */}
-              <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                <div className="flex items-center gap-3 mb-4 text-amber-500">
-                  <Building2 className="w-5 h-5" />
-                  <span className="font-bold text-sm uppercase tracking-widest">Cantiere</span>
+              {/* Cantiere & Tracciabilità Compilazione Info */}
+              <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 text-amber-500">
+                    <Building2 className="w-5 h-5" />
+                    <span className="font-bold text-sm uppercase tracking-widest">Cantiere</span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-700 bg-white border border-slate-200 px-3 py-1 rounded-xl">
+                    Data Lavoro: <strong>{formatItalianDate(selectedRapportino.date)}</strong>
+                  </span>
                 </div>
                 <p className="text-lg font-black text-slate-900">{cantieri.find(c => c.id === selectedRapportino.cantiereId)?.name}</p>
                 <p className="text-xs text-slate-500">{cantieri.find(c => c.id === selectedRapportino.cantiereId)?.address}</p>
+
+                {/* Traccia oraria di compilazione effettiva */}
+                <div className="pt-2 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600">
+                    Emesso da: <strong>{selectedRapportino.userName}</strong>
+                  </span>
+                  <span className="text-amber-800 bg-amber-100/70 border border-amber-200 px-2.5 py-0.5 rounded-lg font-medium">
+                    🕒 Traccia Compilazione Effettiva: <strong>{selectedRapportino.compilatoIl || selectedRapportino.ora || selectedRapportino.submittedAt || selectedRapportino.date}</strong>
+                  </span>
+                </div>
+
+                {/* Storico Modifiche Tracciate */}
+                {selectedRapportino.editHistory && selectedRapportino.editHistory.length > 0 && (
+                  <div className="pt-2 border-t border-slate-200/80 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                      Audit Trail / Storico Modifiche:
+                    </span>
+                    {selectedRapportino.editHistory.map((h, hIdx) => (
+                      <div key={hIdx} className="bg-white p-2 rounded-xl border border-slate-200 text-[11px] text-slate-700">
+                        Modificato il <strong>{h.editedAt}</strong> da <strong>{h.editedBy}</strong>: {h.changesSummary}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Ore Lavorate */}

@@ -18,12 +18,17 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Radio
+  Radio,
+  Eye,
+  EyeOff,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { firestoreService } from '../lib/firestoreService';
 import { Logo, FooterBranding } from './Branding';
 import { PresentationModal } from './PresentationModal';
+import { MasterControlDashboard } from './MasterControlDashboard';
 
 interface AuthScreenProps {
   company: Company | null;
@@ -75,8 +80,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [activeView, setActiveView] = useState<'menu' | 'personal_code' | 'company_code' | 'new_server'>('menu');
   const [showPresentation, setShowPresentation] = useState<boolean>(false);
 
-  // Company Code flow steps: 'input_company' -> 'select_user' -> 'password'
-  const [companyStep, setCompanyStep] = useState<'input_company' | 'select_user' | 'password'>('input_company');
+  // Company Code flow steps: 'input_company' -> 'select_user' -> 'password' | 'master_login'
+  const [companyStep, setCompanyStep] = useState<'input_company' | 'select_user' | 'password' | 'master_login'>('input_company');
+
+  // Master Control Credentials & Dashboard State (Codice 1014)
+  const [masterNickname, setMasterNickname] = useState('gecola');
+  const [masterPassword, setMasterPassword] = useState('');
+  const [showMasterPassword, setShowMasterPassword] = useState(false);
+  const [isMasterControlOpen, setIsMasterControlOpen] = useState(false);
 
   // Input states
   const [inputCompanyCode, setInputCompanyCode] = useState(() => {
@@ -274,8 +285,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const handleCompanyCodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    const rawInput = inputCompanyCode.trim().toUpperCase();
+    const digitsOnly = rawInput.replace(/^CANT-?/, '').trim();
+
+    // Intercettazione Codice Riservato Master Control 1014 (gecola)
+    if (digitsOnly === '1014' || rawInput === '1014' || rawInput === 'CANT-1014') {
+      setCompanyStep('master_login');
+      return;
+    }
+
     setIsLoading(true);
-    const code = inputCompanyCode.trim().toUpperCase();
+    const code = rawInput.startsWith('CANT-') ? rawInput : 'CANT-' + digitsOnly;
     
     try {
       const foundCompany = await firestoreService.getCompanyByCode(code);
@@ -297,6 +317,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setLoginError('Errore durante la ricerca dell\'azienda.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleMasterLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (masterNickname.trim().toLowerCase() === 'gecola' && masterPassword === 'CCBccb@101414') {
+      setIsMasterControlOpen(true);
+    } else {
+      setLoginError('Credenziali Master errate. Verifica nickname e password riservate.');
     }
   };
 
@@ -379,7 +409,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    const generatedCode = 'CANT-' + Math.floor(1000 + Math.random() * 9000);
+    let randomDigits = Math.floor(1000 + Math.random() * 9000);
+    while (randomDigits === 1014) {
+      randomDigits = Math.floor(1000 + Math.random() * 9000);
+    }
+    const generatedCode = 'CANT-' + randomDigits;
     const newCompany: Company = {
       id: 'comp-' + Date.now(),
       name: adminCompanyName,
@@ -933,7 +967,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          if (companyStep === 'password') {
+                          if (companyStep === 'master_login') {
+                            setCompanyStep('input_company');
+                            setLoginError('');
+                          } else if (companyStep === 'password') {
                             setCompanyStep('select_user');
                           } else if (companyStep === 'select_user') {
                             setCompanyStep('input_company');
@@ -947,7 +984,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <span>{companyStep === 'input_company' ? 'Torna alle opzioni' : 'Indietro'}</span>
                       </button>
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
-                        {companyStep === 'input_company' ? 'Passo 1/3' : companyStep === 'select_user' ? 'Passo 2/3' : 'Passo 3/3'}
+                        {companyStep === 'master_login' ? 'Area Riservata 1014' : companyStep === 'input_company' ? 'Passo 1/3' : companyStep === 'select_user' ? 'Passo 2/3' : 'Passo 3/3'}
                       </span>
                     </div>
 
@@ -966,7 +1003,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             <input
                               type="text"
                               value={inputCompanyCode.replace(/^CANT-?/, '')}
-                              onChange={(e) => setInputCompanyCode('CANT-' + e.target.value.replace(/\D/g, ''))}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, '');
+                                setInputCompanyCode('CANT-' + digits);
+                                if (digits === '1014') {
+                                  setLoginError('');
+                                  setCompanyStep('master_login');
+                                }
+                              }}
                               placeholder="XXXX"
                               className="w-full bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 pl-[88px] text-base sm:text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all font-mono"
                               required
@@ -991,6 +1035,82 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                               <ArrowRight className="w-4 h-4" />
                             </>
                           )}
+                        </button>
+                      </form>
+                    )}
+
+                    {/* Step Master: Codice Riservato 1014 (gecola) */}
+                    {companyStep === 'master_login' && (
+                      <form onSubmit={handleMasterLoginSubmit} className="space-y-4 text-left">
+                        <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center flex-shrink-0 font-bold shadow-lg shadow-amber-500/20">
+                            <ShieldCheck className="w-5 h-5 stroke-[2.5]" />
+                          </div>
+                          <div>
+                            <h3 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                              Codice 1014 Riconosciuto
+                            </h3>
+                            <p className="text-[11px] text-slate-400">
+                              Accesso riservato Master Control. Inserisci nickname e password amministratore.
+                            </p>
+                          </div>
+                        </div>
+
+                        {loginError && (
+                          <div className="p-3 bg-rose-950/60 border border-rose-800/80 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+                            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>{loginError}</span>
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                            Nickname Master
+                          </label>
+                          <div className="relative">
+                            <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                            <input
+                              type="text"
+                              value={masterNickname}
+                              onChange={(e) => setMasterNickname(e.target.value)}
+                              placeholder="es. gecola"
+                              className="w-full bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 pl-12 text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono transition"
+                              required
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest px-1">
+                            Password Riservata
+                          </label>
+                          <div className="relative">
+                            <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                            <input
+                              type={showMasterPassword ? 'text' : 'password'}
+                              value={masterPassword}
+                              onChange={(e) => setMasterPassword(e.target.value)}
+                              placeholder="••••••••••••"
+                              className="w-full bg-slate-950/70 border border-slate-800 rounded-2xl p-3.5 pl-12 pr-12 text-sm text-white outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 font-mono transition"
+                              required
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowMasterPassword(!showMasterPassword)}
+                              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+                            >
+                              {showMasterPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black py-3.5 rounded-2xl shadow-xl shadow-amber-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer mt-2"
+                        >
+                          <ShieldCheck className="w-5 h-5 stroke-[2.5]" />
+                          <span>Apri Controllo di Tutti gli Account</span>
                         </button>
                       </form>
                     )}
@@ -1197,6 +1317,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         isOpen={showPresentation} 
         onClose={() => setShowPresentation(false)} 
       />
+
+      {/* SCHERMATA SEGRETA MASTER CONTROL (CODICE 1014) */}
+      {isMasterControlOpen && (
+        <MasterControlDashboard 
+          onClose={() => {
+            setIsMasterControlOpen(false);
+            setCompanyStep('input_company');
+            setLoginError('');
+          }}
+        />
+      )}
     </div>
   );
 };

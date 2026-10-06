@@ -24,19 +24,33 @@ service cloud.firestore {
     function isValidUserAccount(data) {
       return data.keys().hasAll(['id', 'companyCode', 'name', 'username', 'password', 'role', 'mustChangePassword', 'active']) &&
              data.id is string && data.companyCode is string && data.name is string &&
-             data.username is string && data.password is string && data.role in ['admin', 'dirigente', 'operativo'];
+             data.username is string && data.password is string && data.role in ['admin', 'dirigente', 'capo_cantiere', 'geometra_contabile', 'amministrativo_contabile', 'operativo', 'lavoratore', 'collaboratore'];
+    }
+
+    // Helper to check if company upload is permitted (quota regularized)
+    function isCompanyUploadAllowed(companyId) {
+      return !('allowDataUpload' in get(/databases/$(database)/documents/companies/$(companyId)).data) ||
+             get(/databases/$(database)/documents/companies/$(companyId)).data.allowDataUpload != false;
     }
 
     // Companies collection
     match /companies/{companyId} {
       allow read: if true;
       allow create: if isValidCompany(incoming());
-      allow update: if isValidCompany(incoming());
+      allow update: if true;
       allow delete: if true;
 
-      // Subcollections within company
-      match /{allSubcollections=**} {
+      // Users subcollection (always allow write for heartbeat and activity tracking)
+      match /users/{userId} {
         allow read, write: if true;
+      }
+
+      // Subcollections within company: cantieri, documents, movements, rapportini, etc.
+      // Read is always allowed so companies can consult historical data.
+      // Write is blocked if allowDataUpload is false (quota sospesa).
+      match /{allSubcollections=**} {
+        allow read: if true;
+        allow write: if isCompanyUploadAllowed(companyId);
       }
     }
 

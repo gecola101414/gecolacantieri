@@ -86,6 +86,162 @@ function sanitizeData<T>(data: T, visited = new WeakSet()): T {
 
 export const firestoreService = {
   // Companies
+  async getAllCompanies(): Promise<Company[]> {
+    const path = 'companies';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      return snapshot.docs.map(d => d.data() as Company);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async getAllCompaniesWithDetails(): Promise<Array<{
+    company: Company;
+    users: UserAccount[];
+    cantieriCount: number;
+    rapportiniCount: number;
+    isOnlineNow: boolean;
+    lastActiveFormatted: string;
+  }>> {
+    const path = 'companies';
+    try {
+      const snapshot = await getDocs(collection(db, path));
+      const companies = snapshot.docs.map(d => d.data() as Company);
+
+      const results = await Promise.all(
+        companies.map(async (company) => {
+          let users: UserAccount[] = [];
+          let cantieriCount = 0;
+          let rapportiniCount = 0;
+
+          try {
+            const usersSnap = await getDocs(collection(db, `companies/${company.id}/users`));
+            // Stripping passwords to guarantee 100% customer privacy in Master panel
+            users = usersSnap.docs.map(d => {
+              const u = d.data() as UserAccount;
+              return {
+                ...u,
+                password: '***', // Private to the company
+              };
+            });
+          } catch (e) {
+            console.warn(`Could not load users for company ${company.id}`, e);
+          }
+
+          try {
+            const cantieriSnap = await getDocs(collection(db, `companies/${company.id}/cantieri`));
+            cantieriCount = cantieriSnap.size;
+          } catch (e) {
+            // optional count
+          }
+
+          try {
+            const rapSnap = await getDocs(collection(db, `companies/${company.id}/rapportini`));
+            rapportiniCount = rapSnap.size;
+          } catch (e) {
+            // optional count
+          }
+
+          // Check online status (if active in last 6 minutes or any user online)
+          const now = Date.now();
+          let latestActiveTime = company.lastActiveAt ? new Date(company.lastActiveAt).getTime() : 0;
+          let hasOnlineUser = false;
+
+          for (const u of users) {
+            if (u.lastActiveAt) {
+              const uTime = new Date(u.lastActiveAt).getTime();
+              if (uTime > latestActiveTime) {
+                latestActiveTime = uTime;
+              }
+              if (now - uTime < 6 * 60 * 1000) {
+                hasOnlineUser = true;
+              }
+            }
+          }
+
+          const isOnlineNow = hasOnlineUser || (latestActiveTime > 0 && now - latestActiveTime < 6 * 60 * 1000);
+
+          let lastActiveFormatted = 'Nessun collegamento recente';
+          if (latestActiveTime > 0) {
+            const diffMinutes = Math.round((now - latestActiveTime) / (60 * 1000));
+            if (diffMinutes < 1) {
+              lastActiveFormatted = 'Attivo adesso';
+            } else if (diffMinutes < 60) {
+              lastActiveFormatted = `${diffMinutes} min fa`;
+            } else {
+              const d = new Date(latestActiveTime);
+              lastActiveFormatted = d.toLocaleDateString('it-IT', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+            }
+          }
+
+          return {
+            company,
+            users,
+            cantieriCount,
+            rapportiniCount,
+            isOnlineNow,
+            lastActiveFormatted
+          };
+        })
+      );
+
+      // Sort by latest active or created date
+      results.sort((a, b) => {
+        const timeA = a.company.lastActiveAt ? new Date(a.company.lastActiveAt).getTime() : new Date(a.company.createdAt || 0).getTime();
+        const timeB = b.company.lastActiveAt ? new Date(b.company.lastActiveAt).getTime() : new Date(b.company.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+
+      return results;
+    } catch (e) {
+      handleFirestoreError(e, OperationType.LIST, path);
+      return [];
+    }
+  },
+
+  async updateCompanyQuota(companyId: string, updates: {
+    allowDataUpload: boolean;
+    quotaStatus?: 'attiva' | 'sospesa';
+    quotaScadenza?: string;
+    quotaNote?: string;
+  }): Promise<void> {
+    const path = `companies/${companyId}`;
+    try {
+      await updateDoc(doc(db, 'companies', companyId), sanitizeData({
+        ...updates,
+        quotaStatus: updates.quotaStatus || (updates.allowDataUpload ? 'attiva' : 'sospesa')
+      }));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+    }
+  },
+
+  async updateUserHeartbeat(companyId: string, userId: string, userName: string, isOnline = true): Promise<void> {
+    const timestamp = new Date().toISOString();
+    try {
+      // Non-blocking background heartbeat
+      updateDoc(doc(db, 'companies', companyId), {
+        lastActiveAt: timestamp,
+        lastActiveUser: userName
+      }).catch(() => {});
+
+      updateDoc(doc(db, 'companies', companyId, 'users', userId), {
+        lastActiveAt: timestamp,
+        isOnline
+      }).catch(() => {});
+    } catch {
+      // Ignored silently for heartbeat
+    }
+  },
+
   async getCompanyByCode(code: string): Promise<Company | null> {
     const path = 'companies';
     try {
@@ -356,12 +512,30 @@ export const firestoreService = {
     }
   },
 
+  async toggleLockRapportinoForAccounting(companyId: string, rapportinoId: string, lock: boolean, lockedBy: string): Promise<void> {
+    const path = `companies/${companyId}/rapportini/${rapportinoId}`;
+    try {
+      const now = new Date().toLocaleString('it-IT');
+      const updates: Partial<Rapportino> = {
+        lockedForAccounting: lock,
+        lockedBy: lock ? lockedBy : undefined,
+        lockedAt: lock ? now : undefined,
+      };
+      await updateDoc(doc(db, 'companies', companyId, 'rapportini', rapportinoId), sanitizeData(updates));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, path);
+    }
+  },
+
   async cancelRapportino(companyId: string, rapportinoId: string, cancelledBy: string, motivo: string): Promise<void> {
     const path = `companies/${companyId}/rapportini/${rapportinoId}`;
     try {
       const snap = await getDoc(doc(db, 'companies', companyId, 'rapportini', rapportinoId));
       if (!snap.exists()) return;
       const rap = snap.data() as Rapportino;
+      if (rap.lockedForAccounting) {
+        throw new Error('Operazione negata: questo rapportino è stato bloccato dall\'amministratore per la contabilità definitiva e non può più essere modificato o annullato.');
+      }
       if (rap.status === 'annullato') return; // Already cancelled
 
       const now = new Date();

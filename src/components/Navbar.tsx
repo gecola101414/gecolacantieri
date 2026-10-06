@@ -52,8 +52,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <div className="flex flex-col min-w-0">
                   <span className="text-xs font-bold text-white leading-none mb-1 truncate">{company.name}</span>
                   <div className="flex items-center gap-1.5">
-                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
-                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Cloud Attivo</span>
+                    {company.allowDataUpload === false || company.quotaStatus === 'sospesa' ? (
+                      <>
+                        <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></div>
+                        <span className="text-[9px] font-bold text-rose-400 uppercase tracking-tighter">Sola Lettura (Quota Sospesa)</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">Cloud Attivo</span>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
